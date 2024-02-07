@@ -1983,6 +1983,7 @@ void cuda_graphics_unregister_resource(void* context, void* resource)
 #if WP_ENABLE_CUTLASS
     #include "cutlass_gemm.cu"
 #endif
+#include "foo.cu"
 
 //#include "spline.inl"
 //#include "volume.inl"

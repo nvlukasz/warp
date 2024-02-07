@@ -2259,6 +2259,19 @@ class Runtime:
             ctypes.c_int,
         ]
 
+        # bindings for Foo API on CPU
+        self.core.foo_create_host.argtypes = [ctypes.c_float, ctypes.c_int]
+        self.core.foo_create_host.restype = ctypes.c_uint64
+        self.core.foo_destroy_host.argtypes = [ctypes.c_uint64]
+        self.core.foo_destroy_host.restype = None
+
+        # bindings for Foo API on GPU
+        self.core.foo_create_device.argtypes = [ctypes.c_void_p, ctypes.c_float, ctypes.c_int]
+        self.core.foo_create_device.restype = ctypes.c_uint64
+        self.core.foo_destroy_device.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+        self.core.foo_destroy_device.restype = None
+
+
         self.core.bvh_create_host.restype = ctypes.c_uint64
         self.core.bvh_create_host.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int]
 

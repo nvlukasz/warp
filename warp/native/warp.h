@@ -54,6 +54,14 @@ extern "C"
     WP_API void memtile_host(void* dest, const void* src, size_t srcsize, size_t n);
     WP_API void memtile_device(void* context, void* dest, const void* src, size_t srcsize, size_t n);
 
+    // Foo API on CPU
+    WP_API uint64_t foo_create_host(float magic, int offset);
+    WP_API void foo_destroy_host(uint64_t id);
+
+    // Foo API on GPU
+    WP_API uint64_t foo_create_device(void* context, float magic, int offset);
+    WP_API void foo_destroy_device(void* context, uint64_t id);
+
 	WP_API uint64_t bvh_create_host(wp::vec3* lowers, wp::vec3* uppers, int num_items);
 	WP_API void bvh_destroy_host(uint64_t id);
     WP_API void bvh_refit_host(uint64_t id);

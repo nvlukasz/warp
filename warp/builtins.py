@@ -1900,6 +1900,39 @@ add_builtin(
     doc="Tests for intersection between two triangles (v0, v1, v2) and (u0, u1, u2) using Moller's method. Returns > 0 if triangles intersect.",
 )
 
+from warp.foo import Foo
+
+# implements foo = wp.foo_get(id)
+add_builtin(
+    "foo_get",
+    input_types={"id": uint64},
+    value_type=Foo,
+    missing_grad=True,
+    group="Utility",
+    doc="""Retrieves the Foo given its id.""",
+)
+
+# implements foo[i]
+add_builtin(
+    "extract",
+    input_types={"foo": Foo, "i": int},
+    value_type=float,
+    hidden=True,
+    group="Utility",
+    skip_replay=True,
+)
+
+# implements foo[i, j]
+add_builtin(
+    "extract",
+    input_types={"foo": Foo, "i": int, "j": int},
+    value_type=float,
+    hidden=True,
+    group="Utility",
+    skip_replay=True,
+)
+
+
 add_builtin(
     "mesh_get",
     input_types={"id": uint64},
