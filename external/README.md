@@ -15,6 +15,7 @@ The file [wim_paint.py](wim_paint.py) is the main program for the example.  It c
 * Linux is required
 * CUDA Toolkit installed in `/usr/local/cuda` (Note that `cuda_path` can be modified in [wim/__init__.py](wim/__init__.py)).  This is needed for building the "external" `wim` library.
 * `pip install matplotlib` for showing and saving the generated image.
+* `pip install torch` for an optional interop example!
 
 # Running
 
@@ -23,3 +24,5 @@ From the repo root:
 ```python
 $ python external/wim_paint.py
 ```
+
+If PyTorch is installed, the example will also demonstrate inverting the image using PyTorch.

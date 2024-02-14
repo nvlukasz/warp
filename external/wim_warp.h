@@ -3,6 +3,10 @@
 // TODO: may need to add a mechanism for include paths
 #include "wim/wim.h"
 
+// include some Warp types so we can expose the image data as a Warp array
+#include "../warp/native/array.h"
+#include "../warp/native/vec.h"
+
 // TODO: currently, all types and builtins need to be in the wp:: namespace
 namespace wp
 {
@@ -30,39 +34,37 @@ CUDA_CALLABLE inline Color mul(float s, const Color& c)
     return Color(s * c.r, s * c.g, s * c.b);
 }
 
-//
-// TODO: Integer handles don't play well with polymorphism or explicit overloading for different Image subclasses.
-// Would be better to pass specific types, pointers, or references.
-//
-
-// get image pointer from handle
-CUDA_CALLABLE inline Image& img_get(uint64_t handle)
-{
-    return *(Image*)(handle);
-}
-
 // get image width (can't be exposed as a named var directly, because the member is private)
-CUDA_CALLABLE inline int img_width(uint64_t handle)
+CUDA_CALLABLE inline int img_width(const Image& img)
 {
-    return img_get(handle).getWidth();
+    return img.getWidth();
 }
 
 // get image height (can't be exposed as a named var directly, because the member is private)
-CUDA_CALLABLE inline int img_height(uint64_t handle)
+CUDA_CALLABLE inline int img_height(const Image& img)
 {
-    return img_get(handle).getHeight();
+    return img.getHeight();
+}
+
+// get image data as a Warp array
+CUDA_CALLABLE inline array_t<vec3f> img_data(Image& img)
+{
+    Color* data = img.getData();
+
+    // TODO: can't currently use array of custom native types, so use vec3f
+    return array_t<vec3f>((vec3f*)data, img.getWidth(), img.getHeight());
 }
 
 // get pixel
-CUDA_CALLABLE inline Color img_get_pixel(uint64_t handle, const Coord& coord)
+CUDA_CALLABLE inline Color img_get_pixel(const Image& img, const Coord& coord)
 {
-    return img_get(handle).getPixel(coord);
+    return img.getPixel(coord);
 }
 
 // set pixel
-CUDA_CALLABLE inline void img_set_pixel(uint64_t handle, const Coord& coord, const Color& color)
+CUDA_CALLABLE inline void img_set_pixel(Image& img, const Coord& coord, const Color& color)
 {
-    img_get(handle).setPixel(coord, color);
+    img.setPixel(coord, color);
 }
 
 }

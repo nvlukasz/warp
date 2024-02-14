@@ -14,7 +14,7 @@ class Coord:
         "y": wp.codegen.Var("y", int),
     }
 
-    # struct that corresponds to the native Foo type
+    # struct that corresponds to the native Coord type
     # - used when packing arguments for kernels (pass-by-value)
     # - binary layout of fields must match native type
     class _type_(ctypes.Structure):
@@ -47,7 +47,7 @@ class Color:
         "b": wp.codegen.Var("b", float),
     }
 
-    # struct that corresponds to the native Foo type
+    # struct that corresponds to the native Color type
     # - used when packing arguments for kernels (pass-by-value)
     # - binary layout of fields must match native type
     class _type_(ctypes.Structure):
@@ -75,6 +75,23 @@ class Color:
 
 
 class Image:
+
+    # struct that corresponds to the native Image type
+    # - used when packing arguments for kernels (pass-by-value)
+    # - binary layout of fields must match native type
+    class _type_(ctypes.Structure):
+
+        _fields_ = [
+            ("width", ctypes.c_int),
+            ("height", ctypes.c_int),
+            ("data", ctypes.c_void_p),
+        ]
+
+        def __init__(self, img):
+            self.width = img.width
+            self.height = img.height
+            self.data = img.data
+
     def __init__(self, width: int, height: int, device=None):
 
         # image shape
@@ -83,22 +100,19 @@ class Image:
 
         self.device = wp.get_device(device)
 
-        # pointer to the native wim::Image class, either on CPU or GPU
+        # pointer to the native wim::Image class (on CPU)
         self.ptr = None
 
-        # pointer to the image data (Color array), either on CPU or GPU
-        self.data_ptr = None
-
         if self.device.is_cpu:
-            data_ptr = ctypes.c_void_p()
-            self.ptr = wim._core.create_image_cpu(width, height, ctypes.byref(data_ptr))
-            self.data_ptr = data_ptr.value
+            self.ptr = wim._core.create_image_cpu(width, height)
         elif self.device.is_cuda:
-            data_ptr = ctypes.c_void_p()
-            self.ptr = wim._core.create_image_cuda(self.device.ordinal, width, height, ctypes.byref(data_ptr))
-            self.data_ptr = data_ptr.value
+            self.ptr = wim._core.create_image_cuda(self.device.ordinal, width, height)
         else:
             raise ValueError(f"Invalid device {device}")
+
+        # get pointer to the data, which could be on CPU or GPU
+        img_ptr = ctypes.cast(self.ptr, ctypes.POINTER(self._type_))
+        self.data = img_ptr.contents.data
 
     def __del__(self):
         if self.ptr:
@@ -106,6 +120,18 @@ class Image:
                 wim._core.destroy_image_cpu(self.ptr)
             else:
                 wim._core.destroy_image_cuda(self.device.ordinal, self.ptr)
+
+    # HACK: used when packing kernel argument as `arg_type._type_(value.value)` in `pack_arg()` during `wp.launch()`
+    @property
+    def value(self):
+        return self
+    
+    # return the data as a Warp array on the correct device
+    # TODO: can't currently use arrays of custom native types, so using vec3f instead
+    @property
+    def data_array(self):
+        shape = (self.height, self.width)
+        return wp.array(ptr=self.data, shape=shape, dtype=wp.vec3f, owner=False)
 
 
 def _add_header(path):
@@ -149,7 +175,7 @@ def _register_builtins():
     # get image width
     wp.context.add_builtin(
         "img_width",
-        input_types={"handle": wp.uint64},
+        input_types={"img": Image},
         value_type=int,
         missing_grad=True,
     )
@@ -157,15 +183,23 @@ def _register_builtins():
     # get image height
     wp.context.add_builtin(
         "img_height",
-        input_types={"handle": wp.uint64},
+        input_types={"img": Image},
         value_type=int,
+        missing_grad=True,
+    )
+
+    # get image data as a Warp array
+    wp.context.add_builtin(
+        "img_data",
+        input_types={"img": Image},
+        value_type=wp.array2d(dtype=wp.vec3f),
         missing_grad=True,
     )
 
     # get pixel
     wp.context.add_builtin(
         "img_get_pixel",
-        input_types={"handle": wp.uint64, "coord": Coord},
+        input_types={"img": Image, "coord": Coord},
         value_type=Color,
         missing_grad=True,
     )
@@ -173,7 +207,7 @@ def _register_builtins():
     # get pixel
     wp.context.add_builtin(
         "img_set_pixel",
-        input_types={"handle": wp.uint64, "coord": Coord, "color": Color},
+        input_types={"img": Image, "coord": Coord, "color": Color},
         value_type=None,
         missing_grad=True,
     )

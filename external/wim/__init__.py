@@ -23,13 +23,17 @@ def _load_lib():
 # build the lib
 _build_lib()
 
-# load the lib and set up Python bindings
+# load the lib
 _core = _load_lib()
-_core.create_image_cpu.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
+
+# bindings for CPU images
+_core.create_image_cpu.argtypes = [ctypes.c_int, ctypes.c_int]
 _core.create_image_cpu.restype = ctypes.c_void_p
 _core.destroy_image_cpu.argtypes = [ctypes.c_void_p]
 _core.destroy_image_cpu.restype = None
-_core.create_image_cuda.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
+
+# bindings for GPU images
+_core.create_image_cuda.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
 _core.create_image_cuda.restype = ctypes.c_void_p
 _core.destroy_image_cuda.argtypes = [ctypes.c_int, ctypes.c_void_p]
 _core.destroy_image_cuda.restype = None
