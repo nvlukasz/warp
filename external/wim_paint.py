@@ -11,7 +11,7 @@ def print_image_info_kernel(img: Image):
     height = wp.img_height(img)
     data = wp.img_data(img)  # this is a Warp array which wraps the image data
 
-    wp.printf("Dimensions: %dx%d, data array shape: (%d, %d)\n", width, height, data.shape[1], data.shape[0])
+    wp.printf("Dimensions: %dx%d, data array shape: (%d, %d)\n", width, height, data.shape[0], data.shape[1])
 
     if width > 0 and height > 0:
         # middle pixel coordinates
