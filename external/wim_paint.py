@@ -139,8 +139,10 @@ def create_example_image():
     return img
 
 
+# show the image and optionally save it if save_path is specified
 def show_image(img, title, save_path=None):
     
+    # get the image data as a numpy array
     img_data = img.data_array.numpy()
 
     if save_path is not None:
