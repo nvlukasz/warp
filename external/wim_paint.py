@@ -9,7 +9,17 @@ def print_image_info_kernel(img: Image):
     width = wp.img_width(img)
     height = wp.img_height(img)
     data = wp.img_data(img)  # this is a Warp array which wraps the image data
-    wp.printf("Image: %dx%d, data array shape: (%d, %d)\n", width, height, data.shape[0], data.shape[1])
+
+    wp.printf("Dimensions: %dx%d, data array shape: (%d, %d)\n", width, height, data.shape[0], data.shape[1])
+
+    if width > 0 and height > 0:
+        # demonstrate accessing elements as Colors using new builtins
+        color = wp.img_get_pixel(img, wp.Coord_(0, 0))
+        wp.printf("First pixel color: (%f, %f, %f)\n", color.r, color.g, color.b)
+
+        # demonstrate accessing elements through Warp array
+        value = data[0, 0]
+        wp.printf("First data value: (%f, %f, %f)\n", value[0], value[1], value[2])
 
 
 @wp.kernel
@@ -80,9 +90,12 @@ def blur(img: Image):
     wp.launch(blur_kernel, dim=img_shape, inputs=[img])
 
 
-def draw_picture(img):
+def create_example_image():
 
-    # background color
+    # create image
+    img = Image(800, 600)
+
+    # fill with background color
     fill(img, Color(0.3, 0.0, 0.3))
 
     # concentric circles in the corners
@@ -109,8 +122,10 @@ def draw_picture(img):
     draw_rect(img, 100, 100, Coord(img.width//2, img.height//2), Color(0.5, 0.2, 0.5))
     draw_circle(img, 30, Coord(img.width//2, img.height//2), Color(0.9, 0.7, 0.9))
 
+    return img
 
-def show(img, title, save_path=None):
+
+def show_image(img, title, save_path=None):
     
     img_data = img.data_array.numpy()
 
@@ -134,18 +149,17 @@ wim_types.register()
 
 with wp.ScopedDevice("cuda:0"):
 
-    img = Image(800, 600)
+    # create an image
+    img = create_example_image()
 
-    # run a kernel to print image info
+    # run a kernel to print some image info
+    print("===== Image info:")
     wp.launch(print_image_info_kernel, dim=1, inputs=[img])
-    wp.synchronize_device()
-
-    # make a drawing
-    draw_picture(img)
 
     # show and save the image
-    show(img, "Result", save_path="result.png")
+    show_image(img, "Result", save_path="result.png")
 
+    # run some post-processing using PyTorch if it's installed to demonstrate interop
     try:
         import torch
 
@@ -155,8 +169,12 @@ with wp.ScopedDevice("cuda:0"):
         # invert the image in-place using PyTorch
         torch.sub(1, t, out=t)
 
+        # run a kernel to print some image info
+        print("===== Inverted image info:")
+        wp.launch(print_image_info_kernel, dim=1, inputs=[img])
+
         # show and save the image
-        show(img, "Inverted using PyTorch", save_path="result_inverted.png")
+        show_image(img, "Inverted using PyTorch", save_path="result_inverted.png")
 
     except ImportError:
         print("Torch is not installed, couldn't post-process image")
