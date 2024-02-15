@@ -4,6 +4,7 @@ import wim_types
 from wim_types import Coord, Color, Image
 
 
+# print some info about an image
 @wp.kernel
 def print_image_info_kernel(img: Image):
     width = wp.img_width(img)
@@ -19,13 +20,14 @@ def print_image_info_kernel(img: Image):
 
         # demonstrate accessing elements as Colors using new builtins
         color = wp.img_get_pixel(img, wp.Coord_(x, y))
-        wp.printf("First pixel color: (%f, %f, %f)\n", color.r, color.g, color.b)
+        wp.printf("Middle pixel color: (%g, %g, %g)\n", color.r, color.g, color.b)
 
         # demonstrate accessing elements through Warp array
         value = data[y, x]
-        wp.printf("First data value: (%f, %f, %f)\n", value[0], value[1], value[2])
+        wp.printf("Middle array value: (%g, %g, %g)\n", value[0], value[1], value[2])
 
 
+# fill image with a constant color
 @wp.kernel
 def fill_kernel(img: Image, color: Color):
     y, x = wp.tid()
@@ -33,6 +35,7 @@ def fill_kernel(img: Image, color: Color):
     wp.img_set_pixel(img, coord, color)
 
 
+# fill a rectangle centered at `pos`
 @wp.kernel
 def fill_rect_kernel(img: Image, half_width: int, half_height: int, pos: Coord, color: Color):
     j, i = wp.tid()
@@ -42,6 +45,7 @@ def fill_rect_kernel(img: Image, half_width: int, half_height: int, pos: Coord, 
     wp.img_set_pixel(img, coord, color)
 
 
+# fill a circle centered at `pos`
 @wp.kernel
 def fill_circle_kernel(img: Image, radius: int, pos: Coord, color: Color):
     j, i = wp.tid()
@@ -54,6 +58,7 @@ def fill_circle_kernel(img: Image, radius: int, pos: Coord, color: Color):
         wp.img_set_pixel(img, coord, color)
 
 
+# blur the image using a simple weighted sum over the neighbours
 @wp.kernel
 def blur_kernel(img: Image):
     y, x = wp.tid()
