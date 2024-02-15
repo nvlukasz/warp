@@ -26,3 +26,13 @@ $ python external/wim_paint.py
 ```
 
 If PyTorch is installed, the example will also demonstrate inverting the image using PyTorch.
+
+# Limitations and Future Work
+
+* The fact that Warp builds kernels with its own custom CRT might be a stumbling block for users who want to include their own external headers.  For example, including standard library headers fails during kernel compilation.
+
+* Currently, Warp doesn't have "proper" support for custom native types.  Our codegen assumes that all types and builtins are in the `wp::` namespace.  I was able to hack around that, but it's not clean (or clear to external users).
+
+* Warp supports accessing public struct/class members using `Type.vars`, but there's no way to expose getters and setters (or other methods) from native classes.  Free functions/builtins can be used to get around it, but some users might prefer OO syntax.
+
+* Using custom native types in Warp arrays is not fully supported yet.  In this example, I substituted the built-in `vec3f` for `Color` to expose the image data as a Warp array, but this kind of substitution would not work for all cases.  
