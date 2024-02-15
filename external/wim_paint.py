@@ -1,5 +1,3 @@
-import os
-import numpy as np
 import warp as wp
 
 import wim_types
