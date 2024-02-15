@@ -2,7 +2,7 @@
 
 An example of using external native types in Warp.
 
-The [wim](wim) subdirectory contains an independent library with [header-only types](wim/wim.h).  It also defines a [C-style public interface](wim/wim.cpp) used for the [Python bindings](wim/__init__.py).  Normally, there would be more code there, but this is a minimal viable example.  For simplicity, running `import wim` will build and load the native library and initialize the Python bindings.
+The [wim](wim) subdirectory contains an independent library with [header-only types](wim/wim.h).  It also defines a [C-style public interface](wim/wim.cpp) used for the [Python bindings](wim/__init__.py).  Normally, there would be more code there, but this is a minimal viable example.  For simplicity, importing the `wim` Python module will build and load the native library and initialize the Python bindings.  This will happen automatically when running the example, so no need to build it separately.
 
 The file [wim_warp.h](wim_warp.h) is a header that will be included by Warp when building kernels.  It imports the types into the `wp` namespace, which is currently necessary, but may change in the future.  It also defines some useful functions that will be exposed to Warp code generation.
 
@@ -21,7 +21,7 @@ The file [wim_paint.py](wim_paint.py) is the main program for the example.  It c
 
 From the repo root:
 
-```python
+```bash
 $ python external/wim_paint.py
 ```
 
