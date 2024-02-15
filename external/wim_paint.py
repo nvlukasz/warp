@@ -165,10 +165,10 @@ wim_types.register()
 
 with wp.ScopedDevice("cuda:0"):
 
-    # create an image
+    # create an image on the current device
     img = create_example_image()
 
-    # run a kernel to print some image info
+    # print image info
     print("===== Image info:")
     wp.launch(print_image_info_kernel, dim=1, inputs=[img])
 
@@ -185,7 +185,7 @@ with wp.ScopedDevice("cuda:0"):
         # invert the image in-place using PyTorch
         torch.sub(1, t, out=t)
 
-        # run a kernel to print some image info
+        # print image info
         print("===== Inverted image info:")
         wp.launch(print_image_info_kernel, dim=1, inputs=[img])
 
