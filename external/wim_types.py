@@ -204,7 +204,7 @@ def _register_builtins():
         missing_grad=True,
     )
 
-    # get pixel
+    # set pixel
     wp.context.add_builtin(
         "img_set_pixel",
         input_types={"img": Image, "coord": Coord, "color": Color},
