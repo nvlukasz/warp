@@ -79,26 +79,31 @@ def blur_kernel(img: Image):
     wp.img_set_pixel(img, wp.Coord_(x, y), c)
 
 
+# fill image with constant color
 def fill(img: Image, color: Color):
-    img_shape = (img.height, img.width)
-    wp.launch(fill_kernel, dim=img_shape, inputs=[img, color])
+    domain = (img.height, img.width)
+    wp.launch(fill_kernel, dim=domain, inputs=[img, color])
 
 
+# draw a width x height rectangle centered at pos
 def draw_rect(img: Image, width: int, height: int, pos: Coord, color: Color):
-    launch_dim = (height, width)
-    wp.launch(fill_rect_kernel, dim=launch_dim, inputs=[img, width//2, height//2, pos, color])
+    domain = (height, width)
+    wp.launch(fill_rect_kernel, dim=domain, inputs=[img, width//2, height//2, pos, color])
 
 
+# draw a circle with the given radius centered at pos
 def draw_circle(img: Image, radius: int, pos: Coord, color: Color):
-    launch_dim = (2 * radius, 2 * radius)
-    wp.launch(fill_circle_kernel, dim=launch_dim, inputs=[img, radius, pos, color])
+    domain = (2 * radius, 2 * radius)
+    wp.launch(fill_circle_kernel, dim=domain, inputs=[img, radius, pos, color])
 
 
+# blur the image
 def blur(img: Image):
-    img_shape = (img.height, img.width)
-    wp.launch(blur_kernel, dim=img_shape, inputs=[img])
+    domain = (img.height, img.width)
+    wp.launch(blur_kernel, dim=domain, inputs=[img])
 
 
+# make awesome art
 def create_example_image():
 
     # create image
