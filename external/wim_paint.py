@@ -126,7 +126,7 @@ def show(img, title, save_path=None):
 
 wp.init()
 
-# It's a good idea to always clear the kernel when developing new native or codegen features
+# It's a good idea to always clear the kernel cache when developing new native or codegen features
 wp.build.clear_kernel_cache()
 
 # !!! DO THIS BEFORE LOADING MODULES OR LAUNCHING KERNELS
