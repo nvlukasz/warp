@@ -151,7 +151,7 @@ with wp.ScopedDevice("cuda:0"):
     try:
         import torch
 
-        # wrapt the image data as a PyTorch tensor (no copy)
+        # wrap the image data as a PyTorch tensor (no copy)
         t = wp.to_torch(img.data_array, requires_grad=False)
 
         # invert the image in-place using PyTorch
