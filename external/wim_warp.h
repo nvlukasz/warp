@@ -52,7 +52,7 @@ CUDA_CALLABLE inline array_t<vec3f> img_data(Image& img)
     Color* data = img.getData();
 
     // TODO: can't currently use array of custom native types, so use vec3f
-    return array_t<vec3f>((vec3f*)data, img.getWidth(), img.getHeight());
+    return array_t<vec3f>((vec3f*)data, img.getHeight(), img.getWidth());
 }
 
 // get pixel

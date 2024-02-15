@@ -13,12 +13,16 @@ def print_image_info_kernel(img: Image):
     wp.printf("Dimensions: %dx%d, data array shape: (%d, %d)\n", width, height, data.shape[1], data.shape[0])
 
     if width > 0 and height > 0:
+        # middle pixel coordinates
+        x = width // 2
+        y = height // 2
+
         # demonstrate accessing elements as Colors using new builtins
-        color = wp.img_get_pixel(img, wp.Coord_(0, 0))
+        color = wp.img_get_pixel(img, wp.Coord_(x, y))
         wp.printf("First pixel color: (%f, %f, %f)\n", color.r, color.g, color.b)
 
         # demonstrate accessing elements through Warp array
-        value = data[0, 0]
+        value = data[y, x]
         wp.printf("First data value: (%f, %f, %f)\n", value[0], value[1], value[2])
 
 
