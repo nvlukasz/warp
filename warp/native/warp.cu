@@ -2534,6 +2534,14 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     if (!check_nvrtc(res))
         return size_t(res);
 
+    if (verbose)
+    {
+        printf("CUDA compilation options for module '%s':", prog_name.c_str());
+        for (const char* opt : opts)
+            printf(" %s", opt);
+        printf("\n");
+    }
+
     res = nvrtcCompileProgram(prog, int(opts.size()), opts.data());
 
     if (!check_nvrtc(res) || verbose)
