@@ -9,6 +9,7 @@
 #include "warp.h"
 #include "scan.h"
 #include "cuda_util.h"
+#include "cuda_crt_headers.h"
 #include "error.h"
 
 #include <nvrtc.h>
@@ -2475,6 +2476,7 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     opts.push_back(arch_opt);
     opts.push_back(include_opt);
     opts.push_back("--std=c++11");
+    opts.push_back("-default-device");
     
     if (debug)
     {
@@ -2494,6 +2496,14 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     if (fast_math)
         opts.push_back("--use_fast_math");
 
+    std::vector<const char*> headers;
+    std::vector<const char*> header_names;
+    for (auto it = wp::jitsafe_headers_map.begin(); it != wp::jitsafe_headers_map.end(); ++it)
+    {
+        header_names.push_back(it->first);
+        headers.push_back(it->second);
+    }
+    int num_headers = int(wp::jitsafe_headers_map.size());
 
     nvrtcProgram prog;
     nvrtcResult res;
@@ -2502,9 +2512,9 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
         &prog,         // prog
         cuda_src,      // buffer
         NULL,          // name
-        0,             // numHeaders
-        NULL,          // headers
-        NULL);         // includeNames
+        num_headers,
+        headers.data(),
+        header_names.data());
 
     if (!check_nvrtc(res))
         return size_t(res);
