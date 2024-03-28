@@ -19,7 +19,6 @@
 #include <iterator>
 #include <list>
 #include <map>
-#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -2468,10 +2467,6 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     else
         prog_name = output_filename;
 
-    std::ostringstream include_opt_ss;
-    include_opt_ss << "--include-path=" << include_dir;
-    std::string include_opt = include_opt_ss.str();
-
     const int max_arch = 128;
     char arch_opt[max_arch];
 
@@ -2482,9 +2477,19 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
 
     std::vector<const char*> opts;
     opts.push_back(arch_opt);
-    opts.push_back(include_opt.c_str());
     opts.push_back("--std=c++11");
     opts.push_back("-default-device");
+
+    opts.push_back("-I");
+    opts.push_back(include_dir);
+
+    // add any extra include directories
+    extern std::vector<std::string> g_include_paths;
+    for (const std::string& path : g_include_paths)
+    {
+        opts.push_back("-I");
+        opts.push_back(path.c_str());
+    }
     
     if (debug)
     {

@@ -302,4 +302,6 @@ extern "C"
     WP_API void* cuda_graphics_register_gl_buffer(void* context, uint32_t gl_buffer, unsigned int flags);
     WP_API void cuda_graphics_unregister_resource(void* context, void* resource);
 
+    WP_API void build_add_include_directory(const char* dir);
+
 } // extern "C"

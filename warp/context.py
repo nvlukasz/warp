@@ -2836,6 +2836,9 @@ class Runtime:
         self.core.cuda_graphics_unregister_resource.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         self.core.cuda_graphics_unregister_resource.restype = None
 
+        self.core.build_add_include_directory.argtypes = [ctypes.c_char_p]
+        self.core.build_add_include_directory.restype = None
+
         self.core.init.restype = ctypes.c_int
 
         error = self.core.init()

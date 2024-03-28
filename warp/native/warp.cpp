@@ -15,6 +15,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <string>
+#include <vector>
+
+// extra include paths for building kernels
+std::vector<std::string> g_include_paths;
+
 uint16_t float_to_half_bits(float x)
 {
     // adapted from Fabien Giesen's post: https://gist.github.com/rygorous/2156668
@@ -881,6 +887,14 @@ WP_API void array_fill_host(void* arr_ptr, int arr_type, const void* value_ptr, 
     else
     {
         fprintf(stderr, "Warp fill error: Invalid array type id %d\n", arr_type);
+    }
+}
+
+WP_API void build_add_include_directory(const char* dir)
+{
+    if (dir)
+    {
+        g_include_paths.push_back(dir);
     }
 }
 

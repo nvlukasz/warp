@@ -50,6 +50,10 @@ def build_cpu(obj_path, cpp_path, mode="release", verify_fp=False, fast_math=Fal
             raise Exception(f"CPU kernel build failed with error code {err}")
 
 
+def add_include_directory(dir: str):
+    warp.context.runtime.core.build_add_include_directory(dir.encode("utf-8"))
+
+
 kernel_bin_dir = None
 kernel_gen_dir = None
 
