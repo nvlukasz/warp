@@ -2452,6 +2452,21 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     const char* output_ext = strrchr(output_path, '.');
     bool use_ptx = output_ext && strcmp(output_ext + 1, "ptx") == 0;
 
+    // parse program name from output path
+    const char* last_sep = strrchr(output_path, '/');
+#ifdef _WIN32
+    const char* last_sep2 = strrchr(output_path, '\\');
+    if (last_sep2 > last_sep)
+        last_sep = last_sep2;
+#endif
+    const char* output_filename = last_sep ? last_sep + 1 : output_path;
+    const char* first_dot = strchr(output_filename, '.');
+    std::string prog_name;
+    if (first_dot)
+        prog_name.assign(output_filename, first_dot - output_filename);
+    else
+        prog_name = output_filename;
+
     // check include dir path len (path + option)
     const int max_path = 4096 + 16;
     if (strlen(include_dir) > max_path)
@@ -2509,9 +2524,9 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     nvrtcResult res;
 
     res = nvrtcCreateProgram(
-        &prog,         // prog
-        cuda_src,      // buffer
-        NULL,          // name
+        &prog,
+        cuda_src,
+        prog_name.c_str(),
         num_headers,
         headers.data(),
         header_names.data());
