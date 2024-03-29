@@ -53,6 +53,11 @@ def build_cpu(obj_path, cpp_path, mode="release", verify_fp=False, fast_math=Fal
 def add_include_directory(dir: str):
     warp.context.runtime.core.build_add_include_directory(dir.encode("utf-8"))
 
+def add_preprocessor_macro_definition(dir: str):
+    warp.context.runtime.core.build_add_preprocessor_macro_definition(dir.encode("utf-8"))
+
+def set_cpp_standard(cpp_standard: str):
+    warp.context.runtime.core.build_set_cpp_standard(cpp_standard.encode("utf-8"))
 
 kernel_bin_dir = None
 kernel_gen_dir = None

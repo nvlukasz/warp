@@ -303,5 +303,11 @@ extern "C"
     WP_API void cuda_graphics_unregister_resource(void* context, void* resource);
 
     WP_API void build_add_include_directory(const char* dir);
+    // Adds a c++ pre-processor macro definition to the build system
+    // Examples:
+    // #define MY_MACRO 1 => macro_definition="MY_MACRO=1" => -DMY_MACRO=1
+    // #define MY_MACRO  => macro_definition="MY_MACRO" => -DMY_MACRO
+    WP_API void build_add_preprocessor_macro_definition(const char* macro_definition);
+    WP_API void build_set_cpp_standard(const char* version);
 
 } // extern "C"

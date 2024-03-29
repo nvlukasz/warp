@@ -2477,8 +2477,22 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
 
     std::vector<const char*> opts;
     opts.push_back(arch_opt);
-    opts.push_back("--std=c++11");
-    opts.push_back("-default-device");
+    {
+     extern std::string g_cpp_standard;
+        if (g_cpp_standard == "c++11") {
+            opts.push_back("--std=c++11");
+        } else if (g_cpp_standard == "c++14") {
+            opts.push_back("--std=c++14");
+        } else if (g_cpp_standard == "c++17") {
+            opts.push_back("--std=c++17");
+        } else if (g_cpp_standard == "c++17") {
+            opts.push_back("--std=c++17");
+        } else {
+            fprintf(stderr, "Warp error: c++ standard not supported: '%s'\n", output_path);
+            return size_t(1);
+        }
+    }
+     opts.push_back("-default-device");
 
     opts.push_back("-I");
     opts.push_back(include_dir);
@@ -2489,6 +2503,13 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     {
         opts.push_back("-I");
         opts.push_back(path.c_str());
+    }
+
+    extern std::vector<std::string> g_preprocessor_macro_definitions;
+    for (const std::string& macro : g_preprocessor_macro_definitions)
+    {
+        opts.push_back("-D");
+        opts.push_back(macro.c_str());
     }
     
     if (debug)

@@ -20,6 +20,8 @@
 
 // extra include paths for building kernels
 std::vector<std::string> g_include_paths;
+std::vector<std::string> g_preprocessor_macro_definitions;
+std::string g_cpp_standard("c++11");
 
 uint16_t float_to_half_bits(float x)
 {
@@ -895,6 +897,22 @@ WP_API void build_add_include_directory(const char* dir)
     if (dir)
     {
         g_include_paths.push_back(dir);
+    }
+}
+
+WP_API void build_add_preprocessor_macro_definition(const char* macro_definition)
+{
+    if (macro_definition)
+    {
+        g_preprocessor_macro_definitions.push_back(macro_definition);
+    }
+}
+
+WP_API void build_set_cpp_standard(const char* version)
+{
+    if (version)
+    {
+        g_cpp_standard=std::string(version);
     }
 }
 
