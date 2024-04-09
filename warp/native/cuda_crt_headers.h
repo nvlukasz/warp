@@ -13,7 +13,8 @@ namespace wp
 // These definitions are taken from Jitify: https://github.com/NVIDIA/jitify
 
 static const char* jitsafe_header_float_h = R"(
-#pragma once
+#ifndef WPJIT_HEADER_FLOAT_H
+#define WPJIT_HEADER_FLOAT_H
 
 #define FLT_RADIX       2
 #define FLT_MANT_DIG    24
@@ -39,10 +40,14 @@ static const char* jitsafe_header_float_h = R"(
 #define FLT_EVAL_METHOD 0
 #define DECIMAL_DIG     21
 #endif
+
+#endif /* WPJIT_HEADER_FLOAT_H */
 )";
 
 static const char* jitsafe_header_limits_h = R"(
-#pragma once
+#ifndef WPJIT_HEADER_LIMITS_H
+#define WPJIT_HEADER_LIMITS_H
+
 #if __has_include(<cuda/std/climits>)
  #include <cuda/std/climits>
  #include <cuda/std/limits>
@@ -88,10 +93,13 @@ static const char* jitsafe_header_limits_h = R"(
  #define LLONG_MIN  (-LLONG_MAX - 1)
  #define ULLONG_MAX 0xffffffffffffffff
 #endif
+
+#endif /* WPJIT_HEADER_LIMITS_H */
 )";
 
 static const char* jitsafe_header_iterator = R"(
-#pragma once
+#ifndef WPJIT_HEADER_ITERATOR
+#define WPJIT_HEADER_ITERATOR
 
 namespace std {
 struct output_iterator_tag {};
@@ -124,13 +132,17 @@ struct iterator_traits<T const*> {
   typedef T const&                   reference;
 };
 }  // namespace std
+
+#endif // WPJIT_HEADER_ITERATOR
 )";
 
 // TODO: This is incomplete; need floating point limits
 //   Joe Eaton: added IEEE float and double types, none of the smaller types
 //              using type specific structs since we can't template on floats.
 static const char* jitsafe_header_limits = R"(
-#pragma once
+#ifndef WPJIT_HEADER_LIMITS
+#define WPJIT_HEADER_LIMITS
+
 #if __has_include(<cuda/std/limits>)
  #include <cuda/std/climits>
  #include <cuda/std/limits>
@@ -304,11 +316,15 @@ template<> struct numeric_limits<double>             : public
 __wpjit_detail::DoubleLimits 
 {};
 }  // namespace std
+
+#endif // WPJIT_HEADER_LIMITS
 )";
 
 // TODO: This is highly incomplete
 static const char* jitsafe_header_type_traits = R"(
-    #pragma once
+    #ifndef WPJIT_HEADER_TYPE_TRAITS
+    #define WPJIT_HEADER_TYPE_TRAITS
+
     #if __cplusplus >= 201103L
     namespace std {
 
@@ -597,11 +613,14 @@ static const char* jitsafe_header_type_traits = R"(
 
     }  // namespace std
     #endif // c++11
+
+    #endif // WPJIT_HEADER_TYPE_TRAITS
 )";
 
 // TODO: INT_FAST8_MAX et al. and a few other misc constants
 static const char* jitsafe_header_stdint_h =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_STDINT_H\n"
+    "#define WPJIT_HEADER_STDINT_H\n"
     "#if __has_include(<cuda/std/cstdint>)\n"
     " #include <cuda/std/climits>\n"
     " #include <cuda/std/cstdint>\n"
@@ -674,11 +693,13 @@ static const char* jitsafe_header_stdint_h =
     "#endif\n"
     "} // namespace __wpjit_stdint_ns\n"
     "namespace std { using namespace __wpjit_stdint_ns; }\n"
-    "using namespace __wpjit_stdint_ns;\n";
+    "using namespace __wpjit_stdint_ns;\n"
+    "#endif /* WPJIT_HEADER_STDINT_H */\n";
 
 // TODO: offsetof
 static const char* jitsafe_header_stddef_h =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_STDDEF_H\n"
+    "#define WPJIT_HEADER_STDDEF_H\n"
     "#include <climits>\n"
     "namespace __wpjit_stddef_ns {\n"
     "#if __cplusplus >= 201103L\n"
@@ -707,43 +728,60 @@ static const char* jitsafe_header_stddef_h =
     "  using ::ptrdiff_t;\n"
     "  using namespace __wpjit_stddef_ns;\n"
     "} // namespace std\n"
-    "using namespace __wpjit_stddef_ns;\n";
+    "using namespace __wpjit_stddef_ns;\n"
+    "#endif /* WPJIT_HEADER_STDDEF_H */\n";
 
 static const char* jitsafe_header_stdlib_h =
-    "#pragma once\n"
-    "#include <stddef.h>\n";
+    "#ifndef WPJIT_HEADER_STDLIB_H\n"
+    "#define WPJIT_HEADER_STDLIB_H\n"
+    "#include <stddef.h>\n"
+    "#endif /* WPJIT_HEADER_STDLIB_H */\n";
+
 static const char* jitsafe_header_stdio_h =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_STDIO_H\n"
+    "#define WPJIT_HEADER_STDIO_H\n"
     "#include <stddef.h>\n"
     "#define FILE int\n"
     "int fflush ( FILE * stream );\n"
-    "int fprintf ( FILE * stream, const char * format, ... );\n";
+    "int fprintf ( FILE * stream, const char * format, ... );\n"
+    "#endif /* WPJIT_HEADER_STDIO_H */\n";
 
 static const char* jitsafe_header_string_h =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_STRING_H\n"
+    "#define WPJIT_HEADER_STRING_H\n"
     "char* strcpy ( char * destination, const char * source );\n"
     "int strcmp ( const char * str1, const char * str2 );\n"
-    "char* strerror( int errnum );\n";
+    "char* strerror( int errnum );\n"
+    "#endif /* WPJIT_HEADER_STRING_H */\n";
 
 static const char* jitsafe_header_cstring =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_CSTRING\n"
+    "#define WPJIT_HEADER_CSTRING\n"
     "\n"
     "namespace __wpjit_cstring_ns {\n"
     "char* strcpy ( char * destination, const char * source );\n"
     "int strcmp ( const char * str1, const char * str2 );\n"
     "char* strerror( int errnum );\n"
     "} // namespace __wpjit_cstring_ns\n"
+    "// avoid duplicate definitions\n"
+    "#ifndef WPJIT_HEADER_STRING_H\n"
     "namespace std { using namespace __wpjit_cstring_ns; }\n"
-    "using namespace __wpjit_cstring_ns;\n";
+    "#endif // WPJIT_HEADER_STRING_H\n"
+    "using namespace __wpjit_cstring_ns;\n"
+    "#endif // WPJIT_HEADER_CSTRING\n";
 
 // HACK TESTING (WAR for cub)
 static const char* jitsafe_header_iostream =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_IOSTREAM\n"
+    "#define WPJIT_HEADER_IOSTREAM\n"
     "#include <ostream>\n"
-    "#include <istream>\n";
+    "#include <istream>\n"
+    "#endif // WPJIT_HEADER_IOSTREAM\n";
+
 // HACK TESTING (WAR for Thrust)
 static const char* jitsafe_header_ostream =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_OSTREAM\n"
+    "#define WPJIT_HEADER_OSTREAM\n"
     "\n"
     "namespace std {\n"
     "template<class CharT,class Traits=void>\n"  // = std::char_traits<CharT>
@@ -761,10 +799,12 @@ static const char* jitsafe_header_ostream =
     "template< class CharT, class Traits, class T > basic_ostream<CharT, "
     "Traits>& operator<<( basic_ostream<CharT,Traits>&& os, const T& value );\n"
     "#endif  // __cplusplus >= 201103L\n"
-    "}  // namespace std\n";
+    "}  // namespace std\n"
+    "#endif // WPJIT_HEADER_OSTREAM\n";
 
 static const char* jitsafe_header_istream =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_ISTREAM\n"
+    "#define WPJIT_HEADER_ISTREAM\n"
     "\n"
     "namespace std {\n"
     "template<class CharT,class Traits=void>\n"  // = std::char_traits<CharT>
@@ -772,15 +812,19 @@ static const char* jitsafe_header_istream =
     "struct basic_istream {\n"
     "};\n"
     "typedef basic_istream<char> istream;\n"
-    "}  // namespace std\n";
+    "}  // namespace std\n"
+    "#endif // WPJIT_HEADER_ISTREAM\n";
 
 static const char* jitsafe_header_sstream =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_SSTREAM\n"
+    "#define WPJIT_HEADER_SSTREAM\n"
     "#include <ostream>\n"
-    "#include <istream>\n";
+    "#include <istream>\n"
+    "#endif // WPJIT_HEADER_SSTREAM\n";
 
 static const char* jitsafe_header_utility =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_UTILITY\n"
+    "#define WPJIT_HEADER_UTILITY\n"
     "namespace std {\n"
     "template<class T1, class T2>\n"
     "struct pair {\n"
@@ -796,20 +840,24 @@ static const char* jitsafe_header_utility =
     "pair<T1,T2> make_pair(T1 const& first, T2 const& second) {\n"
     "	return pair<T1,T2>(first, second);\n"
     "}\n"
-    "}  // namespace std\n";
+    "}  // namespace std\n"
+    "#endif // WPJIT_HEADER_UTILITY\n";
 
 // TODO: incomplete
 static const char* jitsafe_header_vector =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_VECTOR\n"
+    "#define WPJIT_HEADER_VECTOR\n"
     "namespace std {\n"
     "template<class T, class Allocator=void>\n"  // = std::allocator> \n"
     "struct vector {\n"
     "};\n"
-    "}  // namespace std\n";
+    "}  // namespace std\n"
+    "#endif // WPJIT_HEADER_VECTOR\n";
 
 // TODO: incomplete
 static const char* jitsafe_header_string =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_STRING\n"
+    "#define WPJIT_HEADER_STRING\n"
     "namespace std {\n"
     "template<class CharT,class Traits=void,class Allocator=void>\n"
     "struct basic_string {\n"
@@ -822,22 +870,26 @@ static const char* jitsafe_header_string =
     "void operator+=(const basic_string &);\n"
     "};\n"
     "typedef basic_string<char> string;\n"
-    "}  // namespace std\n";
+    "}  // namespace std\n"
+    "#endif // WPJIT_HEADER_STRING\n";
 
 // TODO: incomplete
 static const char* jitsafe_header_stdexcept =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_STDEXCEPT\n"
+    "#define WPJIT_HEADER_STDEXCEPT\n"
     "namespace std {\n"
     "struct runtime_error {\n"
     "explicit runtime_error( const std::string& what_arg );"
     "explicit runtime_error( const char* what_arg );"
     "virtual const char* what() const;\n"
     "};\n"
-    "}  // namespace std\n";
+    "}  // namespace std\n"
+    "#endif // WPJIT_HEADER_STDEXCEPT\n";
 
 // TODO: incomplete
 static const char* jitsafe_header_complex =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_COMPLEX\n"
+    "#define WPJIT_HEADER_COMPLEX\n"
     "namespace std {\n"
     "template<typename T>\n"
     "class complex {\n"
@@ -868,12 +920,14 @@ static const char* jitsafe_header_complex =
     "template<typename T>\n"
     "complex<T> operator*(const T& lhs, const complex<T>& rhs)\n"
     "  { return complexs<T>(rhs.real()*lhs,rhs.imag()*lhs); }\n"
-    "}  // namespace std\n";
+    "}  // namespace std\n"
+    "#endif // WPJIT_HEADER_COMPLEX\n";
 
 // TODO: This is incomplete (missing binary and integer funcs, macros,
 // constants, types)
 static const char* jitsafe_header_math_h =
-    "#pragma once\n"
+    "#ifndef WPJIT_HEADER_MATH_H\n"
+    "#define WPJIT_HEADER_MATH_H\n"
     "namespace __wpjit_math_ns {\n"
     "#if __cplusplus >= 201103L\n"
     "#define DEFINE_MATH_UNARY_FUNC_WRAPPER(f) \\\n"
@@ -956,16 +1010,20 @@ static const char* jitsafe_header_math_h =
     "#define HUGE_VAL   ((double)INFINITY)\n"
     "#define HUGE_VALF  ((float)INFINITY)\n"
     // Note: Global namespace already includes CUDA math funcs
-    "//using namespace __wpjit_math_ns;\n";
+    "//using namespace __wpjit_math_ns;\n"
+    "#endif /* WPJIT_HEADER_MATH_H */\n";
 
 static const char* jitsafe_header_memory_h = R"(
-    #pragma once
+    #ifndef WPJIT_HEADER_MEMORY_H
+    #define WPJIT_HEADER_MEMORY_H
     #include <string.h>
+    #endif /* WPJIT_HEADER_MEMORY_H */
  )";
 
 // TODO: incomplete
 static const char* jitsafe_header_mutex = R"(
-    #pragma once
+    #ifndef WPJIT_HEADER_MUTEX
+    #define WPJIT_HEADER_MUTEX
     #if __cplusplus >= 201103L
     namespace std {
     class mutex {
@@ -976,10 +1034,12 @@ static const char* jitsafe_header_mutex = R"(
     };
     }  // namespace std
     #endif
+    #endif // WPJIT_HEADER_MUTEX
  )";
 
 static const char* jitsafe_header_algorithm = R"(
-    #pragma once
+    #ifndef WPJIT_HEADER_ALGORITHM
+    #define WPJIT_HEADER_ALGORITHM
     #if __cplusplus >= 201103L
     namespace std {
 
@@ -1000,10 +1060,12 @@ static const char* jitsafe_header_algorithm = R"(
 
     }  // namespace std
     #endif
+    #endif // WPJIT_HEADER_ALGORITHM
  )";
 
 static const char* jitsafe_header_time_h = R"(
-    #pragma once
+    #ifndef WPJIT_HEADER_TIME_H
+    #define WPJIT_HEADER_TIME_H
     #define NULL 0
     #define CLOCKS_PER_SEC 1000000
     namespace __wpjit_time_ns {
@@ -1033,10 +1095,12 @@ static const char* jitsafe_header_time_h = R"(
       using namespace __wpjit_time_ns;
     }
     using namespace __wpjit_time_ns;
+    #endif /* WPJIT_HEADER_TIME_H */
  )";
 
 static const char* jitsafe_header_tuple = R"(
-    #pragma once
+    #ifndef WPJIT_HEADER_TUPLE
+    #define WPJIT_HEADER_TUPLE
     #if __cplusplus >= 201103L
     namespace std {
     template<class... Types > class tuple;
@@ -1054,10 +1118,13 @@ static const char* jitsafe_header_tuple = R"(
     };
     } // namespace std
     #endif
+    #endif // WPJIT_HEADER_TUPLE
  )";
 
 static const char* jitsafe_header_assert = R"(
-    #pragma once
+    #ifndef WPJIT_HEADER_ASSERT
+    #define WPJIT_HEADER_ASSERT
+    #endif // WPJIT_HEADER_ASSERT
  )";
 
 
