@@ -2839,6 +2839,12 @@ class Runtime:
         self.core.build_add_include_directory.argtypes = [ctypes.c_char_p]
         self.core.build_add_include_directory.restype = None
 
+        self.core.build_add_preprocessor_macro_definition.argtypes = [ctypes.c_char_p]
+        self.core.build_add_preprocessor_macro_definition.restype = None
+
+        self.core.build_set_cpp_standard.argtypes = [ctypes.c_char_p]
+        self.core.build_set_cpp_standard.restype = None
+
         self.core.init.restype = ctypes.c_int
 
         error = self.core.init()
