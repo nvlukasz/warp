@@ -1127,6 +1127,9 @@ static const char* jitsafe_header_assert = R"(
     #endif // WPJIT_HEADER_ASSERT
  )";
 
+static const char* jitsafe_header_blank = R"(
+ )";
+
 
 static const std::map<const char*, const char*> jitsafe_headers_map = {
     {"float.h", jitsafe_header_float_h},
@@ -1164,7 +1167,12 @@ static const std::map<const char*, const char*> jitsafe_headers_map = {
     {"ctime", jitsafe_header_time_h},
     {"tuple", jitsafe_header_tuple},
     {"assert.h", jitsafe_header_assert},
-    {"cassert", jitsafe_header_assert}
+    {"cassert", jitsafe_header_assert},
+
+    // HACK: unimplemented headers to get around inclusion errors
+    {"functional", jitsafe_header_blank},
+    {"initializer_list", jitsafe_header_blank},
+    {"memory", jitsafe_header_blank},
 };
 
 }
