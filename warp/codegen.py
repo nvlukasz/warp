@@ -1296,6 +1296,13 @@ class Adjoint:
             adj.symbols[node.id] = out
             return out
 
+        # see if it's a custom type object
+        if hasattr(type(obj), "_type_"):
+            # evaluate as a constant
+            out = adj.add_constant(obj)
+            adj.symbols[node.id] = out
+            return out
+
         # the named object is either a function, class name, or module
         # pass it back to the caller for processing
         return obj
@@ -2396,6 +2403,19 @@ def constant_str(value):
         shape_str = ", ".join([str(s) for s in value.shape])
 
         return f"{type_str}({ptr_str}, {shape_str})"
+
+    # !!! custom type
+    elif hasattr(type(value), "_type_"):
+        type_ctype = type(value)._type_
+        type_name = type(value).__name__
+        ctor_name = f"{type_name}_"
+        ctor_builtin = warp.context.builtin_functions.get(ctor_name)
+        if ctor_builtin is not None:
+            field_values = []
+            for field_name, field_type in type_ctype._fields_:
+                field_values.append(getattr(value, field_name))
+            ctor_args = ", ".join([str(v) for v in field_values])
+            return f"wp::{ctor_name}({ctor_args})"
 
     else:
         # otherwise just convert constant to string
