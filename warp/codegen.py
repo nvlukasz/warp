@@ -1290,6 +1290,12 @@ class Adjoint:
             adj.symbols[node.id] = out
             return out
 
+        if isinstance(obj, array):
+            # evaluate array constant
+            out = adj.add_var(type=obj, constant=obj)
+            adj.symbols[node.id] = out
+            return out
+
         # the named object is either a function, class name, or module
         # pass it back to the caller for processing
         return obj
@@ -2377,6 +2383,19 @@ def constant_str(value):
 
     elif value == math.inf:
         return "INFINITY"
+
+    elif isinstance(value, array):
+        if not value.ptr:
+            raise ValueError("Array cannot be empty")
+        if not value.is_contiguous:
+            raise ValueError("Array must be contiguous")
+
+        type_str = f"{Var.type_to_ctype(value)}"
+        dtype_str = f"{Var.type_to_ctype(value.dtype)}"
+        ptr_str = f"({dtype_str}*){value.ptr}"
+        shape_str = ", ".join([str(s) for s in value.shape])
+
+        return f"{type_str}({ptr_str}, {shape_str})"
 
     else:
         # otherwise just convert constant to string
