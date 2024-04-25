@@ -4239,6 +4239,10 @@ def type_is_generic_scalar(t):
     return t in (Scalar, Float, Int)
 
 
+def type_is_external(t):
+    return hasattr(t, "_type_") and issubclass(t._type_, ctypes.Structure)
+
+
 def type_matches_template(arg_type, template_type):
     """Check if an argument type matches a template.
 
@@ -4394,6 +4398,9 @@ def get_type_code(arg_type):
                 return f"m{dim_code0}{dim_code1}{dtype_code}"
             else:
                 raise TypeError("Invalid vector/matrix dimensionality")
+        # !!!
+        elif type_is_external(arg_type):
+            return arg_type.__name__
         else:
             # simple type
             type_code = simple_type_codes.get(arg_type)
