@@ -2391,6 +2391,8 @@ def constant_str(value):
     elif value == math.inf:
         return "INFINITY"
 
+    # !!! array constant
+    # FIXME: device mismatch?
     elif isinstance(value, array):
         if not value.ptr:
             raise ValueError("Array cannot be empty")
@@ -2404,18 +2406,19 @@ def constant_str(value):
 
         return f"{type_str}({ptr_str}, {shape_str})"
 
-    # !!! custom type
+    # !!! custom type constant
+    # FIXME: device mismatch?
     elif warp.types.type_is_external(type(value)):
+        # NOTE: we require that the custom type has a constructor that takes all the fields in declaration order
         type_ctype = type(value)._type_
         type_name = type(value).__name__
-        ctor_name = f"{type_name}_"
-        ctor_builtin = warp.context.builtin_functions.get(ctor_name)
-        if ctor_builtin is not None:
-            field_values = []
-            for field_name, field_type in type_ctype._fields_:
-                field_values.append(getattr(value, field_name))
-            ctor_args = ", ".join([str(v) for v in field_values])
-            return f"wp::{ctor_name}({ctor_args})"
+        ctor_name = f"wp::{type_name}"
+        field_values = []
+        # TODO: this should work recursively if members are also custom types
+        for field_name, field_type in type_ctype._fields_:
+            field_values.append(getattr(value, field_name))
+        ctor_args = ", ".join([str(v) for v in field_values])
+        return f"{ctor_name}{{{ctor_args}}}"
 
     else:
         # otherwise just convert constant to string
