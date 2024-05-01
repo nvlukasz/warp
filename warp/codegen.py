@@ -1297,7 +1297,7 @@ class Adjoint:
             return out
 
         # see if it's a custom type object
-        if hasattr(type(obj), "_type_"):
+        if warp.types.type_is_external(type(obj)):
             # evaluate as a constant
             out = adj.add_constant(obj)
             adj.symbols[node.id] = out
@@ -2405,7 +2405,7 @@ def constant_str(value):
         return f"{type_str}({ptr_str}, {shape_str})"
 
     # !!! custom type
-    elif hasattr(type(value), "_type_"):
+    elif warp.types.type_is_external(type(value)):
         type_ctype = type(value)._type_
         type_name = type(value).__name__
         ctor_name = f"{type_name}_"
