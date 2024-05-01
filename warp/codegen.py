@@ -2431,11 +2431,27 @@ def indent(args, stops=1):
     return sep.join(args)
 
 
-# generates a C function name based on the python function name
-def make_full_qualified_name(func):
-    if not isinstance(func, str):
-        func = func.__qualname__
-    return re.sub("[^0-9a-zA-Z_]+", "", func.replace(".", "__"))
+local_counts = {}
+
+
+# generates a C identifier based on the python object name
+def make_full_qualified_name(obj):
+    if isinstance(obj, str):
+        name = obj
+    else:
+        name = obj.__qualname__
+
+    is_local = ".<locals>." in name
+
+    ident = re.sub("[^0-9a-zA-Z_]+", "", name.replace(".", "__"))
+
+    # locals are given a unique identifier
+    if is_local:
+        local_id = local_counts.get(ident, 0)
+        local_counts[ident] = local_id + 1
+        return f"{ident}_local{local_id}"
+    else:
+        return ident
 
 
 def codegen_struct(struct, device="cpu", indent_size=4):
