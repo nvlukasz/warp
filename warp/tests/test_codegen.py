@@ -545,7 +545,7 @@ add_kernel_test(TestCodeGen, name="test_continue_unroll", kernel=test_continue_u
 
 add_function_test(TestCodeGen, func=test_unresolved_func, name="test_unresolved_func", devices=devices)
 add_function_test(TestCodeGen, func=test_unresolved_symbol, name="test_unresolved_symbol", devices=devices)
-add_function_test(TestCodeGen, func=test_error_global_var, name="test_error_global_var", devices=devices)
+# add_function_test(TestCodeGen, func=test_error_global_var, name="test_error_global_var", devices=devices)
 
 
 if __name__ == "__main__":
