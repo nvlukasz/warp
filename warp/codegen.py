@@ -2431,11 +2431,41 @@ def indent(args, stops=1):
     return sep.join(args)
 
 
-# generates a C function name based on the python function name
-def make_full_qualified_name(func):
-    if not isinstance(func, str):
-        func = func.__qualname__
-    return re.sub("[^0-9a-zA-Z_]+", "", func.replace(".", "__"))
+closure_counts = {}
+
+
+# A function is a closure if it captures a variable or if any captured Warp function is a closure.
+def is_warp_closure(f):
+    if f.__closure__ is not None:
+        for cell in f.__closure__:
+            obj = cell.cell_contents
+            if isinstance(obj, warp.Function):
+                if is_warp_closure(obj.func):
+                    return True
+            else:
+                return True
+    return False
+
+
+# generates a C identifier based on the python object name
+def make_full_qualified_name(obj):
+    is_closure = False
+    if isinstance(obj, str):
+        ident = obj
+    else:
+        ident = obj.__qualname__
+        if isinstance(obj, types.FunctionType):
+            is_closure = is_warp_closure(obj)
+
+    qualname = re.sub("[^0-9a-zA-Z_]+", "", ident.replace(".", "__"))
+
+    # closures are given a unique identifier
+    if is_closure:
+        closure_id = closure_counts.get(qualname, 0)
+        closure_counts[qualname] = closure_id + 1
+        return f"{qualname}_closure{closure_id}"
+    else:
+        return qualname
 
 
 def codegen_struct(struct, device="cpu", indent_size=4):
