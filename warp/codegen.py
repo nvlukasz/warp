@@ -2511,7 +2511,7 @@ def constant_str(value):
     elif value == math.inf:
         return "INFINITY"
 
-    elif math.isnan(value):
+    elif isinstance(value, float) and math.isnan(value):
         return "NAN"
 
     # !!! array constant
