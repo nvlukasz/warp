@@ -4735,7 +4735,7 @@ def type_is_generic_scalar(t):
 
 
 def type_is_external(t):
-    return hasattr(t, "_type_") and issubclass(t._type_, ctypes.Structure)
+    return hasattr(t, "_type_") and inspect.isclass(t._type_) and issubclass(t._type_, ctypes.Structure)
 
 
 def type_matches_template(arg_type, template_type):
