@@ -10,14 +10,12 @@ import unittest
 import numpy as np
 
 import warp as wp
-from warp.tests.unittest_utils import *
 import warp.sim
-
-wp.init()
+from warp.tests.unittest_utils import *
 
 np_float_types = [np.float32, np.float64, np.float16]
 
-kernel_cache = dict()
+kernel_cache = {}
 
 
 def getkernel(func, suffix=""):
@@ -1265,8 +1263,8 @@ def test_quat_to_matrix(test, device, dtype, register_kernels=False):
 
     # test gradients against the manually computed result:
     idx = 0
-    for i in range(3):
-        for j in range(3):
+    for _i in range(3):
+        for _j in range(3):
             cmp = wp.zeros(1, dtype=wptype, requires_grad=True, device=device)
             cmp_manual = wp.zeros(1, dtype=wptype, requires_grad=True, device=device)
             tape = wp.Tape()

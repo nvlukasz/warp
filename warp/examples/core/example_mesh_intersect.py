@@ -22,9 +22,6 @@ import warp.examples
 import warp.render
 
 
-wp.init()
-
-
 @wp.func
 def cw_min(a: wp.vec3, b: wp.vec3):
     return wp.vec3(wp.min(a[0], b[0]), wp.min(a[1], b[1]), wp.min(a[2], b[2]))
@@ -81,17 +78,17 @@ def intersect(
 
 
 class Example:
-    def __init__(self, stage):
+    def __init__(self, stage_path="example_mesh_intersect.usd"):
         rng = np.random.default_rng(42)
 
         self.query_count = 1024
         self.has_queried = False
 
-        self.path_0 = os.path.join(warp.examples.get_asset_directory(), "cube.usda")
-        self.path_1 = os.path.join(warp.examples.get_asset_directory(), "sphere.usda")
+        self.path_0 = os.path.join(warp.examples.get_asset_directory(), "cube.usd")
+        self.path_1 = os.path.join(warp.examples.get_asset_directory(), "sphere.usd")
 
-        self.mesh_0 = self.load_mesh(self.path_0, "/Cube/Cube_001")
-        self.mesh_1 = self.load_mesh(self.path_1, "/Sphere/Sphere")
+        self.mesh_0 = self.load_mesh(self.path_0, "/root/cube")
+        self.mesh_1 = self.load_mesh(self.path_1, "/root/sphere")
 
         self.query_num_faces = int(len(self.mesh_0.indices) / 3)
         self.query_num_points = len(self.mesh_0.points)
@@ -99,7 +96,7 @@ class Example:
         # generate random relative transforms
         self.xforms = []
 
-        for i in range(self.query_count):
+        for _ in range(self.query_count):
             # random offset
             p = wp.vec3(rng.random(3) * 0.5 - 0.5) * 5.0
 
@@ -115,12 +112,13 @@ class Example:
         self.array_xforms = wp.array(self.xforms, dtype=wp.transform)
 
         # renderer
-        self.renderer = None
-        if stage is not None:
-            self.renderer = wp.render.UsdRenderer(stage)
+        if stage_path:
+            self.renderer = wp.render.UsdRenderer(stage_path)
+        else:
+            self.renderer = None
 
     def step(self):
-        with wp.ScopedTimer("intersect", active=True):
+        with wp.ScopedTimer("step"):
             wp.launch(
                 kernel=intersect,
                 dim=self.query_num_faces * self.query_count,
@@ -182,12 +180,24 @@ class Example:
 
 
 if __name__ == "__main__":
-    stage_path = "example_mesh_intersect.usd"
+    import argparse
 
-    example = Example(stage_path)
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--device", type=str, default=None, help="Override the default Warp device.")
+    parser.add_argument(
+        "--stage_path",
+        type=lambda x: None if x == "None" else str(x),
+        default="example_mesh_intersect.usd",
+        help="Path to the output USD file.",
+    )
 
-    example.step()
-    example.render()
+    args = parser.parse_known_args()[0]
 
-    if example.renderer:
-        example.renderer.save()
+    with wp.ScopedDevice(args.device):
+        example = Example(stage_path=args.stage_path)
+
+        example.step()
+        example.render()
+
+        if example.renderer:
+            example.renderer.save()

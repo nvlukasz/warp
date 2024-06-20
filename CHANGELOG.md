@@ -1,5 +1,89 @@
 # CHANGELOG
 
+## [Upcoming Release] - 2024-??-??
+
+- Improve memory usage and performance for rigid body contact handling when `self.rigid_mesh_contact_max` is zero (default behavior)
+- Support for NumPy >= 2.0
+
+## [1.2.1] - 2024-06-14
+
+- Fix generic function caching
+- Fix Warp not being initialized when constructing arrays with `wp.array()`
+- Fix `wp.is_mempool_access_supported()` not resolving the provided device arguments to `wp.context.Device`
+
+## [1.2.0] - 2024-06-06
+
+- Add a not-a-number floating-point constant that can be used as `wp.NAN` or `wp.nan`.
+- Add `wp.isnan()`, `wp.isinf()`, and `wp.isfinite()` for scalars, vectors, matrices, etc.
+- Improve kernel cache reuse by hashing just the local module constants. Previously, a
+  module's hash was affected by all `wp.constant()` variables declared in a Warp program.
+- Revised module compilation process to allow multiple processes to use the same kernel cache directory.
+  Cached kernels will now be stored in hash-specific subdirectory.
+- Add runtime checks for `wp.MarchingCubes` on field dimensions and size
+- Fix memory leak in `wp.Mesh` BVH ([GH-225](https://github.com/NVIDIA/warp/issues/225))
+- Use C++17 when building the Warp library and user kernels
+- Increase PTX target architecture up to `sm_75` (from `sm_70`), enabling Turing ISA features
+- Extended NanoVDB support (see `warp.Volume`):
+  - Add support for data-agnostic index grids, allocation at voxel granularity
+  - New `wp.volume_lookup_index()`, `wp.volume_sample_index()` and generic `wp.volume_sample()`/`wp.volume_lookup()`/`wp.volume_store()` kernel-level functions
+  - Zero-copy aliasing of in-memory grids, support for multi-grid buffers
+  - Grid introspection and blind data access capabilities
+  - `warp.fem` can now work directly on NanoVDB grids using `warp.fem.Nanogrid`
+  - Fixed `wp.volume_sample_v()` and `wp.volume_store_*()` adjoints
+  - Prevent `wp.volume_store()` from overwriting grid background values
+- Improve validation of user-provided fields and values in `warp.fem`
+- Support headless rendering of `wp.render.OpenGLRenderer` via `pyglet.options["headless"] = True`
+- `wp.render.RegisteredGLBuffer` can fall back to CPU-bound copying if CUDA/OpenGL interop is not available
+- Clarify terms for external contributions, please see CONTRIBUTING.md for details
+- Improve performance of `wp.sparse.bsr_mm()` by ~5x on benchmark problems
+- Fix for XPBD incorrectly indexing into of joint actuations `joint_act` arrays
+- Fix for mass matrix gradients computation in `wp.sim.FeatherstoneIntegrator()`
+- Fix for handling of `--msvc_path` in build scripts
+- Fix for `wp.copy()` params to record dest and src offset parameters on `wp.Tape()`
+- Fix for `wp.randn()` to ensure return values are finite
+- Fix for slicing of arrays with gradients in kernels
+- Fix for function overload caching, ensure module is rebuilt if any function overloads are modified
+- Fix for handling of `bool` types in generic kernels
+- Publish CUDA 12.5 binaries for Hopper support, see https://github.com/nvidia/warp?tab=readme-ov-file#installing for details
+
+## [1.1.1] - 2024-05-24
+
+- `wp.init()` is no longer required to be called explicitly and will be performed on first call to the API
+- Speed up `omni.warp.core`'s startup time
+
+## [1.1.0] - 2024-05-09
+
+- Support returning a value from `@wp.func_native` CUDA functions using type hints
+- Improved differentiability of the `wp.sim.FeatherstoneIntegrator`
+- Fix gradient propagation for rigid body contacts in `wp.sim.collide()`
+- Added support for event-based timing, see `wp.ScopedTimer()`
+- Added Tape visualization and debugging functions, see `wp.Tape.visualize()`
+- Support constructing Warp arrays from objects that define the `__cuda_array_interface__` attribute
+- Support copying a struct to another device, use `struct.to(device)` to migrate struct arrays
+- Allow rigid shapes to not have any collisions with other shapes in `wp.sim.Model`
+- Change default test behavior to test redundant GPUs (up to 2x)
+- Test each example in an individual subprocess
+- Polish and optimize various examples and tests
+- Allow non-contiguous point arrays to be passed to `wp.HashGrid.build()`
+- Upgrade LLVM to 18.1.3 for from-source builds and Linux x86-64 builds
+- Build DLL source code as C++17 and require GCC 9.4 as a minimum
+- Array clone, assign, and copy are now differentiable
+- Use `Ruff` for formatting and linting
+- Various documentation improvements (infinity, math constants, etc.)
+- Improve URDF importer, handle joint armature
+- Allow builtins.bool to be used in Warp data structures
+- Use external gradient arrays in backward passes when passed to `wp.launch()`
+- Add Conjugate Residual linear solver, see `wp.optim.linear.cr()`
+- Fix propagation of gradients on aliased copy of variables in kernels
+- Facilitate debugging and speed up `import warp` by eliminating raising any exceptions
+- Improve support for nested vec/mat assignments in structs
+- Recommend Python 3.9 or higher, which is required for JAX and soon PyTorch.
+- Support gradient propagation for indexing sliced multi-dimensional arrays, i.e. `a[i][j]` vs. `a[i, j]`
+- Provide an informative message if setting DLL C-types failed, instructing to try rebuilding the library
+
+## [1.0.3] - 2024-04-17
+
+- Add a `support_level` entry to the configuration file of the extensions
 
 ## [1.0.2] - 2024-03-22
 
@@ -254,14 +338,14 @@
 - Fix for incorrect lower-case when setting USD stage "up_axis" in examples
 - Fix for incompatible gradient types when wrapping PyTorch tensor as a vector or matrix type
 - Fix for adding open edges when building cloth constraints from meshes in `wp.sim.ModelBuilder.add_cloth_mesh()`
-- Add support for `wp.fabricarray` to directly access Fabric data from Warp kernels, see https://omniverse.gitlab-master-pages.nvidia.com/usdrt/docs/usdrt_prim_selection.html for examples
+- Add support for `wp.fabricarray` to directly access Fabric data from Warp kernels, see https://docs.omniverse.nvidia.com/kit/docs/usdrt/latest/docs/usdrt_prim_selection.html for examples
 - Add support for user defined gradient functions, see `@wp.func_replay`, and `@wp.func_grad` decorators
 - Add support for more OG attribute types in `omni.warp.from_omni_graph()`
 - Add support for creating NanoVDB `wp.Volume` objects from dense NumPy arrays
 - Add support for `wp.volume_sample_grad_f()` which returns the value + gradient efficiently from an NVDB volume
 - Add support for LLVM fp16 intrinsics for half-precision arithmetic
 - Add implementation of stochastic gradient descent, see `wp.optim.SGD`
-- Add `wp.fem` framework for solving weak-form PDE problems (see https://nvidia.github.io/warp/_build/html/modules/fem.html)
+- Add `wp.fem` framework for solving weak-form PDE problems (see https://nvidia.github.io/warp/modules/fem.html)
 - Optimizations for `omni.warp` extension load time (2.2s to 625ms cold start)
 - Make all `omni.ui` dependencies optional so that Warp unit tests can run headless
 - Deprecation of `wp.tid()` outside of kernel functions, users should pass `tid()` values to `wp.func` functions explicitly

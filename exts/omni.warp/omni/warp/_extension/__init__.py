@@ -8,20 +8,20 @@
 """Entry point for the extension."""
 
 import asyncio
-from contextlib import suppress
 import os
 import subprocess
 import sys
-from typing import Sequence
 import webbrowser
+from contextlib import suppress
+from typing import Sequence
 
 import carb
 import carb.dictionary
 import omni.ext
 import omni.graph.core as og
 import omni.kit.actions.core
-import warp as wp
 
+import warp as wp
 
 SCENES_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../data/scenes"))
 NODES_INIT_PATH = os.path.normpath(
@@ -188,7 +188,6 @@ class OmniWarpExtension(omni.ext.IExt):
         settings = carb.settings.get_settings()
 
         wp.config.enable_backward = settings.get(SETTING_ENABLE_BACKWARD)
-        wp.init()
 
         self._is_live = True
         self._ext_name = "omni.warp"

@@ -12,8 +12,6 @@ import numpy as np
 import warp as wp
 from warp.tests.unittest_utils import *
 
-wp.init()
-
 
 @wp.kernel
 def load_store_half(f32: wp.array(dtype=wp.float32), f16: wp.array(dtype=wp.float16)):
@@ -116,7 +114,7 @@ class TestFp16(unittest.TestCase):
 devices = []
 if wp.is_cpu_available():
     devices.append("cpu")
-for cuda_device in get_unique_cuda_test_devices():
+for cuda_device in get_selected_cuda_test_devices():
     if cuda_device.arch >= 70:
         devices.append(cuda_device)
 

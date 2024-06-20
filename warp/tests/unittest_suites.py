@@ -59,17 +59,17 @@ def compare_unittest_suites(
 
     test_suite = test_suite_fn(test_loader)
 
-    test_suite_classes_str = set(
+    test_suite_classes_str = {
         type(test_suite._tests[0]).__name__
         for test_suite in list(_iter_class_suites(test_suite))
         if test_suite.countTestCases() > 0
-    )
+    }
 
-    reference_suite_classes_str = set(
+    reference_suite_classes_str = {
         type(test_suite._tests[0]).__name__
         for test_suite in list(_iter_class_suites(reference_suite))
         if test_suite.countTestCases() > 0
-    )
+    }
 
     set_difference = reference_suite_classes_str - test_suite_classes_str
 
@@ -82,7 +82,7 @@ def compare_unittest_suites(
     return test_suite
 
 
-def default_suite(test_loader: unittest.TestLoader):
+def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader):
     """Example of a manually constructed test suite.
 
     Intended to be modified to create additional test suites
@@ -106,9 +106,10 @@ def default_suite(test_loader: unittest.TestLoader):
     from warp.tests.test_devices import TestDevices
     from warp.tests.test_dlpack import TestDLPack
     from warp.tests.test_examples import (
-        TestExamples,
+        TestCoreExamples,
         TestFemDiffusionExamples,
         TestFemExamples,
+        TestOptimExamples,
         TestSimExamples,
     )
     from warp.tests.test_fabricarray import TestFabricArray
@@ -143,6 +144,7 @@ def default_suite(test_loader: unittest.TestLoader):
     from warp.tests.test_mesh_query_ray import TestMeshQueryRay
     from warp.tests.test_mlp import TestMLP
     from warp.tests.test_model import TestModel
+    from warp.tests.test_module_hashing import TestModuleHashing
     from warp.tests.test_modules_lite import TestModuleLite
     from warp.tests.test_multigpu import TestMultiGPU
     from warp.tests.test_noise import TestNoise
@@ -156,6 +158,7 @@ def default_suite(test_loader: unittest.TestLoader):
     from warp.tests.test_reload import TestReload
     from warp.tests.test_rounding import TestRounding
     from warp.tests.test_runlength_encode import TestRunlengthEncode
+    from warp.tests.test_sim_grad import TestSimGradients
     from warp.tests.test_sim_kinematics import TestSimKinematics
     from warp.tests.test_smoothstep import TestSmoothstep
     from warp.tests.test_snippet import TestSnippets
@@ -194,9 +197,10 @@ def default_suite(test_loader: unittest.TestLoader):
         TestDense,
         TestDevices,
         TestDLPack,
-        TestExamples,
+        TestCoreExamples,
         TestFemDiffusionExamples,
         TestFemExamples,
+        TestOptimExamples,
         TestSimExamples,
         TestFabricArray,
         TestFastMath,
@@ -231,6 +235,7 @@ def default_suite(test_loader: unittest.TestLoader):
         TestMeshQueryRay,
         TestMLP,
         TestModel,
+        TestModuleHashing,
         TestModuleLite,
         TestMultiGPU,
         TestNoise,
@@ -244,6 +249,7 @@ def default_suite(test_loader: unittest.TestLoader):
         TestReload,
         TestRounding,
         TestRunlengthEncode,
+        TestSimGradients,
         TestSimKinematics,
         TestSmoothstep,
         TestSparse,
@@ -267,7 +273,7 @@ def default_suite(test_loader: unittest.TestLoader):
     return _create_suite_from_test_classes(test_loader, test_classes)
 
 
-def kit_suite(test_loader: unittest.TestLoader):
+def kit_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader):
     """Tries to mimic the test suite used for testing omni.warp.core in Kit
 
     Requires manual updates with test_ext.py for now.
@@ -296,6 +302,7 @@ def kit_suite(test_loader: unittest.TestLoader):
     from warp.tests.test_mesh_query_aabb import TestMeshQueryAABBMethods
     from warp.tests.test_mesh_query_point import TestMeshQueryPoint
     from warp.tests.test_mesh_query_ray import TestMeshQueryRay
+    from warp.tests.test_module_hashing import TestModuleHashing
     from warp.tests.test_modules_lite import TestModuleLite
     from warp.tests.test_noise import TestNoise
     from warp.tests.test_operators import TestOperators
@@ -338,6 +345,7 @@ def kit_suite(test_loader: unittest.TestLoader):
         TestMeshQueryAABBMethods,
         TestMeshQueryPoint,
         TestMeshQueryRay,
+        TestModuleHashing,
         TestModuleLite,
         TestNoise,
         TestOperators,

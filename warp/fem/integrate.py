@@ -1,28 +1,25 @@
-from typing import List, Dict, Set, Optional, Any, Union
+import ast
+from typing import Any, Dict, List, Optional, Set, Union
 
 import warp as wp
-
-import re
-import ast
-
-from warp.sparse import BsrMatrix, bsr_zeros, bsr_set_from_triplets, bsr_copy, bsr_assign
-from warp.types import type_length
-from warp.utils import array_cast
 from warp.codegen import get_annotations
-
+from warp.fem import cache
 from warp.fem.domain import GeometryDomain
 from warp.fem.field import (
+    DiscreteField,
+    FieldLike,
+    FieldRestriction,
+    SpaceField,
     TestField,
     TrialField,
-    FieldLike,
-    DiscreteField,
-    FieldRestriction,
     make_restriction,
 )
+from warp.fem.operator import Integrand, Operator
 from warp.fem.quadrature import Quadrature, RegularQuadrature
-from warp.fem.operator import Operator, Integrand
-from warp.fem import cache
-from warp.fem.types import Domain, Field, Sample, DofIndex, NULL_DOF_INDEX, OUTSIDE, make_free_sample
+from warp.fem.types import NULL_DOF_INDEX, OUTSIDE, DofIndex, Domain, Field, Sample, make_free_sample
+from warp.sparse import BsrMatrix, bsr_set_from_triplets, bsr_zeros
+from warp.types import type_length
+from warp.utils import array_cast
 
 
 def _resolve_path(func, node):
@@ -50,12 +47,7 @@ def _resolve_path(func, node):
         # Look up the closure info and append it to adj.func.__globals__
         # in case you want to define a kernel inside a function and refer
         # to variables you've declared inside that function:
-        capturedvars = dict(
-            zip(
-                func.__code__.co_freevars,
-                [c.cell_contents for c in (func.__closure__ or [])],
-            )
-        )
+        capturedvars = dict(zip(func.__code__.co_freevars, [c.cell_contents for c in (func.__closure__ or [])]))
 
         vars_dict = {**func.__globals__, **capturedvars}
         func = eval(".".join(path), vars_dict)
@@ -132,8 +124,8 @@ class IntegrandTransformer(ast.NodeTransformer):
         try:
             pointer = operator.resolver(field)
             setattr(operator, pointer.key, pointer)
-        except AttributeError:
-            raise ValueError(f"Operator {operator.func.__name__} is not defined for field {field.name}")
+        except AttributeError as e:
+            raise ValueError(f"Operator {operator.func.__name__} is not defined for field {field.name}") from e
         call.func = ast.Attribute(value=call.func, attr=pointer.key, ctx=ast.Load())
 
     def _translate_callee(self, callee: Integrand, args: List[ast.AST]):
@@ -204,7 +196,7 @@ def _get_integrand_field_arguments(
         arg_type = argspec.annotations[arg]
         if arg_type == Field:
             if arg not in fields:
-                raise ValueError(f"Missing field for argument '{arg}'")
+                raise ValueError(f"Missing field for argument '{arg}' of integrand '{integrand.name}'")
             field_args[arg] = fields[arg]
         elif arg_type == Domain:
             domain_name = arg
@@ -217,6 +209,52 @@ def _get_integrand_field_arguments(
     return field_args, value_args, domain_name, sample_name
 
 
+def _check_field_compat(
+    integrand: Integrand,
+    fields: Dict[str, FieldLike],
+    field_args: Dict[str, FieldLike],
+    domain: GeometryDomain = None,
+):
+    # Check field compatilibity
+    for name, field in fields.items():
+        if name not in field_args:
+            raise ValueError(
+                f"Passed field argument '{name}' does not match any parameter of integrand '{integrand.name}'"
+            )
+
+        if isinstance(field, SpaceField) and domain is not None:
+            space = field.space
+            if space.geometry != domain.geometry:
+                raise ValueError(f"Field '{name}' must be defined on the same geometry as the integration domain")
+            if space.dimension != domain.dimension:
+                raise ValueError(
+                    f"Field '{name}' dimension ({space.dimension}) does not match that of the integration domain ({domain.dimension}). Maybe a forgotten `.trace()`?"
+                )
+
+
+def _populate_value_struct(ValueStruct: wp.codegen.Struct, values: Dict[str, Any], integrand_name: str):
+    value_struct_values = ValueStruct()
+    for k, v in values.items():
+        try:
+            setattr(value_struct_values, k, v)
+        except Exception as err:
+            if k not in ValueStruct.vars:
+                raise ValueError(
+                    f"Passed value argument '{k}' does not match any of the integrand '{integrand_name}' parameters"
+                ) from err
+            raise ValueError(
+                f"Passed value argument '{k}' of type '{wp.types.type_repr(v)}' is incompatible with the integrand '{integrand_name}' parameter of type '{wp.types.type_repr(ValueStruct.vars[k].type)}'"
+            ) from err
+
+    missing_values = ValueStruct.vars.keys() - values.keys()
+    if missing_values:
+        wp.utils.warn(
+            f"Missing values for parameter(s) '{', '.join(missing_values)}' of the integrand '{integrand_name}', will be zero-initialized"
+        )
+
+    return value_struct_values
+
+
 def _get_test_and_trial_fields(
     fields: Dict[str, FieldLike],
 ):
@@ -226,14 +264,17 @@ def _get_test_and_trial_fields(
     trial_name = None
 
     for name, field in fields.items():
+        if not isinstance(field, FieldLike):
+            raise ValueError(f"Passed field argument '{name}' is not a proper Field")
+
         if isinstance(field, TestField):
             if test is not None:
-                raise ValueError("Duplicate test field argument")
+                raise ValueError(f"More than one test field argument: '{test_name}' and '{name}'")
             test = field
             test_name = name
         elif isinstance(field, TrialField):
             if trial is not None:
-                raise ValueError("Duplicate test field argument")
+                raise ValueError(f"More than one trial field argument: '{trial_name}' and '{name}'")
             trial = field
             trial_name = name
 
@@ -262,7 +303,7 @@ def _gen_field_struct(field_args: Dict[str, FieldLike]):
     try:
         Fields.__annotations__ = annotations
     except AttributeError:
-        setattr(Fields.__dict__, "__annotations__", annotations)
+        Fields.__dict__.__annotations__ = annotations
 
     suffix = "_".join([f"{name}_{arg_struct.cls.__qualname__}" for name, arg_struct in annotations.items()])
 
@@ -292,7 +333,7 @@ def _gen_value_struct(value_args: Dict[str, type]):
     try:
         Values.__annotations__ = annotations
     except AttributeError:
-        setattr(Values.__dict__, "__annotations__", annotations)
+        Values.__dict__.__annotations__ = annotations
 
     suffix = "_".join([f"{name}_{arg_type_name(arg_type)}" for name, arg_type in annotations.items()])
 
@@ -732,8 +773,11 @@ def _generate_integrate_kernel(
     fields: Dict[str, FieldLike],
     output_dtype: type,
     accumulate_dtype: type,
-    kernel_options: Dict[str, Any] = {},
+    kernel_options: Optional[Dict[str, Any]] = None,
 ) -> wp.Kernel:
+    if kernel_options is None:
+        kernel_options = {}
+
     output_dtype = wp.types.type_scalar_type(output_dtype)
 
     # Extract field arguments from integrand
@@ -764,6 +808,8 @@ def _generate_integrate_kernel(
         return kernel, FieldStruct, ValueStruct
 
     # Not found in cache, transform integrand and generate  kernel
+
+    _check_field_compat(integrand, fields, field_args, domain)
 
     integrand_func = _translate_integrand(
         integrand,
@@ -849,6 +895,7 @@ def _generate_integrate_kernel(
 
 
 def _launch_integrate_kernel(
+    integrand: Integrand,
     kernel: wp.Kernel,
     FieldStruct: wp.codegen.Struct,
     ValueStruct: wp.codegen.Struct,
@@ -876,9 +923,7 @@ def _launch_integrate_kernel(
     for k, v in fields.items():
         setattr(field_arg_values, k, v.eval_arg_value(device=device))
 
-    value_struct_values = ValueStruct()
-    for k, v in values.items():
-        setattr(value_struct_values, k, v)
+    value_struct_values = _populate_value_struct(ValueStruct, values, integrand_name=integrand.name)
 
     # Constant form
     if test is None and trial is None:
@@ -1120,14 +1165,14 @@ def integrate(
     domain: Optional[GeometryDomain] = None,
     quadrature: Optional[Quadrature] = None,
     nodal: bool = False,
-    fields: Dict[str, FieldLike] = {},
-    values: Dict[str, Any] = {},
+    fields: Optional[Dict[str, FieldLike]] = None,
+    values: Optional[Dict[str, Any]] = None,
     accumulate_dtype: type = wp.float64,
     output_dtype: Optional[type] = None,
     output: Optional[Union[BsrMatrix, wp.array]] = None,
     device=None,
     temporary_store: Optional[cache.TemporaryStore] = None,
-    kernel_options: Dict[str, Any] = {},
+    kernel_options: Optional[Dict[str, Any]] = None,
 ):
     """
     Integrates a constant, linear or bilinear form, and returns a scalar, array, or sparse matrix, respectively.
@@ -1146,6 +1191,15 @@ def integrate(
         device: Device on which to perform the integration
         kernel_options: Overloaded options to be passed to the kernel builder (e.g, ``{"enable_backward": True}``)
     """
+    if fields is None:
+        fields = {}
+
+    if values is None:
+        values = {}
+
+    if kernel_options is None:
+        kernel_options = {}
+
     if not isinstance(integrand, Integrand):
         raise ValueError("integrand must be tagged with @warp.fem.integrand decorator")
 
@@ -1208,6 +1262,7 @@ def integrate(
     )
 
     return _launch_integrate_kernel(
+        integrand=integrand,
         kernel=kernel,
         FieldStruct=FieldStruct,
         ValueStruct=ValueStruct,
@@ -1387,8 +1442,11 @@ def _generate_interpolate_kernel(
     dest: Optional[Union[FieldLike, wp.array]],
     quadrature: Optional[Quadrature],
     fields: Dict[str, FieldLike],
-    kernel_options: Dict[str, Any] = {},
+    kernel_options: Optional[Dict[str, Any]] = None,
 ) -> wp.Kernel:
+    if kernel_options is None:
+        kernel_options = {}
+
     # Extract field arguments from integrand
     field_args, value_args, domain_name, sample_name = _get_integrand_field_arguments(
         integrand, fields=fields, domain=domain
@@ -1421,6 +1479,8 @@ def _generate_interpolate_kernel(
     )
     if kernel is not None:
         return kernel, FieldStruct, ValueStruct
+
+    _check_field_compat(integrand, fields, field_args, domain)
 
     # Generate interpolation kernel
     if isinstance(dest, FieldRestriction):
@@ -1493,6 +1553,7 @@ def _generate_interpolate_kernel(
 
 
 def _launch_interpolate_kernel(
+    integrand: Integrand,
     kernel: wp.kernel,
     FieldStruct: wp.codegen.Struct,
     ValueStruct: wp.codegen.Struct,
@@ -1511,9 +1572,7 @@ def _launch_interpolate_kernel(
     for k, v in fields.items():
         setattr(field_arg_values, k, v.eval_arg_value(device=device))
 
-    value_struct_values = ValueStruct()
-    for k, v in values.items():
-        setattr(value_struct_values, k, v)
+    value_struct_values = _populate_value_struct(ValueStruct, values, integrand_name=integrand.name)
 
     if isinstance(dest, FieldRestriction):
         dest_node_arg = dest.space_restriction.node_arg(device=device)
@@ -1554,10 +1613,10 @@ def interpolate(
     integrand: Integrand,
     dest: Optional[Union[DiscreteField, FieldRestriction, wp.array]] = None,
     quadrature: Optional[Quadrature] = None,
-    fields: Dict[str, FieldLike] = {},
-    values: Dict[str, Any] = {},
+    fields: Optional[Dict[str, FieldLike]] = None,
+    values: Optional[Dict[str, Any]] = None,
     device=None,
-    kernel_options: Dict[str, Any] = {},
+    kernel_options: Optional[Dict[str, Any]] = None,
 ):
     """
     Interpolates a function at a finite set of sample points and optionally assigns the result to a discrete field or a raw warp array.
@@ -1575,6 +1634,15 @@ def interpolate(
         device: Device on which to perform the interpolation
         kernel_options: Overloaded options to be passed to the kernel builder (e.g, ``{"enable_backward": True}``)
     """
+    if fields is None:
+        fields = {}
+
+    if values is None:
+        values = {}
+
+    if kernel_options is None:
+        kernel_options = {}
+
     if not isinstance(integrand, Integrand):
         raise ValueError("integrand must be tagged with @integrand decorator")
 
@@ -1603,6 +1671,7 @@ def interpolate(
     )
 
     return _launch_interpolate_kernel(
+        integrand=integrand,
         kernel=kernel,
         FieldStruct=FieldStruct,
         ValueStruct=ValueStruct,

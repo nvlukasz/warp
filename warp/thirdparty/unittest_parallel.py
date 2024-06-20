@@ -29,7 +29,6 @@ from io import StringIO
 import warp.tests.unittest_suites  # NVIDIA Modification
 from warp.tests.unittest_utils import (  # NVIDIA modification
     ParallelJunitTestResult,
-    ParallelTeamCityTestResult,
     write_junit_results,
 )
 
@@ -42,8 +41,6 @@ except ImportError:
 
 
 # The following variables are NVIDIA Modifications
-RUNNING_IN_TEAMCITY = os.environ.get("TEAMCITY_VERSION") is not None
-TEST_SUITE_NAME = "WarpTests"
 START_DIRECTORY = os.path.dirname(__file__)  # The directory to start test discovery
 
 
@@ -154,6 +151,10 @@ def main(argv=None):
     group_coverage.add_argument(
         "--coverage-fail-under", metavar="MIN", type=float, help="Fail if coverage percentage under min"
     )
+    group_warp = parser.add_argument_group("NVIDIA Warp options")  # NVIDIA Modification
+    group_warp.add_argument(
+        "--no-shared-cache", action="store_true", help="Use a separate kernel cache per test process."
+    )
     args = parser.parse_args(args=argv)
 
     if args.coverage_branch:
@@ -168,6 +169,12 @@ def main(argv=None):
     if process_count == 0:
         process_count = multiprocessing.cpu_count()
     process_count = min(process_count, args.maxjobs)  # NVIDIA Modification
+
+    import warp as wp  # NVIDIA Modification
+
+    # Clear the Warp cache (NVIDIA Modification)
+    wp.build.clear_kernel_cache()
+    print("Cleared Warp kernel cache")
 
     # Create the temporary directory (for coverage files)
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -201,9 +208,6 @@ def main(argv=None):
         # Don't use more processes than test suites
         process_count = max(1, min(len(test_suites), process_count))
 
-        if RUNNING_IN_TEAMCITY:
-            print(f"##teamcity[testSuiteStarted name='{TEST_SUITE_NAME}']")  # NVIDIA Modification for TC
-
         if not args.serial_fallback:
             # Report test suites and processes
             print(
@@ -226,7 +230,7 @@ def main(argv=None):
                 with multiprocessing_context.Pool(
                     process_count,
                     maxtasksperchild=maxtasksperchild,
-                    initializer=set_worker_cache,
+                    initializer=initialize_test_process,
                     initargs=(manager.Lock(), shared_index, args, temp_dir),
                 ) as pool:
                     test_manager = ParallelTestManager(manager, args, temp_dir)
@@ -236,11 +240,11 @@ def main(argv=None):
                 with concurrent.futures.ProcessPoolExecutor(
                     max_workers=process_count,
                     mp_context=multiprocessing.get_context(method="spawn"),
-                    initializer=set_worker_cache,
+                    initializer=initialize_test_process,
                     initargs=(manager.Lock(), shared_index, args, temp_dir),
                 ) as executor:
                     test_manager = ParallelTestManager(manager, args, temp_dir)
-                    results = list(executor.map(test_manager.run_tests, test_suites, timeout=3600))
+                    results = list(executor.map(test_manager.run_tests, test_suites, timeout=7200))
         else:
             # This entire path is an NVIDIA Modification
 
@@ -248,14 +252,6 @@ def main(argv=None):
             print(f"Running {discover_suite.countTestCases()} total tests (serial fallback)", file=sys.stderr)
             if args.verbose > 1:
                 print(file=sys.stderr)
-
-            import warp as wp
-
-            wp.init()
-
-            # force rebuild of all kernels
-            wp.build.clear_kernel_cache()
-            print("Cleared Warp kernel cache")
 
             # Run the tests in serial
             start_time = time.perf_counter()
@@ -266,9 +262,6 @@ def main(argv=None):
 
         stop_time = time.perf_counter()
         test_duration = stop_time - start_time
-
-        if RUNNING_IN_TEAMCITY:
-            print(f"##teamcity[testSuiteFinished name='{TEST_SUITE_NAME}']")  # NVIDIA Modification for TC
 
         # Aggregate parallel test run results
         tests_run = 0
@@ -331,8 +324,6 @@ def main(argv=None):
 
         # Return an error status on failure
         if not is_success:
-            if RUNNING_IN_TEAMCITY:
-                print("##teamcity[buildStatus status='FAILURE']")  # NVIDIA Modification for TC
             parser.exit(status=len(errors) + len(failures) + unexpected_successes)
 
         # Coverage?
@@ -435,13 +426,16 @@ class ParallelTestManager:
     def run_tests(self, test_suite):
         # Fail fast?
         if self.failfast.is_set():
-            return [0, [], [], 0, 0, 0]
+            return [0, [], [], 0, 0, 0, []]  # NVIDIA Modification
 
-        # NVIDIA Modification for TeamCity and GitLab
+        # NVIDIA Modification for GitLab
+        import warp.tests.unittest_utils
 
-        if RUNNING_IN_TEAMCITY:
-            resultclass = ParallelTeamCityTestResult
-        elif self.args.junit_report_xml:
+        warp.tests.unittest_utils.coverage_enabled = self.args.coverage
+        warp.tests.unittest_utils.coverage_temp_dir = self.temp_dir
+        warp.tests.unittest_utils.coverage_branch = self.args.coverage_branch
+
+        if self.args.junit_report_xml:
             resultclass = ParallelJunitTestResult
         else:
             resultclass = ParallelTextTestResult
@@ -450,7 +444,7 @@ class ParallelTestManager:
         with _coverage(self.args, self.temp_dir):
             runner = unittest.TextTestRunner(
                 stream=StringIO(),
-                resultclass=resultclass,  # NVIDIA Modification for TC
+                resultclass=resultclass,  # NVIDIA Modification
                 verbosity=self.args.verbose,
                 failfast=self.args.failfast,
                 buffer=self.args.buffer,
@@ -531,10 +525,13 @@ class ParallelTextTestResult(unittest.TextTestResult):
         pass
 
 
-def set_worker_cache(lock, shared_index, args, temp_dir):
-    """Change the Warp cache to avoid conflicts.
-    This function is run at the start of every new process. (NVIDIA modification)
+def initialize_test_process(lock, shared_index, args, temp_dir):
+    """Necessary operations to be executed at the start of every test process.
+
+    Currently this function can be used to set a separate Warp cache. (NVIDIA modification)
     If the environment variable `WARP_CACHE_ROOT` is detected, the cache will be placed in the provided path.
+
+    It also ensures that Warp is initialized prior to running any tests.
     """
 
     with lock:
@@ -543,18 +540,20 @@ def set_worker_cache(lock, shared_index, args, temp_dir):
 
     with _coverage(args, temp_dir):
         import warp as wp
-        from warp.thirdparty import appdirs
 
-        if "WARP_CACHE_ROOT" in os.environ:
-            cache_root_dir = os.path.join(os.getenv("WARP_CACHE_ROOT"), f"{wp.config.version}-{worker_index:03d}")
-        else:
-            cache_root_dir = appdirs.user_cache_dir(
-                appname="warp", appauthor="NVIDIA", version=f"{wp.config.version}-{worker_index:03d}"
-            )
+        if args.no_shared_cache:
+            from warp.thirdparty import appdirs
 
-        wp.config.kernel_cache_dir = cache_root_dir
-        wp.init()
-        wp.build.clear_kernel_cache()
+            if "WARP_CACHE_ROOT" in os.environ:
+                cache_root_dir = os.path.join(os.getenv("WARP_CACHE_ROOT"), f"{wp.config.version}-{worker_index:03d}")
+            else:
+                cache_root_dir = appdirs.user_cache_dir(
+                    appname="warp", appauthor="NVIDIA", version=f"{wp.config.version}-{worker_index:03d}"
+                )
+
+            wp.config.kernel_cache_dir = cache_root_dir
+
+            wp.build.clear_kernel_cache()
 
 
 if __name__ == "__main__":  # pragma: no cover

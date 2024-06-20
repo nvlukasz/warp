@@ -12,8 +12,6 @@ import warp as wp
 import warp.sim
 from warp.tests.unittest_utils import *
 
-wp.init()
-
 
 def build_ant(num_envs):
     builder = wp.sim.ModelBuilder()
@@ -55,7 +53,7 @@ def build_complex_joint_mechanism(chain_length):
     tf2 = wp.transform(wp.vec3(7.0, 8.0, 9.0), wp.quat_from_axis_angle((0.0, 0.0, 1.0), math.pi * 0.75))
 
     parent = -1
-    for i in range(chain_length):
+    for _i in range(chain_length):
         b0 = builder.add_body(com=com0)
         builder.add_joint_fixed(parent=parent, child=b0, parent_xform=tf1, child_xform=tf0)
         assert builder.articulation_count == 1

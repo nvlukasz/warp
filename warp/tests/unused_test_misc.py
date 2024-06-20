@@ -9,8 +9,6 @@ import numpy as np
 
 import warp as wp
 
-wp.init()
-
 
 @wp.kernel
 def arange(out: wp.array(dtype=int)):
@@ -24,7 +22,7 @@ cmds = []
 n = 10
 arrays = []
 
-for i in range(5):
+for _i in range(5):
     arrays.append(wp.zeros(n, dtype=int, device=device))
 
 # setup CUDA graph
@@ -51,7 +49,7 @@ for i in range(5):
 n = 16
 arrays = []
 
-for i in range(5):
+for _i in range(5):
     arrays.append(wp.zeros(n, dtype=int, device=device))
 
 # update graph params

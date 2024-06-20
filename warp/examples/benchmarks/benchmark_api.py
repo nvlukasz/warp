@@ -7,8 +7,8 @@
 
 import gc
 import statistics as stats
-import warp as wp
 
+import warp as wp
 
 ENABLE_MEMPOOLS = False
 ENABLE_PEER_ACCESS = False
@@ -31,8 +31,6 @@ def inc_kernel(a: wp.array(dtype=float)):
     tid = wp.tid()
     a[tid] = a[tid] + 1.0
 
-
-wp.init()
 
 # configure devices
 for target_device in wp.get_cuda_devices():
@@ -92,7 +90,7 @@ def test_alloc(num_elems, device, idx):
 
     with wp.ScopedTimer("alloc", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         g_allocs[idx] = wp.empty(num_elems, dtype=float, device=device)
-        
+
         if DO_SYNC:
             wp.synchronize_device(device)
 
@@ -116,7 +114,7 @@ def test_zeros(num_elems, device, idx):
 
     with wp.ScopedTimer("zeros", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         g_allocs[idx] = wp.zeros(num_elems, dtype=float, device=device)
-        
+
         if DO_SYNC:
             wp.synchronize_device(device)
 
@@ -128,7 +126,7 @@ def test_h2d(num_elems, device):
 
     with wp.ScopedTimer("h2d", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         wp.copy(arr_cuda0, arr_host)
-        
+
         if DO_SYNC:
             wp.synchronize_device(device)
 
@@ -140,7 +138,7 @@ def test_d2h(num_elems, device):
 
     with wp.ScopedTimer("d2h", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         wp.copy(arr_host, arr_cuda0)
-        
+
         if DO_SYNC:
             wp.synchronize_device(device)
 
@@ -152,7 +150,7 @@ def test_h2d_pinned(num_elems, device):
 
     with wp.ScopedTimer("h2d pinned", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         wp.copy(arr_cuda0, arr_host_pinned)
-        
+
         if DO_SYNC:
             wp.synchronize_device(device)
 
@@ -164,7 +162,7 @@ def test_d2h_pinned(num_elems, device):
 
     with wp.ScopedTimer("d2h pinned", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         wp.copy(arr_host_pinned, arr_cuda0)
-        
+
         if DO_SYNC:
             wp.synchronize_device(device)
 
@@ -176,7 +174,7 @@ def test_d2d(num_elems, device):
 
     with wp.ScopedTimer("d2d", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         wp.copy(arr_cuda0_dst, arr_cuda0_src)
-        
+
         if DO_SYNC:
             wp.synchronize_device(device)
 
@@ -188,7 +186,7 @@ def test_p2p(num_elems, src_device, dst_device):
 
     with wp.ScopedTimer("p2p", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         wp.copy(arr_cuda0, arr_cuda1)
-        
+
         if DO_SYNC:
             wp.synchronize_device(src_device)
             wp.synchronize_device(dst_device)
@@ -203,7 +201,7 @@ def test_p2p_stream(num_elems, src_device, dst_device):
 
     with wp.ScopedTimer("p2p stream", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         wp.copy(arr_cuda0, arr_cuda1, stream=stream)
-        
+
         if DO_SYNC:
             wp.synchronize_device(src_device)
             wp.synchronize_device(dst_device)
@@ -218,7 +216,7 @@ def test_launch(num_elems, device):
 
     with wp.ScopedTimer("launch", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         wp.launch(inc_kernel, dim=a.size, inputs=[a], device=device)
-        
+
         if DO_SYNC:
             wp.synchronize_device(device)
 
@@ -233,7 +231,7 @@ def test_launch_stream(num_elems, device):
 
     with wp.ScopedTimer("launch stream", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         wp.launch(inc_kernel, dim=a.size, inputs=[a], stream=stream)
-        
+
         if DO_SYNC:
             wp.synchronize_device(device)
 
@@ -245,7 +243,7 @@ def test_graph(num_elems, device):
 
     with wp.ScopedTimer("graph", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         wp.capture_launch(graph0)
-        
+
         if DO_SYNC:
             wp.synchronize_device(device)
 
@@ -257,7 +255,7 @@ def test_graph_stream(num_elems, device):
 
     with wp.ScopedTimer("graph", print=VERBOSE, use_nvtx=USE_NVTX) as timer:
         wp.capture_launch(graph0, stream=stream0)
-        
+
         if DO_SYNC:
             wp.synchronize_device(device)
 
@@ -347,7 +345,7 @@ for i in range(num_runs):
 
 
 def print_stat(name, data, trim=trim_runs):
-    assert(len(data) - 2 * trim > 0)
+    assert len(data) - 2 * trim > 0
     if trim > 0:
         data = sorted(data)[trim:-trim]
     print(f"{name:15s} {1000000 * stats.mean(data):.0f}")

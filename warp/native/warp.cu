@@ -19,6 +19,7 @@
 #include <iterator>
 #include <list>
 #include <map>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -139,6 +140,8 @@ struct FreeInfo
     bool is_async = false;
 };
 
+static std::unordered_map<CUfunction, std::string> g_kernel_names;
+
 // cached info for all devices, indexed by ordinal
 static std::vector<DeviceInfo> g_devices;
 
@@ -218,6 +221,10 @@ int cuda_init()
     {
         return -1;
     }
+
+    // initialize default timing state
+    static CudaTimingState default_timing_state(0, NULL);
+    g_cuda_timing_state = &default_timing_state;
 
     return 0;
 }
@@ -383,6 +390,16 @@ static void CUDART_CB on_graph_destroy(void* user_data)
     }
 
     delete graph_info;
+}
+
+static inline const char* get_cuda_kernel_name(void* kernel)
+{
+    CUfunction cuda_func = static_cast<CUfunction>(kernel);
+    auto name_iter = g_kernel_names.find((CUfunction)cuda_func);
+    if (name_iter != g_kernel_names.end())
+        return name_iter->second.c_str();
+    else
+        return "unknown_kernel";
 }
 
 
@@ -593,7 +610,13 @@ bool memcpy_h2d(void* context, void* dest, void* src, size_t n, void* stream)
     else
         cuda_stream = get_current_stream(context);
 
-    return check_cuda(cudaMemcpyAsync(dest, src, n, cudaMemcpyHostToDevice, cuda_stream));
+    begin_cuda_range(WP_TIMING_MEMCPY, cuda_stream, context, "memcpy HtoD");
+
+    bool result = check_cuda(cudaMemcpyAsync(dest, src, n, cudaMemcpyHostToDevice, cuda_stream));
+
+    end_cuda_range(WP_TIMING_MEMCPY, cuda_stream);
+
+    return result;
 }
 
 bool memcpy_d2h(void* context, void* dest, void* src, size_t n, void* stream)
@@ -606,7 +629,13 @@ bool memcpy_d2h(void* context, void* dest, void* src, size_t n, void* stream)
     else
         cuda_stream = get_current_stream(context);
 
-    return check_cuda(cudaMemcpyAsync(dest, src, n, cudaMemcpyDeviceToHost, cuda_stream));
+    begin_cuda_range(WP_TIMING_MEMCPY, cuda_stream, context, "memcpy DtoH");
+
+    bool result = check_cuda(cudaMemcpyAsync(dest, src, n, cudaMemcpyDeviceToHost, cuda_stream));
+
+    end_cuda_range(WP_TIMING_MEMCPY, cuda_stream);
+
+    return result;
 }
 
 bool memcpy_d2d(void* context, void* dest, void* src, size_t n, void* stream)
@@ -619,7 +648,13 @@ bool memcpy_d2d(void* context, void* dest, void* src, size_t n, void* stream)
     else
         cuda_stream = get_current_stream(context);
 
-    return check_cuda(cudaMemcpyAsync(dest, src, n, cudaMemcpyDeviceToDevice, cuda_stream));
+    begin_cuda_range(WP_TIMING_MEMCPY, cuda_stream, context, "memcpy DtoD");
+
+    bool result = check_cuda(cudaMemcpyAsync(dest, src, n, cudaMemcpyDeviceToDevice, cuda_stream));
+
+    end_cuda_range(WP_TIMING_MEMCPY, cuda_stream);
+
+    return result;
 }
 
 bool memcpy_p2p(void* dst_context, void* dst, void* src_context, void* src, size_t n, void* stream)
@@ -644,10 +679,16 @@ bool memcpy_p2p(void* dst_context, void* dst, void* src_context, void* src, size
 
     if (!cuda_stream_is_capturing(stream))
     {
-        return check_cu(cuMemcpyPeerAsync_f(
+        begin_cuda_range(WP_TIMING_MEMCPY, cuda_stream, get_stream_context(stream), "memcpy PtoP");
+
+        bool result = check_cu(cuMemcpyPeerAsync_f(
             (CUdeviceptr)dst, (CUcontext)dst_context,
             (CUdeviceptr)src, (CUcontext)src_context,
             n, cuda_stream));
+
+        end_cuda_range(WP_TIMING_MEMCPY, cuda_stream);
+
+        return result;
     }
     else
     {
@@ -729,8 +770,14 @@ void memset_device(void* context, void* dest, int value, size_t n)
 
     if (true)// ((n%4) > 0)
     {
+        cudaStream_t stream = get_current_stream();
+
+        begin_cuda_range(WP_TIMING_MEMSET, stream, context, "memset");
+
         // for unaligned lengths fallback to CUDA memset
-        check_cuda(cudaMemsetAsync(dest, value, n, get_current_stream()));
+        check_cuda(cudaMemsetAsync(dest, value, n, stream));
+
+        end_cuda_range(WP_TIMING_MEMSET, stream);
     }
     else
     {
@@ -2243,6 +2290,15 @@ void cuda_event_synchronize(void* event)
     check_cu(cuEventSynchronize_f(static_cast<CUevent>(event)));
 }
 
+float cuda_event_elapsed_time(void* start_event, void* end_event)
+{
+    float elapsed = 0.0f;
+    cudaEvent_t start = static_cast<cudaEvent_t>(start_event);
+    cudaEvent_t end = static_cast<cudaEvent_t>(end_event);
+    check_cuda(cudaEventElapsedTime(&elapsed, start, end));
+    return elapsed;
+}
+
 bool cuda_graph_begin_capture(void* context, void* stream, int external)
 {
     ContextGuard guard(context);
@@ -2436,7 +2492,14 @@ bool cuda_graph_end_capture(void* context, void* stream, void** graph_ret)
 
 bool cuda_graph_launch(void* graph_exec, void* stream)
 {
-    return check_cuda(cudaGraphLaunch((cudaGraphExec_t)graph_exec, (cudaStream_t)stream));
+    // TODO: allow naming graphs?
+    begin_cuda_range(WP_TIMING_GRAPH, stream, get_stream_context(stream), "graph");
+
+    bool result = check_cuda(cudaGraphLaunch((cudaGraphExec_t)graph_exec, (cudaStream_t)stream));
+
+    end_cuda_range(WP_TIMING_GRAPH, stream);
+
+    return result;
 }
 
 bool cuda_graph_destroy(void* context, void* graph_exec)
@@ -2485,8 +2548,6 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
             opts.push_back("--std=c++14");
         } else if (g_cpp_standard == "c++17") {
             opts.push_back("--std=c++17");
-        } else if (g_cpp_standard == "c++17") {
-            opts.push_back("--std=c++17");
         } else {
             fprintf(stderr, "Warp error: c++ standard not supported: '%s'\n", output_path);
             return size_t(1);
@@ -2511,7 +2572,7 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
         opts.push_back("-D");
         opts.push_back(macro.c_str());
     }
-    
+
     if (debug)
     {
         opts.push_back("--define-macro=_DEBUG");
@@ -2767,7 +2828,12 @@ void* cuda_get_kernel(void* context, void* module, const char* name)
 
     CUfunction kernel = NULL;
     if (!check_cu(cuModuleGetFunction_f(&kernel, (CUmodule)module, name)))
+    {
         fprintf(stderr, "Warp CUDA error: Failed to lookup kernel function %s in module\n", name);
+        return NULL;
+    }
+
+    g_kernel_names[kernel] = name;
 
     return kernel;
 }
@@ -2801,6 +2867,8 @@ size_t cuda_launch_kernel(void* context, void* kernel, size_t dim, int max_block
         }
     }
 
+    begin_cuda_range(WP_TIMING_KERNEL, stream, context, get_cuda_kernel_name(kernel));
+
     CUresult res = cuLaunchKernel_f(
         (CUfunction)kernel,
         grid_dim, 1, 1,
@@ -2810,6 +2878,8 @@ size_t cuda_launch_kernel(void* context, void* kernel, size_t dim, int max_block
         0);
 
     check_cu(res);
+
+    end_cuda_range(WP_TIMING_KERNEL, stream);
 
     return res;
 }
@@ -2845,7 +2915,12 @@ void* cuda_graphics_register_gl_buffer(void* context, uint32_t gl_buffer, unsign
     ContextGuard guard(context);
 
     CUgraphicsResource *resource = new CUgraphicsResource;
-    check_cu(cuGraphicsGLRegisterBuffer_f(resource, gl_buffer, flags));
+    bool success = check_cu(cuGraphicsGLRegisterBuffer_f(resource, gl_buffer, flags));
+    if (!success)
+    {
+        delete resource;
+        return NULL;
+    }
 
     return resource;
 }
@@ -2857,6 +2932,50 @@ void cuda_graphics_unregister_resource(void* context, void* resource)
     CUgraphicsResource *res = (CUgraphicsResource*)resource;
     check_cu(cuGraphicsUnregisterResource_f(*res));
     delete res;
+}
+
+void cuda_timing_begin(int flags)
+{
+    g_cuda_timing_state = new CudaTimingState(flags, g_cuda_timing_state);
+}
+
+int cuda_timing_get_result_count()
+{
+    if (g_cuda_timing_state)
+        return int(g_cuda_timing_state->ranges.size());
+    return 0;
+}
+
+void cuda_timing_end(timing_result_t* results, int size)
+{
+    if (!g_cuda_timing_state)
+        return;
+
+    // number of results to write to the user buffer
+    int count = std::min(cuda_timing_get_result_count(), size);
+
+    // compute timings and write results
+    for (int i = 0; i < count; i++)
+    {
+        const CudaTimingRange& range = g_cuda_timing_state->ranges[i];
+        timing_result_t& result = results[i];
+        result.context = range.context;
+        result.name = range.name;
+        result.flag = range.flag;
+        check_cuda(cudaEventElapsedTime(&result.elapsed, range.start, range.end));
+    }
+
+    // release events
+    for (CudaTimingRange& range : g_cuda_timing_state->ranges)
+    {
+        check_cu(cuEventDestroy_f(range.start));
+        check_cu(cuEventDestroy_f(range.end));
+    }
+
+    // restore previous state
+    CudaTimingState* parent_state = g_cuda_timing_state->parent;
+    delete g_cuda_timing_state;
+    g_cuda_timing_state = parent_state;
 }
 
 

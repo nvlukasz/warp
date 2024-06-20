@@ -15,20 +15,15 @@ Below are some examples of simulations implemented using Warp:
 Quickstart
 ----------
 
-Warp supports Python versions 3.7 onwards. It can run on x86-64 and ARMv8 CPUs on Windows, Linux, and macOS. GPU support requires a CUDA-capable NVIDIA GPU and driver (minimum GeForce GTX 9xx).
-
 The easiest way to install Warp is from `PyPI <https://pypi.org/project/warp-lang>`_:
 
 .. code-block:: sh
 
     $ pip install warp-lang
 
-Pre-built binary packages are also available on the `Releases <https://github.com/NVIDIA/warp/releases>`_ page.
-To install in your local Python environment extract the archive and run the following command from the root directory:
-
-.. code-block:: sh
-
-    $ pip install .
+The binaries hosted on PyPI are currently built with the CUDA 12.5 runtime.
+Users requiring an older CUDA runtime in Warp can build Warp from source or
+install wheels hosted on GitHub as described in :ref:`GitHub Installation`.
 
 Basic Example
 -------------
@@ -38,8 +33,6 @@ An example first program that computes the lengths of random 3D vectors is given
     import warp as wp
     import numpy as np
 
-    wp.init()
-
     num_points = 1024
 
     @wp.kernel
@@ -48,7 +41,7 @@ An example first program that computes the lengths of random 3D vectors is given
 
         # thread index
         tid = wp.tid()
-        
+
         # compute distance of each point from origin
         lengths[tid] = wp.length(points[tid])
 
@@ -67,14 +60,14 @@ An example first program that computes the lengths of random 3D vectors is given
 Additional Examples
 -------------------
 
-The `examples <https://github.com/NVIDIA/warp/tree/main/warp/examples>`_ directory in
-the Github repository contains a number of scripts that show how to
-implement different simulation methods using the Warp API. Most examples
+The `warp/examples <https://github.com/NVIDIA/warp/tree/main/warp/examples>`_ directory in
+the Github repository contains a number of scripts categorized under different subdirectories
+that show how to implement different simulation methods using the Warp API. Most examples
 will generate USD files containing time-sampled animations in the 
-same directory as the example. Before running examples users should
-ensure that the ``usd-core`` package is installed using::
+same directory as the example.
+Before running examples, users should ensure that the ``usd-core``, ``matplotlib``, and ``pyglet`` packages are installed using::
 
-    pip install usd-core
+    pip install usd-core matplotlib pyglet
 
 Examples can be run from the command-line as follows::
 
@@ -241,11 +234,15 @@ examples/sim
 Omniverse
 ---------
 
-A Warp Omniverse extension is available in the extension registry inside
+Omniverse extensions for Warp are available in the extension registry inside
 Omniverse Kit or USD Composer.
+The ``omni.warp.core`` extension installs Warp into the Omniverse Application's
+Python environment, which allows users to import the module in their scripts and nodes. 
+The ``omni.warp`` extension provides a collection of OmniGraph nodes and sample
+scenes demonstrating uses of Warp in OmniGraph.
+Enabling the ``omni.warp`` extension automatically enables the ``omni.warp.core`` extension.
 
-Enabling the extension will automatically install and initialize the
-Warp Python module inside the Kit Python environment. Please see the
+Please see the
 `Omniverse Warp Documentation <https://docs.omniverse.nvidia.com/extensions/latest/ext_warp.html>`_
 for more details on how to use Warp in Omniverse.
 
@@ -255,12 +252,14 @@ Learn More
 
 Please see the following resources for additional background on Warp:
 
+- `Product Page <https://developer.nvidia.com/warp-python>`_
 -  `GTC 2022
    Presentation <https://www.nvidia.com/en-us/on-demand/session/gtcspring22-s41599>`_
 -  `GTC 2021
    Presentation <https://www.nvidia.com/en-us/on-demand/session/gtcspring21-s31838>`_
 -  `SIGGRAPH Asia 2021 Differentiable Simulation
    Course <https://dl.acm.org/doi/abs/10.1145/3476117.3483433>`_
+-  `GTC 2024 Presentation <https://www.nvidia.com/en-us/on-demand/session/gtc24-s63345>`_
 
 The underlying technology in Warp has been used in a number of research
 projects at NVIDIA including the following publications:
@@ -278,6 +277,43 @@ projects at NVIDIA including the following publications:
    Considine et
    al. `(2021) <https://gradsim.github.io>`__
 
+Support
+-------
+
+Problems, questions, and feature requests can be opened on
+`GitHub Issues <https://github.com/NVIDIA/warp/issues>`_.
+
+The Warp team also monitors the **#warp** channel on the public
+`Omniverse Discord <https://discord.com/invite/nvidiaomniverse>`_ server, come chat to us!
+
+Versioning
+----------
+
+Versions take the format X.Y.Z, similar to `Python itself <https://devguide.python.org/developer-workflow/development-cycle/#devcycle>`_:
+
+* Increments in X are reserved for major reworks of the project causing disruptive incompatibility (or reaching the 1.0 milestone).
+* Increments in Y are for regular releases with a new set of features.
+* Increments in Z are for bug fixes. In principle there are no new features. Can be omitted if 0 or not relevant.
+
+This is similar to `Semantic Versioning <https://semver.org/>`_ but less strict around backward compatibility.
+Like with Python, some breaking changes can be present between minor versions if well documented and gradually introduced.
+
+Note that prior to 0.11.0 this schema was not strictly adhered to.
+
+License
+-------
+
+Warp is provided under the NVIDIA Software License, please see
+`LICENSE.md <https://github.com/NVIDIA/warp/blob/main/LICENSE.md>`_ for the full license text.
+
+Contributing
+------------
+
+Contributions and pull requests from the community are welcome and are taken under the
+terms described in the **9. Feedback** section of the `license <https://github.com/NVIDIA/warp/blob/main/LICENSE.md>`_.
+`CONTRIBUTING.md <https://github.com/NVIDIA/warp/blob/main/CONTRIBUTING.md>`_. provides additional information on
+how to open a pull request for Warp.
+
 Citing
 ------
 
@@ -294,12 +330,6 @@ If you use Warp in your research please use the following citation:
         howpublished = {\url{https://github.com/nvidia/warp}}
     }
 
-License
--------
-
-Warp is provided under the NVIDIA Software License, please see
-`LICENSE.md <https://github.com/NVIDIA/warp/blob/main/LICENSE.md>`_ for the full license text.
-
 Full Table of Contents
 ----------------------
 
@@ -310,14 +340,21 @@ Full Table of Contents
     installation
     basics
     modules/devices
-    modules/allocators
-    modules/concurrency
+    modules/differentiability
     modules/generics
     modules/interoperability
     configuration
     debugging
     limitations
     faq
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Advanced Topics
+
+    modules/allocators
+    modules/concurrency
+    profiling
 
 .. toctree::
     :maxdepth: 2

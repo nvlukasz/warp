@@ -12,8 +12,6 @@ import numpy as np
 import warp as wp
 from warp.tests.unittest_utils import *
 
-wp.init()
-
 
 def test_pinned(test: unittest.TestCase, device):
     assert wp.get_device(device).is_cuda, "Test device must be a CUDA device"
@@ -63,7 +61,7 @@ def test_pinned(test: unittest.TestCase, device):
     test.assertTrue(pinned_timer.elapsed < pageable_timer.elapsed, "Pinned transfers did not take less CPU time")
 
 
-devices = get_unique_cuda_test_devices()
+devices = get_selected_cuda_test_devices()
 
 
 class TestPinned(unittest.TestCase):

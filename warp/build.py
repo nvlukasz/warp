@@ -33,7 +33,7 @@ def build_cuda(cu_path, arch, output_path, config="release", verify_fp=False, fa
 # load PTX or CUBIN as a CUDA runtime module (input type determined by input_path extension)
 def load_cuda(input_path, device):
     if not device.is_cuda:
-        raise ("Not a CUDA device")
+        raise RuntimeError("Not a CUDA device")
 
     return warp.context.runtime.core.cuda_load_module(device.context, input_path.encode("utf-8"))
 
@@ -74,49 +74,28 @@ def init_kernel_cache(path=None):
 
     if path is not None:
         cache_root_dir = os.path.realpath(path)
+    elif "WARP_CACHE_PATH" in os.environ:
+        cache_root_dir = os.path.realpath(os.environ.get("WARP_CACHE_PATH"))
     else:
         cache_root_dir = appdirs.user_cache_dir(appname="warp", appauthor="NVIDIA", version=warp.config.version)
 
-    cache_bin_dir = os.path.join(cache_root_dir, "bin")
-    cache_gen_dir = os.path.join(cache_root_dir, "gen")
-
-    if not os.path.isdir(cache_root_dir):
-        # print("Creating cache directory '%s'" % cache_root_dir)
-        os.makedirs(cache_root_dir, exist_ok=True)
-
-    if not os.path.isdir(cache_gen_dir):
-        # print("Creating codegen directory '%s'" % cache_gen_dir)
-        os.makedirs(cache_gen_dir, exist_ok=True)
-
-    if not os.path.isdir(cache_bin_dir):
-        # print("Creating binary directory '%s'" % cache_bin_dir)
-        os.makedirs(cache_bin_dir, exist_ok=True)
-
     warp.config.kernel_cache_dir = cache_root_dir
 
-    global kernel_bin_dir, kernel_gen_dir
-    kernel_bin_dir = cache_bin_dir
-    kernel_gen_dir = cache_gen_dir
+    os.makedirs(warp.config.kernel_cache_dir, exist_ok=True)
 
 
 def clear_kernel_cache():
     """Clear the kernel cache."""
 
-    is_intialized = kernel_bin_dir is not None and kernel_gen_dir is not None
+    warp.context.init()
+
+    import shutil
+
+    is_intialized = warp.context.runtime is not None
     assert is_intialized, "The kernel cache directory is not configured; wp.init() has not been called yet or failed."
 
-    import glob
-
-    paths = []
-
-    if os.path.isdir(kernel_bin_dir):
-        pattern = os.path.join(kernel_bin_dir, "wp_*")
-        paths += glob.glob(pattern)
-
-    if os.path.isdir(kernel_gen_dir):
-        pattern = os.path.join(kernel_gen_dir, "wp_*")
-        paths += glob.glob(pattern)
-
-    for p in paths:
-        if os.path.isfile(p):
-            os.remove(p)
+    for item in os.listdir(warp.config.kernel_cache_dir):
+        item_path = os.path.join(warp.config.kernel_cache_dir, item)
+        if os.path.isdir(item_path) and item.startswith("wp_"):
+            # Remove the directory and its contents
+            shutil.rmtree(item_path, ignore_errors=True)

@@ -12,8 +12,6 @@ import numpy as np
 import warp as wp
 from warp.tests.unittest_utils import *
 
-wp.init()
-
 TRUE_CONSTANT = wp.constant(True)
 
 
@@ -52,6 +50,8 @@ def identity_test(data: wp.array(dtype=wp.bool)):
     else:
         data[i] = False
 
+    data[i] = wp.select(data[i], False, True)
+
 
 def test_bool_identity_ops(test, device):
     rng = np.random.default_rng(123)
@@ -82,23 +82,29 @@ def test_bool_constant(test, device):
     wp.launch(check_compile_constant, 1, inputs=[compile_constant_value], device=device)
     test.assertTrue(compile_constant_value.numpy()[0])
 
+    # Repeat the comparison with dtype=bool for the array
+    compile_constant_value = wp.zeros(1, dtype=bool, device=device)
+    wp.launch(check_compile_constant, 1, inputs=[compile_constant_value], device=device)
+    test.assertTrue(compile_constant_value.numpy()[0])
+
+
+vec3bool = wp.vec(length=3, dtype=wp.bool)
+bool_selector_vec = wp.constant(vec3bool([True, False, True]))
+
+
+@wp.kernel
+def sum_from_bool_vec(sum_array: wp.array(dtype=wp.int32)):
+    i = wp.tid()
+
+    if bool_selector_vec[0]:
+        sum_array[i] = sum_array[i] + 1
+    if bool_selector_vec[1]:
+        sum_array[i] = sum_array[i] + 2
+    if bool_selector_vec[2]:
+        sum_array[i] = sum_array[i] + 4
+
 
 def test_bool_constant_vec(test, device):
-
-    vec3bool = wp.vec(length=3, dtype=wp.bool)
-    bool_selector_vec = wp.constant(vec3bool([True, False, True]))
-
-    @wp.kernel
-    def sum_from_bool_vec(sum_array: wp.array(dtype=wp.int32)):
-        i = wp.tid()
-
-        if bool_selector_vec[0]:
-            sum_array[i] = sum_array[i] + 1
-        if bool_selector_vec[1]:
-            sum_array[i] = sum_array[i] + 2
-        if bool_selector_vec[2]:
-            sum_array[i] = sum_array[i] + 4
-
     result_array = wp.zeros(10, dtype=wp.int32, device=device)
 
     wp.launch(sum_from_bool_vec, result_array.shape, inputs=[result_array], device=device)
@@ -106,29 +112,84 @@ def test_bool_constant_vec(test, device):
     assert_np_equal(result_array.numpy(), np.full(result_array.shape, 5))
 
 
+mat22bool = wp.mat((2, 2), dtype=wp.bool)
+bool_selector_mat = wp.constant(mat22bool([True, False, False, True]))
+
+
+@wp.kernel
+def sum_from_bool_mat(sum_array: wp.array(dtype=wp.int32)):
+    i = wp.tid()
+
+    if bool_selector_mat[0, 0]:
+        sum_array[i] = sum_array[i] + 1
+    if bool_selector_mat[0, 1]:
+        sum_array[i] = sum_array[i] + 2
+    if bool_selector_mat[1, 0]:
+        sum_array[i] = sum_array[i] + 4
+    if bool_selector_mat[1, 1]:
+        sum_array[i] = sum_array[i] + 8
+
+
 def test_bool_constant_mat(test, device):
-
-    mat22bool = wp.mat((2, 2), dtype=wp.bool)
-    bool_selector_mat = wp.constant(mat22bool([True, False, False, True]))
-
-    @wp.kernel
-    def sum_from_bool_mat(sum_array: wp.array(dtype=wp.int32)):
-        i = wp.tid()
-
-        if bool_selector_mat[0, 0]:
-            sum_array[i] = sum_array[i] + 1
-        if bool_selector_mat[0, 1]:
-            sum_array[i] = sum_array[i] + 2
-        if bool_selector_mat[1, 0]:
-            sum_array[i] = sum_array[i] + 4
-        if bool_selector_mat[1, 1]:
-            sum_array[i] = sum_array[i] + 8
-
     result_array = wp.zeros(10, dtype=wp.int32, device=device)
 
     wp.launch(sum_from_bool_mat, result_array.shape, inputs=[result_array], device=device)
 
     assert_np_equal(result_array.numpy(), np.full(result_array.shape, 9))
+
+
+vec3bool_type = wp.types.vector(length=3, dtype=bool)
+
+
+@wp.kernel
+def test_bool_vec_anonymous_typing():
+    # Zero initialize
+    wp.expect_eq(vec3bool_type(), wp.vector(False, False, False))
+    # Scalar initialize
+    wp.expect_eq(vec3bool_type(True), wp.vector(True, True, True))
+    # Component-wise initialize
+    wp.expect_eq(vec3bool_type(True, False, True), wp.vector(True, False, True))
+
+
+def test_bool_vec_typing(test, device):
+    # Zero initialize
+    vec3bool_z = vec3bool_type()
+    test.assertEqual(tuple(vec3bool_z), (False, False, False))
+    # Scalar initialize
+    vec3bool_s = vec3bool_type(True)
+    test.assertEqual(tuple(vec3bool_s), (True, True, True))
+    # Component-wise initialize
+    vec3bool_c = vec3bool_type(True, False, True)
+    test.assertEqual(tuple(vec3bool_c), (True, False, True))
+
+    wp.launch(test_bool_vec_anonymous_typing, (1,), inputs=[], device=device)
+
+
+mat22bool_type = wp.types.matrix((2, 2), dtype=bool)
+
+
+@wp.kernel
+def test_bool_mat_anonymous_typing():
+    # Zero initialize
+    wp.expect_eq(mat22bool_type(), wp.matrix(False, False, False, False, shape=(2, 2)))
+    # Scalar initialize
+    wp.expect_eq(mat22bool_type(True), wp.matrix(True, True, True, True, shape=(2, 2)))
+    # Component-wise initialize
+    wp.expect_eq(mat22bool_type(True, False, True, False), wp.matrix(True, False, True, False, shape=(2, 2)))
+
+
+def test_bool_mat_typing(test, device):
+    # Zero initialize
+    mat22bool_z = mat22bool_type()
+    test.assertEqual(tuple(mat22bool_z), ((False, False), (False, False)))
+    # Scalar initialize
+    mat22bool_s = mat22bool_type(True)
+    test.assertEqual(tuple(mat22bool_s), ((True, True), (True, True)))
+    # Component-wise initialize
+    mat22bool_c = mat22bool_type(True, False, True, False)
+    test.assertEqual(tuple(mat22bool_c), ((True, False), (True, False)))
+
+    wp.launch(test_bool_mat_anonymous_typing, (1,), inputs=[], device=device)
 
 
 devices = get_test_devices()
@@ -142,6 +203,8 @@ add_function_test(TestBool, "test_bool_identity_ops", test_bool_identity_ops, de
 add_function_test(TestBool, "test_bool_constant", test_bool_constant, devices=devices)
 add_function_test(TestBool, "test_bool_constant_vec", test_bool_constant_vec, devices=devices)
 add_function_test(TestBool, "test_bool_constant_mat", test_bool_constant_mat, devices=devices)
+add_function_test(TestBool, "test_bool_vec_typing", test_bool_vec_typing, devices=devices)
+add_function_test(TestBool, "test_bool_mat_typing", test_bool_mat_typing, devices=devices)
 
 
 if __name__ == "__main__":

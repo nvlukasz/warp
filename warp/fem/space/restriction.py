@@ -1,11 +1,9 @@
 import warp as wp
-
+from warp.fem.cache import TemporaryStore, borrow_temporary, borrow_temporary_like, cached_arg_value
 from warp.fem.domain import GeometryDomain
 from warp.fem.types import NodeElementIndex
 from warp.fem.utils import compress_node_indices
-from warp.fem.cache import cached_arg_value, borrow_temporary, borrow_temporary_like, TemporaryStore
 
-from .function_space import FunctionSpace
 from .partition import SpacePartition
 
 wp.set_module_options({"enable_backward": False})
@@ -40,7 +38,10 @@ class SpaceRestriction:
 
         NODES_PER_ELEMENT = self.space_topology.NODES_PER_ELEMENT
 
-        @cache.dynamic_kernel(suffix=f"{self.domain.name}_{self.space_topology.name}_{self.space_partition.name}")
+        @cache.dynamic_kernel(
+            suffix=f"{self.domain.name}_{self.space_topology.name}_{self.space_partition.name}",
+            kernel_options={"max_unroll": 8},
+        )
         def fill_element_node_indices(
             element_arg: self.domain.ElementArg,
             domain_index_arg: self.domain.ElementIndexArg,

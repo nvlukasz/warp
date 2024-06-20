@@ -13,8 +13,6 @@ import numpy as np
 import warp as wp
 from warp.tests.unittest_utils import *
 
-wp.init()
-
 
 @wp.func
 def generic_adder(a: Any, b: Any):
@@ -240,6 +238,32 @@ def test_generic_fill_overloads(test, device):
         assert_np_equal(a3b.numpy(), np.full((n, 3), True, dtype=np.bool_))
 
 
+# generic kernel used to test generic types mixed with specialized types
+@wp.func
+def generic_conditional_setter_func(a: wp.array(dtype=Any), i: int, value: Any, relative: bool):
+    if relative:
+        a[i] += value
+    else:
+        a[i] = value
+
+
+@wp.kernel
+def generic_conditional_setter(a: wp.array(dtype=Any), i: int, value: Any, relative: bool):
+    generic_conditional_setter_func(a, i, value, relative)
+
+
+def test_generic_conditional_setter(test, device):
+    with wp.ScopedDevice(device):
+        n = 10
+        ai = wp.zeros(n, dtype=int)
+
+        wp.launch(generic_conditional_setter, dim=1, inputs=[ai, 1, 42, False])
+        wp.launch(generic_conditional_setter, dim=1, inputs=[ai, 1, 5, True])
+        ai_true = np.zeros(n, dtype=np.int32)
+        ai_true[1] = 47
+        assert_np_equal(ai.numpy(), ai_true)
+
+
 # custom vector/matrix types
 my_vec5 = wp.vec(length=5, dtype=wp.float32)
 my_mat55 = wp.mat(shape=(5, 5), dtype=wp.float32)
@@ -253,22 +277,22 @@ def generic_transform(v: Any, m: Any, expected: Any):
 
 # use overload decorator syntax
 @wp.overload
-def generic_transform(v: wp.vec2, m: wp.mat22, expected: wp.vec2):
+def generic_transform(v: wp.vec2, m: wp.mat22, expected: wp.vec2):  # fmt: skip
     ...
 
 
 @wp.overload
-def generic_transform(v: wp.vec3, m: wp.mat33, expected: wp.vec3):
+def generic_transform(v: wp.vec3, m: wp.mat33, expected: wp.vec3):  # fmt: skip
     ...
 
 
 @wp.overload
-def generic_transform(v: wp.vec4, m: wp.mat44, expected: wp.vec4):
+def generic_transform(v: wp.vec4, m: wp.mat44, expected: wp.vec4):  # fmt: skip
     ...
 
 
 @wp.overload
-def generic_transform(v: my_vec5, m: my_mat55, expected: my_vec5):
+def generic_transform(v: my_vec5, m: my_mat55, expected: my_vec5):  # fmt: skip
     ...
 
 
@@ -474,7 +498,7 @@ def test_type_operator_misspell(test, device):
         i = wp.tid()
         _ = typez(i)(0)
 
-    with test.assertRaisesRegex(RuntimeError, r"Unknown function or operator: 'typez'$"):
+    with test.assertRaisesRegex(KeyError, r"Referencing undefined symbol: typez"):
         wp.launch(
             kernel,
             dim=1,
@@ -511,6 +535,7 @@ add_function_test(TestGenerics, "test_generic_array_kernel", test_generic_array_
 add_function_test(TestGenerics, "test_generic_accumulator_kernel", test_generic_accumulator_kernel, devices=devices)
 add_function_test(TestGenerics, "test_generic_fill", test_generic_fill, devices=devices)
 add_function_test(TestGenerics, "test_generic_fill_overloads", test_generic_fill_overloads, devices=devices)
+add_function_test(TestGenerics, "test_generic_conditional_setter", test_generic_conditional_setter, devices=devices)
 add_function_test(TestGenerics, "test_generic_transform_kernel", test_generic_transform_kernel, devices=devices)
 add_function_test(
     TestGenerics, "test_generic_transform_array_kernel", test_generic_transform_array_kernel, devices=devices

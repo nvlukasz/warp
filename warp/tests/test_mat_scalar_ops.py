@@ -12,8 +12,6 @@ import numpy as np
 import warp as wp
 from warp.tests.unittest_utils import *
 
-wp.init()
-
 np_signed_int_types = [
     np.int8,
     np.int16,
@@ -45,7 +43,7 @@ def randvals(rng, shape, dtype):
     return rng.integers(1, high=5, size=shape, dtype=dtype)
 
 
-kernel_cache = dict()
+kernel_cache = {}
 
 
 def getkernel(func, suffix=""):
@@ -64,8 +62,6 @@ def get_select_kernel(dtype):
         out[0] = input[index]
 
     return getkernel(output_select_kernel_fn, suffix=dtype.__name__)
-
-    wp.launch(kernel, dim=1, inputs=[])
 
 
 def test_arrays(test, device, dtype):
@@ -2900,7 +2896,7 @@ for dtype in np_scalar_types:
         TestMatScalarOps, f"test_conversions_{dtype.__name__}", test_conversions, devices=devices, dtype=dtype
     )
     add_function_test_register_kernel(
-        TestMatScalarOps, f"test_constants_{dtype.__name__}", test_constants, devices=devices, dtype=dtype
+        TestMatScalarOps, f"test_constants_{dtype.__name__}", test_constants, devices=None, dtype=dtype
     )
 
 

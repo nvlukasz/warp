@@ -1,7 +1,9 @@
 Generics
 ========
 
-Warp supports writing generic kernels and functions, which act as templates that can be instantiated with different concrete types.  This allows you to write code once and reuse it with multiple data types.
+Warp supports writing generic kernels and functions, which act as templates that can be instantiated with different concrete types.
+This allows you to write code once and reuse it with multiple data types.
+The concepts discussed on this page also apply to :ref:`Runtime Kernel Creation`.
 
 Generic Kernels
 ---------------
@@ -149,6 +151,7 @@ These instances are treated as regular kernels, not generic.  This means that la
     wp.launch(scale_f32, dim=n, inputs=[x32, 3])
     wp.launch(scale_f64, dim=n, inputs=[x64, 3])
 
+.. _Generic Functions:
 
 Generic Functions
 -----------------
@@ -201,7 +204,7 @@ Consider the following generic function:
     def triple(x: Any):
         return 3 * x
 
-Using numeric literals like ``3`` is problematic in generic expressions due to Warp's strict typing rules.  Operands in arithmetic expressions must have the same data types, but integer literals are always treated as ``wp.int32``.  This function will fail to compile if ``x`` has a data type other than ``wp.int32``, which means that it's not geneneric at all.
+Using numeric literals like ``3`` is problematic in generic expressions due to Warp's strict typing rules.  Operands in arithmetic expressions must have the same data types, but integer literals are always treated as ``wp.int32``.  This function will fail to compile if ``x`` has a data type other than ``wp.int32``, which means that it's not generic at all.
 
 The ``type()`` operator comes to the rescue here.  The ``type()`` operator returns the type of its argument, which is handy in generic functions or kernels where the data types are not known in advance.  We can rewrite the function like this to make it work with a wider range of types:
 

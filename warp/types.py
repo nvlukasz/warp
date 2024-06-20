@@ -9,17 +9,17 @@ from __future__ import annotations
 
 import builtins
 import ctypes
-import hashlib
 import inspect
 import struct
 import zlib
-from typing import Any, Callable, Generic, List, Tuple, TypeVar, Union
+from typing import Any, Callable, Generic, List, NamedTuple, Optional, Tuple, TypeVar, Union
 
 import numpy as np
 
 import warp
 
 # type hints
+T = TypeVar("T")
 Length = TypeVar("Length", bound=int)
 Rows = TypeVar("Rows")
 Cols = TypeVar("Cols")
@@ -28,18 +28,26 @@ DType = TypeVar("DType")
 Int = TypeVar("Int")
 Float = TypeVar("Float")
 Scalar = TypeVar("Scalar")
-Vector = Generic[Length, Scalar]
-Matrix = Generic[Rows, Cols, Scalar]
-Quaternion = Generic[Float]
-Transformation = Generic[Float]
 
-DType = TypeVar("DType")
-Array = Generic[DType]
 
-T = TypeVar("T")
+class Vector(Generic[Length, Scalar]):
+    pass
 
-# shared hash for all constants
-_constant_hash = hashlib.sha256()
+
+class Matrix(Generic[Rows, Cols, Scalar]):
+    pass
+
+
+class Quaternion(Generic[Float]):
+    pass
+
+
+class Transformation(Generic[Float]):
+    pass
+
+
+class Array(Generic[DType]):
+    pass
 
 
 def constant(x):
@@ -49,27 +57,7 @@ def constant(x):
         x: Compile-time constant value, can be any of the built-in math types.
     """
 
-    global _constant_hash
-
-    # hash the constant value
-    if isinstance(x, builtins.bool):
-        # This needs to come before the check for `int` since all boolean
-        # values are also instances of `int`.
-        _constant_hash.update(struct.pack("?", x))
-    elif isinstance(x, int):
-        _constant_hash.update(struct.pack("<q", x))
-    elif isinstance(x, float):
-        _constant_hash.update(struct.pack("<d", x))
-    elif isinstance(x, float16):
-        # float16 is a special case
-        p = ctypes.pointer(ctypes.c_float(x.value))
-        _constant_hash.update(p.contents)
-    elif isinstance(x, tuple(scalar_types)):
-        p = ctypes.pointer(x._type_(x.value))
-        _constant_hash.update(p.contents)
-    elif isinstance(x, ctypes.Array):
-        _constant_hash.update(bytes(x))
-    else:
+    if not isinstance(x, (builtins.bool, int, float, tuple(scalar_and_bool_types), ctypes.Array)):
         raise RuntimeError(f"Invalid constant type: {type(x)}")
 
     return x
@@ -93,6 +81,8 @@ def vector(length, dtype):
         dtype = int32
     elif dtype == float:
         dtype = float32
+    elif dtype == builtins.bool:
+        dtype = bool
 
     class vec_t(ctypes.Array):
         # ctypes.Array data for length, shape and c type:
@@ -110,6 +100,7 @@ def vector(length, dtype):
         _wp_scalar_type_ = dtype
         _wp_type_params_ = [length, dtype]
         _wp_generic_type_str_ = "vec_t"
+        _wp_generic_type_hint_ = Vector
         _wp_constructor_ = "vector"
 
         # special handling for float16 type: in this case, data is stored
@@ -273,6 +264,8 @@ def matrix(shape, dtype):
         dtype = int32
     elif dtype == float:
         dtype = float32
+    elif dtype == builtins.bool:
+        dtype = bool
 
     class mat_t(ctypes.Array):
         _length_ = 0 if shape[0] == Any or shape[1] == Any else shape[0] * shape[1]
@@ -290,6 +283,7 @@ def matrix(shape, dtype):
         _wp_scalar_type_ = dtype
         _wp_type_params_ = [shape[0], shape[1], dtype]
         _wp_generic_type_str_ = "mat_t"
+        _wp_generic_type_hint_ = Matrix
         _wp_constructor_ = "matrix"
 
         _wp_row_type_ = vector(0 if shape[1] == Any else shape[1], dtype)
@@ -428,7 +422,7 @@ def matrix(shape, dtype):
                 if len(key) != 2:
                     raise KeyError(f"Invalid key, expected one or two indices, got {len(key)}")
                 if any(isinstance(x, slice) for x in key):
-                    raise KeyError(f"Slices are not supported when indexing matrices using the `m[i, j]` notation")
+                    raise KeyError("Slices are not supported when indexing matrices using the `m[i, j]` notation")
                 return mat_t.scalar_export(super().__getitem__(key[0] * self._shape_[1] + key[1]))
             elif isinstance(key, int):
                 # row vector indexing m[r]
@@ -442,7 +436,7 @@ def matrix(shape, dtype):
                 if len(key) != 2:
                     raise KeyError(f"Invalid key, expected one or two indices, got {len(key)}")
                 if any(isinstance(x, slice) for x in key):
-                    raise KeyError(f"Slices are not supported when indexing matrices using the `m[i, j]` notation")
+                    raise KeyError("Slices are not supported when indexing matrices using the `m[i, j]` notation")
                 try:
                     return super().__setitem__(key[0] * self._shape_[1] + key[1], mat_t.scalar_import(value))
                 except (TypeError, ctypes.ArgumentError):
@@ -454,7 +448,7 @@ def matrix(shape, dtype):
                 # row vector indexing m[r] = v
                 return self.set_row(key, value)
             elif isinstance(key, slice):
-                raise KeyError(f"Slices are not supported when indexing matrices using the `m[start:end]` notation")
+                raise KeyError("Slices are not supported when indexing matrices using the `m[start:end]` notation")
             else:
                 raise KeyError(f"Invalid key {key}, expected int or pair of ints")
 
@@ -484,7 +478,7 @@ class bool:
     def __init__(self, x=False):
         self.value = x
 
-    def __bool__(self) -> bool:
+    def __bool__(self) -> builtins.bool:
         return self.value != 0
 
     def __float__(self) -> float:
@@ -714,6 +708,7 @@ def quaternion(dtype=Any):
     ret = quat_t
     ret._wp_type_params_ = [dtype]
     ret._wp_generic_type_str_ = "quat_t"
+    ret._wp_generic_type_hint_ = Quaternion
     ret._wp_constructor_ = "quaternion"
 
     return ret
@@ -749,11 +744,12 @@ def transformation(dtype=Any):
         )
         _wp_type_params_ = [dtype]
         _wp_generic_type_str_ = "transform_t"
+        _wp_generic_type_hint_ = Transformation
         _wp_constructor_ = "transformation"
 
         def __init__(self, *args, **kwargs):
             if len(args) == 1 and len(kwargs) == 0:
-                if getattr(args[0], "_wp_generic_type_str_") == self._wp_generic_type_str_:
+                if args[0]._wp_generic_type_str_ == self._wp_generic_type_str_:
                     # Copy constructor.
                     super().__init__(*args[0])
                     return
@@ -1011,11 +1007,12 @@ spatial_vector = spatial_vectorf
 spatial_matrix = spatial_matrixf
 
 
-int_types = [int8, uint8, int16, uint16, int32, uint32, int64, uint64]
-float_types = [float16, float32, float64]
+int_types = (int8, uint8, int16, uint16, int32, uint32, int64, uint64)
+float_types = (float16, float32, float64)
 scalar_types = int_types + float_types
+scalar_and_bool_types = scalar_types + (bool,)
 
-vector_types = [
+vector_types = (
     vec2b,
     vec2ub,
     vec2s,
@@ -1070,7 +1067,7 @@ vector_types = [
     spatial_matrixh,
     spatial_matrixf,
     spatial_matrixd,
-]
+)
 
 np_dtype_to_warp_type = {
     # Numpy scalar types
@@ -1316,7 +1313,7 @@ def type_size_in_bytes(dtype):
         elif isinstance(dtype, warp.codegen.Struct):
             size = ctypes.sizeof(dtype.ctype)
         elif dtype == Any:
-            raise TypeError(f"A concrete type is required")
+            raise TypeError("A concrete type is required")
         else:
             raise TypeError(f"Invalid data type: {dtype}")
         _type_size_cache[dtype] = size
@@ -1329,6 +1326,8 @@ def type_to_warp(dtype):
         return float32
     elif dtype == int:
         return int32
+    elif dtype == builtins.bool:
+        return bool
     else:
         return dtype
 
@@ -1379,10 +1378,7 @@ def type_repr(t):
     if t in scalar_types:
         return t.__name__
 
-    try:
-        return t.__module__ + "." + t.__qualname__
-    except AttributeError:
-        return str(t)
+    return t.__module__ + "." + t.__qualname__
 
 
 def type_is_int(t):
@@ -1401,26 +1397,20 @@ def type_is_float(t):
 
 # returns True if the passed *type* is a vector
 def type_is_vector(t):
-    if hasattr(t, "_wp_generic_type_str_") and t._wp_generic_type_str_ == "vec_t":
-        return True
-    else:
-        return False
+    return getattr(t, "_wp_generic_type_hint_", None) is Vector
 
 
 # returns True if the passed *type* is a matrix
 def type_is_matrix(t):
-    if hasattr(t, "_wp_generic_type_str_") and t._wp_generic_type_str_ == "mat_t":
-        return True
-    else:
-        return False
+    return getattr(t, "_wp_generic_type_hint_", None) is Matrix
+
+
+value_types = (int, float, builtins.bool) + scalar_types
 
 
 # returns true for all value types (int, float, bool, scalars, vectors, matrices)
 def type_is_value(x):
-    if (x == int) or (x == float) or (x == builtins.bool) or (x in scalar_types) or issubclass(x, ctypes.Array):
-        return True
-    else:
-        return False
+    return x in value_types or issubclass(x, ctypes.Array)
 
 
 # equivalent of the above but for values
@@ -1441,63 +1431,68 @@ def is_array(a):
     return isinstance(a, array_types)
 
 
+def scalars_equal(a, b, match_generic):
+    if match_generic:
+        if a == Any or b == Any:
+            return True
+        if a == Scalar and b in scalar_and_bool_types:
+            return True
+        if b == Scalar and a in scalar_and_bool_types:
+            return True
+        if a == Scalar and b == Scalar:
+            return True
+        if a == Float and b in float_types:
+            return True
+        if b == Float and a in float_types:
+            return True
+        if a == Float and b == Float:
+            return True
+
+    # convert to canonical types
+    if a == float:
+        a = float32
+    elif a == int:
+        a = int32
+    elif a == builtins.bool:
+        a = bool
+
+    if b == float:
+        b = float32
+    elif b == int:
+        b = int32
+    elif b == builtins.bool:
+        b = bool
+
+    return a == b
+
+
 def types_equal(a, b, match_generic=False):
     # convert to canonical types
     if a == float:
         a = float32
     elif a == int:
         a = int32
+    elif a == builtins.bool:
+        a = bool
 
     if b == float:
         b = float32
     elif b == int:
         b = int32
+    elif b == builtins.bool:
+        b = bool
 
-    compatible_bool_types = [builtins.bool, bool]
+    if getattr(a, "_wp_generic_type_hint_", "a") is getattr(b, "_wp_generic_type_hint_", "b"):
+        for p1, p2 in zip(a._wp_type_params_, b._wp_type_params_):
+            if not scalars_equal(p1, p2, match_generic):
+                return False
 
-    def are_equal(p1, p2):
-        if match_generic:
-            if p1 == Any or p2 == Any:
-                return True
-            if p1 == Scalar and p2 in scalar_types + [bool]:
-                return True
-            if p2 == Scalar and p1 in scalar_types + [bool]:
-                return True
-            if p1 == Scalar and p2 == Scalar:
-                return True
-            if p1 == Float and p2 in float_types:
-                return True
-            if p2 == Float and p1 in float_types:
-                return True
-            if p1 == Float and p2 == Float:
-                return True
+        return True
 
-        # convert to canonical types
-        if p1 == float:
-            p1 = float32
-        elif p1 == int:
-            p1 = int32
-
-        if p2 == float:
-            p2 = float32
-        elif b == int:
-            p2 = int32
-
-        if p1 in compatible_bool_types and p2 in compatible_bool_types:
-            return True
-        else:
-            return p1 == p2
-
-    if (
-        hasattr(a, "_wp_generic_type_str_")
-        and hasattr(b, "_wp_generic_type_str_")
-        and a._wp_generic_type_str_ == b._wp_generic_type_str_
-    ):
-        return all([are_equal(p1, p2) for p1, p2 in zip(a._wp_type_params_, b._wp_type_params_)])
     if is_array(a) and type(a) is type(b):
         return True
-    else:
-        return are_equal(a, b)
+
+    return scalars_equal(a, b, match_generic)
 
 
 def strides_from_shape(shape: Tuple, dtype):
@@ -1521,14 +1516,21 @@ def check_array_shape(shape: Tuple):
         if dim_size < 0:
             raise ValueError(f"Array shapes must be non-negative, got {dim_size} in dimension {dim_index}")
         if dim_size >= 2**31:
-            raise ValueError("Array shapes must not exceed the maximum representable value of a signed 32-bit integer, "
-                            f"got {dim_size} in dimension {dim_index}.")
+            raise ValueError(
+                "Array shapes must not exceed the maximum representable value of a signed 32-bit integer, "
+                f"got {dim_size} in dimension {dim_index}."
+            )
 
 
 class array(Array):
     # member attributes available during code-gen (e.g.: d = array.shape[0])
     # (initialized when needed)
     _vars = None
+
+    def __new__(cls, *args, **kwargs):
+        instance = super(array, cls).__new__(cls)
+        instance.deleter = None
+        return instance
 
     def __init__(
         self,
@@ -1568,7 +1570,7 @@ class array(Array):
         are taken into account and no memory is allocated for the array.
 
         Args:
-            data (Union[list, tuple, ndarray]) An object to construct the array from, can be a Tuple, List, or generally any type convertible to an np.array
+            data (Union[list, tuple, ndarray]): An object to construct the array from, can be a Tuple, List, or generally any type convertible to an np.array
             dtype (Union): One of the built-in types, e.g.: :class:`warp.mat33`, if dtype is Any and data an ndarray then it will be inferred from the array data type
             shape (tuple): Dimensions of the array
             strides (tuple): Number of bytes in each dimension between successive elements of the array
@@ -1585,7 +1587,6 @@ class array(Array):
 
         """
 
-        self.deleter = None
         self.ctype = None
 
         # properties
@@ -1600,6 +1601,8 @@ class array(Array):
             dtype = int32
         elif dtype == float:
             dtype = float32
+        elif dtype == builtins.bool:
+            dtype = bool
 
         # convert shape to tuple (or leave shape=None if neither shape nor length were specified)
         if shape is not None:
@@ -1643,6 +1646,32 @@ class array(Array):
         if not hasattr(data, "__len__"):
             raise RuntimeError(f"Data must be a sequence or array, got scalar {data}")
 
+        if hasattr(data, "__cuda_array_interface__"):
+            try:
+                # Performance note: try first, ask questions later
+                device = warp.context.runtime.get_device(device)
+            except Exception:
+                # Fallback to using the public API for retrieving the device,
+                # which takes take of initializing Warp if needed.
+                device = warp.context.get_device(device)
+
+            if device.is_cuda:
+                desc = data.__cuda_array_interface__
+                shape = desc.get("shape")
+                strides = desc.get("strides")
+                dtype = np_dtype_to_warp_type[np.dtype(desc.get("typestr"))]
+                ptr = desc.get("data")[0]
+
+                self._init_from_ptr(ptr, dtype, shape, strides, None, device, False, None)
+
+                # keep a ref to the source data to keep allocation alive
+                self._ref = data
+                return
+            else:
+                raise RuntimeError(
+                    f"Trying to construct a Warp array from data argument's __cuda_array_interface__ but {device} is not CUDA-capable"
+                )
+
         if hasattr(dtype, "_wp_scalar_type_"):
             dtype_shape = dtype._shape_
             dtype_ndim = len(dtype_shape)
@@ -1656,9 +1685,9 @@ class array(Array):
         if dtype == Any:
             # infer dtype from data
             try:
-                arr = np.array(data, copy=False, ndmin=1)
+                arr = np.asarray(data)
             except Exception as e:
-                raise RuntimeError(f"Failed to convert input data to an array: {e}")
+                raise RuntimeError(f"Failed to convert input data to an array: {e}") from e
             dtype = np_dtype_to_warp_type.get(arr.dtype)
             if dtype is None:
                 raise RuntimeError(f"Unsupported input data dtype: {arr.dtype}")
@@ -1682,7 +1711,7 @@ class array(Array):
                 except Exception as e:
                     raise RuntimeError(
                         f"Error while trying to construct Warp array from a sequence of Warp structs: {e}"
-                    )
+                    ) from e
             else:
                 raise RuntimeError(
                     "Invalid data argument for array of structs, expected a sequence of structs or a NumPy structured array"
@@ -1695,9 +1724,9 @@ class array(Array):
                     f"Failed to convert input data to an array with Warp type {warp.context.type_str(dtype)}"
                 )
             try:
-                arr = np.array(data, dtype=npdtype, copy=False, ndmin=1)
+                arr = np.asarray(data, dtype=npdtype)
             except Exception as e:
-                raise RuntimeError(f"Failed to convert input data to an array with type {npdtype}: {e}")
+                raise RuntimeError(f"Failed to convert input data to an array with type {npdtype}: {e}") from e
 
         # determine whether the input needs reshaping
         target_npshape = None
@@ -1729,7 +1758,7 @@ class array(Array):
             except Exception as e:
                 raise RuntimeError(
                     f"Failed to reshape the input data to the given shape {shape} and type {warp.context.type_str(dtype)}: {e}"
-                )
+                ) from e
 
         # determine final shape and strides
         if dtype_ndim > 0:
@@ -1751,9 +1780,10 @@ class array(Array):
         try:
             # Performance note: try first, ask questions later
             device = warp.context.runtime.get_device(device)
-        except:
-            warp.context.assert_initialized()
-            raise
+        except Exception:
+            # Fallback to using the public API for retrieving the device,
+            # which takes take of initializing Warp if needed.
+            device = warp.context.get_device(device)
 
         if device.is_cpu and not copy and not pinned:
             # reference numpy memory directly
@@ -1777,9 +1807,10 @@ class array(Array):
         try:
             # Performance note: try first, ask questions later
             device = warp.context.runtime.get_device(device)
-        except:
-            warp.context.assert_initialized()
-            raise
+        except Exception:
+            # Fallback to using the public API for retrieving the device,
+            # which takes take of initializing Warp if needed.
+            device = warp.context.get_device(device)
 
         check_array_shape(shape)
         ndim = len(shape)
@@ -1824,9 +1855,10 @@ class array(Array):
         try:
             # Performance note: try first, ask questions later
             device = warp.context.runtime.get_device(device)
-        except:
-            warp.context.assert_initialized()
-            raise
+        except Exception:
+            # Fallback to using the public API for retrieving the device,
+            # which takes take of initializing Warp if needed.
+            device = warp.context.get_device(device)
 
         check_array_shape(shape)
         ndim = len(shape)
@@ -1884,7 +1916,6 @@ class array(Array):
         self.is_contiguous = False
 
     def __del__(self):
-
         if self.deleter is None:
             return
 
@@ -1893,7 +1924,6 @@ class array(Array):
 
     @property
     def __array_interface__(self):
-
         # raising an AttributeError here makes hasattr() return False
         if self.device is None or not self.device.is_cpu:
             raise AttributeError(f"__array_interface__ not supported because device is {self.device}")
@@ -1930,7 +1960,6 @@ class array(Array):
 
     @property
     def __cuda_array_interface__(self):
-
         # raising an AttributeError here makes hasattr() return False
         if self.device is None or not self.device.is_cuda:
             raise AttributeError(f"__cuda_array_interface__ is not supported because device is {self.device}")
@@ -2030,7 +2059,7 @@ class array(Array):
         new_key = []
         for i in range(0, len(key)):
             new_key.append(key[i])
-        for i in range(len(key), self.ndim):
+        for _i in range(len(key), self.ndim):
             new_key.append(slice(None, None, None))
         key = tuple(new_key)
 
@@ -2267,7 +2296,7 @@ class array(Array):
                 else:
                     cvalue = self.dtype._type_(value)
         except Exception as e:
-            raise ValueError(f"Failed to convert the value to the array data type: {e}")
+            raise ValueError(f"Failed to convert the value to the array data type: {e}") from e
 
         cvalue_ptr = ctypes.pointer(cvalue)
         cvalue_size = ctypes.sizeof(cvalue)
@@ -2304,7 +2333,7 @@ class array(Array):
                 a = self.to("cpu", requires_grad=False)
             # convert through __array_interface__
             # Note: this handles arrays of structs using `descr`, so the result will be a structured NumPy array
-            return np.array(a, copy=False)
+            return np.asarray(a)
         else:
             # return an empty numpy array with the correct dtype and shape
             if isinstance(self.dtype, warp.codegen.Struct):
@@ -2557,8 +2586,12 @@ def array4d(*args, **kwargs):
     return array(*args, **kwargs)
 
 
-# TODO: Rewrite so that we take only shape, not length and optional shape
 def from_ptr(ptr, length, dtype=None, shape=None, device=None):
+    warp.utils.warn(
+        "This version of wp.from_ptr() is deprecated. OmniGraph applications should use from_omni_graph_ptr() instead. In the future, wp.from_ptr() will work only with regular pointers.",
+        category=DeprecationWarning,
+    )
+
     return array(
         dtype=dtype,
         length=length,
@@ -2641,7 +2674,7 @@ class noncontiguous_array_base(Generic[T]):
                 else:
                     cvalue = self.dtype._type_(value)
         except Exception as e:
-            raise ValueError(f"Failed to convert the value to the array data type: {e}")
+            raise ValueError(f"Failed to convert the value to the array data type: {e}") from e
 
         cvalue_ptr = ctypes.pointer(cvalue)
         cvalue_size = ctypes.sizeof(cvalue)
@@ -2854,7 +2887,6 @@ class Bvh:
             )
 
     def __del__(self):
-
         if not self.id:
             return
 
@@ -2943,7 +2975,6 @@ class Mesh:
             )
 
     def __del__(self):
-
         if not self.id:
             return
 
@@ -2970,11 +3001,12 @@ class Volume:
     #: Enum value to specify trilinear interpolation during sampling
     LINEAR = constant(1)
 
-    def __init__(self, data: array):
+    def __init__(self, data: array, copy: bool = True):
         """Class representing a sparse grid.
 
         Args:
             data (:class:`warp.array`): Array of bytes representing the volume in NanoVDB format
+            copy (bool): Whether the incoming data will be copied or aliased
         """
 
         self.id = 0
@@ -2984,23 +3016,22 @@ class Volume:
 
         if data is None:
             return
-
-        if data.device is None:
-            raise RuntimeError("Invalid device")
         self.device = data.device
 
+        owner = False
         if self.device.is_cpu:
-            self.id = self.runtime.core.volume_create_host(ctypes.cast(data.ptr, ctypes.c_void_p), data.size)
+            self.id = self.runtime.core.volume_create_host(
+                ctypes.cast(data.ptr, ctypes.c_void_p), data.size, copy, owner
+            )
         else:
             self.id = self.runtime.core.volume_create_device(
-                self.device.context, ctypes.cast(data.ptr, ctypes.c_void_p), data.size
+                self.device.context, ctypes.cast(data.ptr, ctypes.c_void_p), data.size, copy, owner
             )
 
         if self.id == 0:
             raise RuntimeError("Failed to create volume from input array")
 
     def __del__(self):
-
         if not self.id:
             return
 
@@ -3015,32 +3046,90 @@ class Volume:
         """Returns the raw memory buffer of the Volume as an array"""
         buf = ctypes.c_void_p(0)
         size = ctypes.c_uint64(0)
-        if self.device.is_cpu:
-            self.runtime.core.volume_get_buffer_info_host(self.id, ctypes.byref(buf), ctypes.byref(size))
-        else:
-            self.runtime.core.volume_get_buffer_info_device(self.id, ctypes.byref(buf), ctypes.byref(size))
-        return array(ptr=buf.value, dtype=uint8, shape=size.value, device=self.device)
+        self.runtime.core.volume_get_buffer_info(self.id, ctypes.byref(buf), ctypes.byref(size))
+        return array(ptr=buf.value, dtype=uint8, shape=size.value, device=self.device, owner=False)
 
-    def get_tiles(self) -> array:
+    def get_tile_count(self) -> int:
+        """Returns the number of tiles (NanoVDB leaf nodes) of the volume"""
+
+        voxel_count, tile_count = (
+            ctypes.c_uint64(0),
+            ctypes.c_uint32(0),
+        )
+        self.runtime.core.volume_get_tile_and_voxel_count(self.id, ctypes.byref(tile_count), ctypes.byref(voxel_count))
+        return tile_count.value
+
+    def get_tiles(self, out: Optional[array] = None) -> array:
+        """Returns the integer coordinates of all allocated tiles for this volume.
+
+        Args:
+            out (:class:`warp.array`, optional): If provided, use the `out` array to store the tile coordinates, otherwise
+                a new array will be allocated. `out` must be a contiguous array of ``tile_count`` ``vec3i`` or ``tile_count x 3`` ``int32``
+                on the same device as this volume.
+        """
+
         if self.id == 0:
             raise RuntimeError("Invalid Volume")
 
-        buf = ctypes.c_void_p(0)
-        size = ctypes.c_uint64(0)
-        if self.device.is_cpu:
-            self.runtime.core.volume_get_tiles_host(self.id, ctypes.byref(buf), ctypes.byref(size))
-            deleter = self.device.default_allocator.deleter
-        else:
-            self.runtime.core.volume_get_tiles_device(self.id, ctypes.byref(buf), ctypes.byref(size))
-            if self.device.is_mempool_supported:
-                deleter = self.device.mempool_allocator.deleter
-            else:
-                deleter = self.device.default_allocator.deleter
-        num_tiles = size.value // (3 * 4)
+        tile_count = self.get_tile_count()
+        if out is None:
+            out = warp.empty(dtype=int32, shape=(tile_count, 3), device=self.device)
+        elif out.device != self.device or out.shape[0] < tile_count:
+            raise RuntimeError(f"'out' array must an array with at least {tile_count} rows on device {self.device}")
+        elif not _is_contiguous_vec_like_array(out, vec_length=3, scalar_types=(int32,)):
+            raise RuntimeError(
+                "'out' must be a contiguous 1D array with type vec3i or a 2D array of type int32 with shape (N, 3) "
+            )
 
-        return array(ptr=buf.value, dtype=int32, shape=(num_tiles, 3), device=self.device, deleter=deleter)
+        if self.device.is_cpu:
+            self.runtime.core.volume_get_tiles_host(self.id, out.ptr)
+        else:
+            self.runtime.core.volume_get_tiles_device(self.id, out.ptr)
+
+        return out
+
+    def get_voxel_count(self) -> int:
+        """Returns the total number of allocated voxels for this volume"""
+
+        voxel_count, tile_count = (
+            ctypes.c_uint64(0),
+            ctypes.c_uint32(0),
+        )
+        self.runtime.core.volume_get_tile_and_voxel_count(self.id, ctypes.byref(tile_count), ctypes.byref(voxel_count))
+        return voxel_count.value
+
+    def get_voxels(self, out: Optional[array] = None) -> array:
+        """Returns the integer coordinates of all allocated voxels for this volume.
+
+        Args:
+            out (:class:`warp.array`, optional): If provided, use the `out` array to store the voxel coordinates, otherwise
+                a new array will be allocated. `out` must be a contiguous array of ``voxel_count`` ``vec3i`` or ``voxel_count x 3`` ``int32``
+                on the same device as this volume.
+        """
+
+        if self.id == 0:
+            raise RuntimeError("Invalid Volume")
+
+        voxel_count = self.get_voxel_count()
+        if out is None:
+            out = warp.empty(dtype=int32, shape=(voxel_count, 3), device=self.device)
+        elif out.device != self.device or out.shape[0] < voxel_count:
+            raise RuntimeError(f"'out' array must an array with at least {voxel_count} rows on device {self.device}")
+        elif not _is_contiguous_vec_like_array(out, vec_length=3, scalar_types=(int32,)):
+            raise RuntimeError(
+                "'out' must be a contiguous 1D array with type vec3i or a 2D array of type int32 with shape (N, 3) "
+            )
+
+        if self.device.is_cpu:
+            self.runtime.core.volume_get_voxels_host(self.id, out.ptr)
+        else:
+            self.runtime.core.volume_get_voxels_device(self.id, out.ptr)
+
+        return out
 
     def get_voxel_size(self) -> Tuple[float, float, float]:
+        """Voxel size, i.e, world coordinates of voxel's diagonal vector"""
+
         if self.id == 0:
             raise RuntimeError("Invalid Volume")
 
@@ -3048,9 +3137,181 @@ class Volume:
         self.runtime.core.volume_get_voxel_size(self.id, ctypes.byref(dx), ctypes.byref(dy), ctypes.byref(dz))
         return (dx.value, dy.value, dz.value)
 
+    class GridInfo(NamedTuple):
+        """Grid metadata"""
+
+        name: str
+        """Grid name"""
+        size_in_bytes: int
+        """Size of this grid's data, in bytes"""
+
+        grid_index: int
+        """Index of this grid in the data buffer"""
+        grid_count: int
+        """Total number of grids in the data buffer"""
+        type_str: str
+        """String describing the type of the grid values"""
+
+        translation: vec3f
+        """Index-to-world translation"""
+        transform_matrix: mat33f
+        """Linear part of the index-to-world transform"""
+
+    def get_grid_info(self) -> Volume.GridInfo:
+        """Returns the metadata associated with this Volume"""
+
+        grid_index = ctypes.c_uint32(0)
+        grid_count = ctypes.c_uint32(0)
+        grid_size = ctypes.c_uint64(0)
+        translation_buffer = (ctypes.c_float * 3)()
+        transform_buffer = (ctypes.c_float * 9)()
+        type_str_buffer = (ctypes.c_char * 16)()
+
+        name = self.runtime.core.volume_get_grid_info(
+            self.id,
+            ctypes.byref(grid_size),
+            ctypes.byref(grid_index),
+            ctypes.byref(grid_count),
+            translation_buffer,
+            transform_buffer,
+            type_str_buffer,
+        )
+
+        if name is None:
+            raise RuntimeError("Invalid volume")
+
+        return Volume.GridInfo(
+            name.decode("ascii"),
+            grid_size.value,
+            grid_index.value,
+            grid_count.value,
+            type_str_buffer.value.decode("ascii"),
+            vec3f.from_buffer_copy(translation_buffer),
+            mat33f.from_buffer_copy(transform_buffer),
+        )
+
+    _nvdb_type_to_dtype = {
+        "float": float32,
+        "double": float64,
+        "int16": int16,
+        "int32": int32,
+        "int64": int64,
+        "Vec3f": vec3f,
+        "Vec3d": vec3d,
+        "Half": float16,
+        "uint32": uint32,
+        "bool": bool,
+        "Vec4f": vec4f,
+        "Vec4d": vec4d,
+        "Vec3u8": vec3ub,
+        "Vec3u16": vec3us,
+        "uint8": uint8,
+    }
+
+    @property
+    def dtype(self) -> type:
+        """Type of the Volume's values as a Warp type.
+
+        If the grid does not contain values (e.g. index grids) or if the NanoVDB type is not
+        representable as a Warp type, returns ``None``.
+        """
+        return Volume._nvdb_type_to_dtype.get(self.get_grid_info().type_str, None)
+
+    _nvdb_index_types = ("Index", "OnIndex", "IndexMask", "OnIndexMask")
+
+    @property
+    def is_index(self) -> bool:
+        """Whether this Volume contains an index grid, that is, a type of grid that does
+        not explicitly store values but associates each voxel to linearized index.
+        """
+
+        return self.get_grid_info().type_str in Volume._nvdb_index_types
+
+    def get_feature_array_count(self) -> int:
+        """Returns the number of supplemental data arrays stored alongside the grid"""
+
+        return self.runtime.core.volume_get_blind_data_count(self.id)
+
+    class FeatureArrayInfo(NamedTuple):
+        """Metadata for a supplemental data array"""
+
+        name: str
+        """Name of the data array"""
+        ptr: int
+        """Memory address of the start of the array"""
+
+        value_size: int
+        """Size in bytes of the array values"""
+        value_count: int
+        """Number of values in the array"""
+        type_str: str
+        """String describing the type of the array values"""
+
+    def get_feature_array_info(self, feature_index: int) -> Volume.FeatureArrayInfo:
+        """Returns the metadata associated to the feature array at `feature_index`"""
+
+        buf = ctypes.c_void_p(0)
+        value_count = ctypes.c_uint64(0)
+        value_size = ctypes.c_uint32(0)
+        type_str_buffer = (ctypes.c_char * 16)()
+
+        name = self.runtime.core.volume_get_blind_data_info(
+            self.id,
+            feature_index,
+            ctypes.byref(buf),
+            ctypes.byref(value_count),
+            ctypes.byref(value_size),
+            type_str_buffer,
+        )
+
+        if buf.value is None:
+            raise RuntimeError("Invalid feature array")
+
+        return Volume.FeatureArrayInfo(
+            name.decode("ascii"),
+            buf.value,
+            value_size.value,
+            value_count.value,
+            type_str_buffer.value.decode("ascii"),
+        )
+
+    def feature_array(self, feature_index: int, dtype=None) -> array:
+        """Returns one the the grid's feature data arrays as a Warp array
+
+        Args:
+            feature_index: Index of the supplemental data array in the grid
+            dtype: Type for the returned Warp array. If not provided, will be deduced from the array metadata.
+        """
+
+        info = self.get_feature_array_info(feature_index)
+
+        if dtype is None:
+            try:
+                dtype = Volume._nvdb_type_to_dtype[info.type_str]
+            except KeyError:
+                # Unknown type, default to byte array
+                dtype = uint8
+
+        value_count = info.value_count
+        value_size = info.value_size
+
+        if type_size_in_bytes(dtype) == 1:
+            # allow requesting a byte array from any type
+            value_count *= value_size
+            value_size = 1
+        elif value_size == 1 and (value_count % type_size_in_bytes(dtype)) == 0:
+            # allow converting a byte array to any type
+            value_size = type_size_in_bytes(dtype)
+            value_count = value_count // value_size
+
+        if type_size_in_bytes(dtype) != value_size:
+            raise RuntimeError(f"Cannot cast feature data of size {value_size} to array dtype {type_repr(dtype)}")
+
+        return array(ptr=info.ptr, dtype=dtype, shape=value_count, device=self.device, owner=False)
+
     @classmethod
     def load_from_nvdb(cls, file_or_buffer, device=None) -> Volume:
-        """Creates a Volume object from a NanoVDB file or in-memory buffer.
+        """Creates a Volume object from a serialized NanoVDB file or in-memory buffer.
 
         Returns:
 
@@ -3062,27 +3323,116 @@ class Volume:
             data = file_or_buffer
 
         magic, version, grid_count, codec = struct.unpack("<QIHH", data[0:16])
-        if magic != 0x304244566F6E614E:
+        if magic not in (0x304244566F6E614E, 0x324244566F6E614E):  # NanoVDB0 or NanoVDB2 in hex, little-endian
             raise RuntimeError("NanoVDB signature not found")
         if version >> 21 != 32:  # checking major version
             raise RuntimeError("Unsupported NanoVDB version")
-        if grid_count != 1:
-            raise RuntimeError("Only NVDBs with exactly one grid are supported")
 
-        grid_data_offset = 192 + struct.unpack("<I", data[152:156])[0]
+        # Skip over segment metadata, store total payload size
+        grid_data_offset = 16  # sizeof(FileHeader)
+        tot_file_size = 0
+        for _ in range(grid_count):
+            grid_file_size = struct.unpack("<Q", data[grid_data_offset + 8 : grid_data_offset + 16])[0]
+            tot_file_size += grid_file_size
+
+            grid_name_size = struct.unpack("<I", data[grid_data_offset + 136 : grid_data_offset + 140])[0]
+            grid_data_offset += 176 + grid_name_size  # sizeof(FileMetadata) + grid name
+
+        file_end = grid_data_offset + tot_file_size
+
         if codec == 0:  # no compression
-            grid_data = data[grid_data_offset:]
+            grid_data = data[grid_data_offset:file_end]
         elif codec == 1:  # zip compression
-            grid_data = zlib.decompress(data[grid_data_offset + 8 :])
+            grid_data = bytearray()
+            while grid_data_offset < file_end:
+                chunk_size = struct.unpack("<Q", data[grid_data_offset : grid_data_offset + 8])[0]
+                grid_data += zlib.decompress(data[grid_data_offset + 8 :])
+                grid_data_offset += 8 + chunk_size
+
+        elif codec == 2:  # blosc compression
+            try:
+                import blosc
+            except ImportError as err:
+                raise RuntimeError(
+                    f"NanoVDB buffer is compressed using blosc, but Python module could not be imported: {err}"
+                ) from err
+
+            grid_data = bytearray()
+            while grid_data_offset < file_end:
+                chunk_size = struct.unpack("<Q", data[grid_data_offset : grid_data_offset + 8])[0]
+                grid_data += blosc.decompress(data[grid_data_offset + 8 :])
+                grid_data_offset += 8 + chunk_size
         else:
             raise RuntimeError(f"Unsupported codec code: {codec}")
 
         magic = struct.unpack("<Q", grid_data[0:8])[0]
-        if magic != 0x304244566F6E614E:
+        if magic not in (0x304244566F6E614E, 0x314244566F6E614E):  # NanoVDB0 or NanoVDB1 in hex, little-endian
             raise RuntimeError("NanoVDB signature not found on grid!")
 
         data_array = array(np.frombuffer(grid_data, dtype=np.byte), device=device)
         return cls(data_array)
+
+    @classmethod
+    def load_from_address(cls, grid_ptr: int, buffer_size: int = 0, device=None) -> Volume:
+        """
+        Creates a new :class:`Volume` aliasing an in-memory grid buffer.
+
+        In contrast to :meth:`load_from_nvdb` which should be used to load serialized NanoVDB grids,
+        here the buffer must be uncompressed and must not contain file header information.
+        If the passed address does not contain a NanoVDB grid, the behavior of this function is undefined.
+
+        Args:
+            grid_ptr: Integer address of the start of the grid buffer
+            buffer_size: Size of the buffer, in bytes. If not provided, the size will be assumed to be that of the single grid starting at `grid_ptr`.
+            device: Device of the buffer, and of the returned Volume. If not provided, the current Warp device is assumed.
+
+        Returns the newly created Volume.
+        """
+
+        if not grid_ptr:
+            raise (RuntimeError, "Invalid grid buffer pointer")
+
+        # Check that a Volume has not already been created for this address
+        # (to allow this we would need to ref-count the volume descriptor)
+        existing_buf = ctypes.c_void_p(0)
+        existing_size = ctypes.c_uint64(0)
+        warp.context.runtime.core.volume_get_buffer_info(
+            grid_ptr, ctypes.byref(existing_buf), ctypes.byref(existing_size)
+        )
+
+        if existing_buf.value is not None:
+            raise RuntimeError(
+                "A warp Volume has already been created for this grid, aliasing it more than once is not possible."
+            )
+
+        data_array = array(ptr=grid_ptr, dtype=uint8, shape=buffer_size, owner=False, device=device)
+
+        return cls(data_array, copy=False)
+
+    def load_next_grid(self) -> Volume:
+        """
+        Tries to create a new warp Volume for the next grid that is linked to by this Volume.
+
+        The existence of a next grid is deduced from the `grid_index` and `grid_count` metadata
+        as well as the size of this Volume's in-memory buffer.
+
+        Returns the newly created Volume, or None if there is no next grid.
+        """
+
+        grid = self.get_grid_info()
+
+        array = self.array()
+
+        if grid.grid_index + 1 >= grid.grid_count or array.capacity <= grid.size_in_bytes:
+            return None
+
+        next_volume = Volume.load_from_address(
+            array.ptr + grid.size_in_bytes, buffer_size=array.capacity - grid.size_in_bytes, device=self.device
+        )
+        # makes the new Volume keep a reference to the current grid, as we're aliasing its buffer
+        next_volume._previous_grid = self
+
+        return next_volume
 
     @classmethod
     def load_from_numpy(
@@ -3235,11 +3585,11 @@ class Volume:
 
         Args:
             tile_points (:class:`warp.array`): Array of positions that define the tiles to be allocated.
-                The array can be a 2D, N-by-3 array of :class:`warp.int32` values, indicating index space positions,
-                or can be a 1D array of :class:`warp.vec3` values, indicating world space positions.
+                The array may use an integer scalar type (2D N-by-3 array of :class:`warp.int32` or 1D array of `warp.vec3i` values), indicating index space positions,
+                or a floating point scalar type (2D N-by-3 array of :class:`warp.float32` or 1D array of `warp.vec3f` values), indicating world space positions.
                 Repeated points per tile are allowed and will be efficiently deduplicated.
             voxel_size (float): Voxel size of the new volume.
-            bg_value (float or array-like): Value of unallocated voxels of the volume, also defines the volume's type, a :class:`warp.vec3` volume is created if this is `array-like`, otherwise a float volume is created
+            bg_value (array-like, float, int or None): Value of unallocated voxels of the volume, also defines the volume's type. A :class:`warp.vec3` volume is created if this is `array-like`, an index volume will be created if `bg_value` is ``None``.
             translation (array-like): Translation between the index and world spaces.
             device (Devicelike): The CUDA device to create the volume on, e.g.: "cuda" or "cuda:0".
 
@@ -3250,19 +3600,28 @@ class Volume:
             raise RuntimeError(f"Voxel size must be positive! Got {voxel_size}")
         if not device.is_cuda:
             raise RuntimeError("Only CUDA devices are supported for allocate_by_tiles")
-        if not (
-            isinstance(tile_points, array)
-            and (tile_points.dtype == int32 and tile_points.ndim == 2)
-            or (tile_points.dtype == vec3 and tile_points.ndim == 1)
-        ):
-            raise RuntimeError("Expected an warp array of vec3s or of n-by-3 int32s as tile_points!")
+        if not _is_contiguous_vec_like_array(tile_points, vec_length=3, scalar_types=(float32, int32)):
+            raise RuntimeError(
+                "tile_points must be contiguous and either a 1D warp array of vec3f or vec3i or a 2D n-by-3 array of int32 or float32."
+            )
         if not tile_points.device.is_cuda:
-            tile_points = array(tile_points, dtype=tile_points.dtype, device=device)
+            tile_points = tile_points.to(device)
 
         volume = cls(data=None)
         volume.device = device
-        in_world_space = tile_points.dtype == vec3
-        if hasattr(bg_value, "__len__"):
+        in_world_space = type_scalar_type(tile_points.dtype) == float32
+        if bg_value is None:
+            volume.id = volume.runtime.core.volume_index_from_tiles_device(
+                volume.device.context,
+                ctypes.c_void_p(tile_points.ptr),
+                tile_points.shape[0],
+                voxel_size,
+                translation[0],
+                translation[1],
+                translation[2],
+                in_world_space,
+            )
+        elif hasattr(bg_value, "__len__"):
             volume.id = volume.runtime.core.volume_v_from_tiles_device(
                 volume.device.context,
                 ctypes.c_void_p(tile_points.ptr),
@@ -3305,6 +3664,73 @@ class Volume:
             raise RuntimeError("Failed to create volume")
 
         return volume
+
+    @classmethod
+    def allocate_by_voxels(
+        cls, voxel_points: array, voxel_size: float, translation=(0.0, 0.0, 0.0), device=None
+    ) -> Volume:
+        """Allocate a new Volume with active voxel for each point voxel_points.
+
+        This function creates an *index* Volume, a special kind of volume that does not any store any
+        explicit payload but encodes a linearized index for each active voxel, allowing to lookup and
+        sample data from arbitrary external arrays.
+
+        This function is only supported for CUDA devices.
+
+        Args:
+            voxel_points (:class:`warp.array`): Array of positions that define the voxels to be allocated.
+                The array may use an integer scalar type (2D N-by-3 array of :class:`warp.int32` or 1D array of `warp.vec3i` values), indicating index space positions,
+                or a floating point scalar type (2D N-by-3 array of :class:`warp.float32` or 1D array of `warp.vec3f` values), indicating world space positions.
+                Repeated points per tile are allowed and will be efficiently deduplicated.
+            voxel_size (float): Voxel size of the new volume.
+            translation (array-like): Translation between the index and world spaces.
+            device (Devicelike): The CUDA device to create the volume on, e.g.: "cuda" or "cuda:0".
+
+        """
+        device = warp.get_device(device)
+
+        if voxel_size <= 0.0:
+            raise RuntimeError(f"Voxel size must be positive! Got {voxel_size}")
+        if not device.is_cuda:
+            raise RuntimeError("Only CUDA devices are supported for allocate_by_tiles")
+        if not (is_array(voxel_points) and voxel_points.is_contiguous):
+            raise RuntimeError("tile_points must be a contiguous array")
+        if not _is_contiguous_vec_like_array(voxel_points, vec_length=3, scalar_types=(float32, int32)):
+            raise RuntimeError(
+                "voxel_points must be contiguous and either a 1D warp array of vec3f or vec3i or a 2D n-by-3 array of int32 or float32."
+            )
+        if not voxel_points.device.is_cuda:
+            voxel_points = voxel_points.to(device)
+
+        volume = cls(data=None)
+        volume.device = device
+        in_world_space = type_scalar_type(voxel_points.dtype) == float32
+
+        volume.id = volume.runtime.core.volume_from_active_voxels_device(
+            volume.device.context,
+            ctypes.c_void_p(voxel_points.ptr),
+            voxel_points.shape[0],
+            voxel_size,
+            translation[0],
+            translation[1],
+            translation[2],
+            in_world_space,
+        )
+
+        if volume.id == 0:
+            raise RuntimeError("Failed to create volume")
+
+        return volume
+
+
+def _is_contiguous_vec_like_array(array, vec_length: int, scalar_types: Tuple[type]) -> bool:
+    if not (is_array(array) and array.is_contiguous):
+        return False
+    if type_scalar_type(array.dtype) not in scalar_types:
+        return False
+    return (array.ndim == 1 and type_length(array.dtype) == vec_length) or (
+        array.ndim == 2 and array.shape[1] == vec_length and type_length(array.dtype) == 1
+    )
 
 
 # definition just for kernel type (cannot be a parameter), see mesh.h
@@ -3780,7 +4206,7 @@ def adj_batched_matmul(
     beta: float = 0.0,
     allow_tf32x3_arith: builtins.bool = False,
 ):
-    """Computes a batched generic matrix-matrix multiplication (GEMM) of the form: `d = alpha * (a @ b) + beta * c`.
+    """Computes the adjoint of a batched generic matrix-matrix multiplication (GEMM) of the form: `d = alpha * (a @ b) + beta * c`.
 
     Args:
         a (array3d): three-dimensional array containing A matrices. Overall array dimension is {batch_count, M, K}
@@ -4101,18 +4527,19 @@ class HashGrid:
                             the radius used when performing queries.
         """
 
+        if not warp.types.types_equal(points.dtype, warp.vec3):
+            raise TypeError("Hash grid points should have type warp.vec3")
+
+        if points.ndim > 1:
+            points = points.contiguous().flatten()
+
         if self.device.is_cpu:
-            self.runtime.core.hash_grid_update_host(
-                self.id, radius, ctypes.cast(points.ptr, ctypes.c_void_p), len(points)
-            )
+            self.runtime.core.hash_grid_update_host(self.id, radius, ctypes.byref(points.__ctype__()))
         else:
-            self.runtime.core.hash_grid_update_device(
-                self.id, radius, ctypes.cast(points.ptr, ctypes.c_void_p), len(points)
-            )
+            self.runtime.core.hash_grid_update_device(self.id, radius, ctypes.byref(points.__ctype__()))
         self.reserved = True
 
     def reserve(self, num_points):
-
         if self.device.is_cpu:
             self.runtime.core.hash_grid_reserve_host(self.id, num_points)
         else:
@@ -4120,7 +4547,6 @@ class HashGrid:
         self.reserved = True
 
     def __del__(self):
-
         if not self.id:
             return
 
@@ -4134,6 +4560,35 @@ class HashGrid:
 
 class MarchingCubes:
     def __init__(self, nx: int, ny: int, nz: int, max_verts: int, max_tris: int, device=None):
+        """CUDA-based Marching Cubes algorithm to extract a 2D surface mesh from a 3D volume.
+
+        Attributes:
+            id: Unique identifier for this object.
+            verts (:class:`warp.array`): Array of vertex positions of type :class:`warp.vec3f`
+              for the output surface mesh.
+              This is populated after running :func:`surface`.
+            indices (:class:`warp.array`): Array containing indices of type :class:`warp.int32`
+              defining triangles for the output surface mesh.
+              This is populated after running :func:`surface`.
+
+              Each set of three consecutive integers in the array represents a single triangle,
+              in which each integer is an index referring to a vertex in the :attr:`verts` array.
+
+        Args:
+            nx: Number of cubes in the x-direction.
+            ny: Number of cubes in the y-direction.
+            nz: Number of cubes in the z-direction.
+            max_verts: Maximum expected number of vertices (used for array preallocation).
+            max_tris: Maximum expected number of triangles (used for array preallocation).
+            device (Devicelike): CUDA device on which to run marching cubes and allocate memory.
+
+        Raises:
+            RuntimeError: ``device`` not a CUDA device.
+
+        .. note::
+            The shape of the marching cubes should match the shape of the scalar field being surfaced.
+
+        """
 
         self.id = 0
 
@@ -4160,13 +4615,12 @@ class MarchingCubes:
         from warp.context import zeros
 
         self.verts = zeros(max_verts, dtype=vec3, device=self.device)
-        self.indices = zeros(max_tris * 3, dtype=int, device=self.device)
+        self.indices = zeros(max_tris * 3, dtype=warp.int32, device=self.device)
 
         # alloc surfacer
         self.id = ctypes.c_uint64(self.alloc(self.device.context))
 
     def __del__(self):
-
         if not self.id:
             return
 
@@ -4175,7 +4629,19 @@ class MarchingCubes:
             # destroy surfacer
             self.free(self.id)
 
-    def resize(self, nx: int, ny: int, nz: int, max_verts: int, max_tris: int):
+    def resize(self, nx: int, ny: int, nz: int, max_verts: int, max_tris: int) -> None:
+        """Update the expected input and maximum output sizes for the marching cubes calculation.
+
+        This function has no immediate effect on the underlying buffers.
+        The new values take effect on the next :func:`surface` call.
+
+        Args:
+          nx: Number of cubes in the x-direction.
+          ny: Number of cubes in the y-direction.
+          nz: Number of cubes in the z-direction.
+          max_verts: Maximum expected number of vertices (used for array preallocation).
+          max_tris: Maximum expected number of triangles (used for array preallocation).
+        """
         # actual allocations will be resized on next call to surface()
         self.nx = nx
         self.ny = ny
@@ -4183,12 +4649,36 @@ class MarchingCubes:
         self.max_verts = max_verts
         self.max_tris = max_tris
 
-    def surface(self, field: array(dtype=float), threshold: float):
+    def surface(self, field: array(dtype=float, ndim=3), threshold: float) -> None:
+        """Compute a 2D surface mesh of a given isosurface from a 3D scalar field.
+
+        The triangles and vertices defining the output mesh are written to the
+        :attr:`indices` and :attr:`verts` arrays.
+
+        Args:
+          field: Scalar field from which to generate a mesh.
+          threshold: Target isosurface value.
+
+        Raises:
+          ValueError: ``field`` is not a 3D array.
+          ValueError: Marching cubes shape does not match the shape of ``field``.
+          RuntimeError: :attr:`max_verts` and/or :attr:`max_tris` might be too small to hold the surface mesh.
+        """
+
         # WP_API int marching_cubes_surface_host(const float* field, int nx, int ny, int nz, float threshold, wp::vec3* verts, int* triangles, int max_verts, int max_tris, int* out_num_verts, int* out_num_tris);
         num_verts = ctypes.c_int(0)
         num_tris = ctypes.c_int(0)
 
         self.runtime.core.marching_cubes_surface_device.restype = ctypes.c_int
+
+        # For now we require that input field shape matches nx, ny, nz
+        if field.ndim != 3:
+            raise ValueError(f"Input field must be a three-dimensional array (got {field.ndim}).")
+        if field.shape[0] != self.nx or field.shape[1] != self.ny or field.shape[2] != self.nz:
+            raise ValueError(
+                f"Marching cubes shape ({self.nx}, {self.ny}, {self.nz}) does not match the "
+                f"input array shape {field.shape}."
+            )
 
         error = self.runtime.core.marching_cubes_surface_device(
             self.id,
@@ -4207,7 +4697,7 @@ class MarchingCubes:
 
         if error:
             raise RuntimeError(
-                "Buffers may not be large enough, marching cubes required at least {num_verts} vertices, and {num_tris} triangles."
+                f"Buffers may not be large enough, marching cubes required at least {num_verts} vertices, and {num_tris} triangles."
             )
 
         # resize the geometry arrays
@@ -4218,12 +4708,17 @@ class MarchingCubes:
         self.indices.size = num_tris.value * 3
 
 
+generic_types = (Any, Scalar, Float, Int)
+
+
 def type_is_generic(t):
-    if t in (Any, Scalar, Float, Int):
+    if t in generic_types:
         return True
-    elif is_array(t):
+
+    if is_array(t):
         return type_is_generic(t.dtype)
-    elif hasattr(t, "_wp_scalar_type_"):
+
+    if hasattr(t, "_wp_scalar_type_"):
         # vector/matrix type, check if dtype is generic
         if type_is_generic(t._wp_scalar_type_):
             return True
@@ -4231,8 +4726,8 @@ def type_is_generic(t):
         for d in t._shape_:
             if d == 0:
                 return True
-    else:
-        return False
+
+    return False
 
 
 def type_is_generic_scalar(t):
@@ -4310,9 +4805,9 @@ def infer_argument_types(args, template_types, arg_names=None):
         arg_name = arg_names[i] if arg_names else str(i)
         if arg_type in warp.types.array_types:
             arg_types.append(arg_type(dtype=arg.dtype, ndim=arg.ndim))
-        elif arg_type in warp.types.scalar_types + [bool]:
+        elif arg_type in warp.types.scalar_and_bool_types:
             arg_types.append(arg_type)
-        elif arg_type in [int, float]:
+        elif arg_type in (int, float, builtins.bool):
             # canonicalize type
             arg_types.append(warp.types.type_to_warp(arg_type))
         elif hasattr(arg_type, "_wp_scalar_type_"):
@@ -4448,7 +4943,7 @@ def get_signature(arg_types, func_name=None, arg_names=None):
                 func_str = f" of function {func_name}"
             else:
                 func_str = ""
-            raise RuntimeError(f"Failed to determine type code for argument {arg_str}{func_str}: {e}")
+            raise RuntimeError(f"Failed to determine type code for argument {arg_str}{func_str}: {e}") from e
 
     return "_".join(type_codes)
 

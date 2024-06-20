@@ -13,6 +13,8 @@
 
 #define WP_CURRENT_STREAM ((void*)0xffffffffffffffff)
 
+struct timing_result_t;
+
 // this is the core runtime API exposed on the DLL level
 extern "C"
 {
@@ -84,31 +86,39 @@ extern "C"
     WP_API uint64_t hash_grid_create_host(int dim_x, int dim_y, int dim_z);
     WP_API void hash_grid_reserve_host(uint64_t id, int num_points);
     WP_API void hash_grid_destroy_host(uint64_t id);
-    WP_API void hash_grid_update_host(uint64_t id, float cell_width, const wp::vec3* positions, int num_points);
+    WP_API void hash_grid_update_host(uint64_t id, float cell_width, const wp::array_t<wp::vec3>* points);
 
     WP_API uint64_t hash_grid_create_device(void* context, int dim_x, int dim_y, int dim_z);
     WP_API void hash_grid_reserve_device(uint64_t id, int num_points);
     WP_API void hash_grid_destroy_device(uint64_t id);
-    WP_API void hash_grid_update_device(uint64_t id, float cell_width, const wp::vec3* positions, int num_points);
+    WP_API void hash_grid_update_device(uint64_t id, float cell_width, const wp::array_t<wp::vec3>* points);
 
     WP_API bool cutlass_gemm(void* context, int compute_capability, int m, int n, int k, const char* datatype,
                              const void* a, const void* b, const void* c, void* d, float alpha, float beta,
                              bool row_major_a, bool row_major_b, bool allow_tf32x3_arith, int batch_count);
 
-    WP_API uint64_t volume_create_host(void* buf, uint64_t size);
-    WP_API void volume_get_buffer_info_host(uint64_t id, void** buf, uint64_t* size);
-    WP_API void volume_get_tiles_host(uint64_t id, void** buf, uint64_t* size);
+    WP_API uint64_t volume_create_host(void* buf, uint64_t size, bool copy, bool owner);
+    WP_API void volume_get_tiles_host(uint64_t id, void* buf);
+    WP_API void volume_get_voxels_host(uint64_t id, void* buf);
     WP_API void volume_destroy_host(uint64_t id);
 
-    WP_API uint64_t volume_create_device(void* context, void* buf, uint64_t size);
+    WP_API uint64_t volume_create_device(void* context, void* buf, uint64_t size, bool copy, bool owner);
+    WP_API void volume_get_tiles_device(uint64_t id, void* buf);
+    WP_API void volume_get_voxels_device(uint64_t id, void* buf);
+    WP_API void volume_destroy_device(uint64_t id);
+    
     WP_API uint64_t volume_f_from_tiles_device(void* context, void* points, int num_points, float voxel_size, float bg_value, float tx, float ty, float tz, bool points_in_world_space);
     WP_API uint64_t volume_v_from_tiles_device(void* context, void* points, int num_points, float voxel_size, float bg_value_x, float bg_value_y, float bg_value_z, float tx, float ty, float tz, bool points_in_world_space);
     WP_API uint64_t volume_i_from_tiles_device(void* context, void* points, int num_points, float voxel_size, int bg_value, float tx, float ty, float tz, bool points_in_world_space);
-    WP_API void volume_get_buffer_info_device(uint64_t id, void** buf, uint64_t* size);
-    WP_API void volume_get_tiles_device(uint64_t id, void** buf, uint64_t* size);
-    WP_API void volume_destroy_device(uint64_t id);
+    WP_API uint64_t volume_index_from_tiles_device(void* context, void* points, int num_points, float voxel_size, float tx, float ty, float tz, bool points_in_world_space);
+    WP_API uint64_t volume_from_active_voxels_device(void* context, void* points, int num_points, float voxel_size, float tx, float ty, float tz, bool points_in_world_space);
 
+    WP_API void volume_get_buffer_info(uint64_t id, void** buf, uint64_t* size);
     WP_API void volume_get_voxel_size(uint64_t id, float* dx, float* dy, float* dz);
+    WP_API void volume_get_tile_and_voxel_count(uint64_t id, uint32_t& tile_count, uint64_t& voxel_count);
+    WP_API const char* volume_get_grid_info(uint64_t id, uint64_t *grid_size, uint32_t *grid_index, uint32_t *grid_count, float translation[3], float transform[9], char type_str[16]);
+    WP_API uint32_t volume_get_blind_data_count(uint64_t id);
+    WP_API const char* volume_get_blind_data_info(uint64_t id, uint32_t data_index, void** buf, uint64_t* value_count, uint32_t* value_size, char type_str[16]);
     
     WP_API uint64_t marching_cubes_create_device(void* context);
     WP_API void marching_cubes_destroy_device(uint64_t id);
@@ -280,6 +290,7 @@ extern "C"
     WP_API void cuda_event_destroy(void* event);
     WP_API void cuda_event_record(void* event, void* stream);
     WP_API void cuda_event_synchronize(void* event);
+    WP_API float cuda_event_elapsed_time(void* start_event, void* end_event);
 
     WP_API bool cuda_graph_begin_capture(void* context, void* stream, int external);
     WP_API bool cuda_graph_end_capture(void* context, void* stream, void** graph_ret);
@@ -301,6 +312,11 @@ extern "C"
     WP_API void cuda_graphics_device_ptr_and_size(void* context, void* resource, uint64_t* ptr, size_t* size);
     WP_API void* cuda_graphics_register_gl_buffer(void* context, uint32_t gl_buffer, unsigned int flags);
     WP_API void cuda_graphics_unregister_resource(void* context, void* resource);
+
+    // CUDA timing
+    WP_API void cuda_timing_begin(int flags);
+    WP_API int cuda_timing_get_result_count();
+    WP_API void cuda_timing_end(timing_result_t* results, int size);
 
     WP_API void build_add_include_directory(const char* dir);
     // Adds a c++ pre-processor macro definition to the build system

@@ -1,7 +1,7 @@
-from typing import Tuple, List
+from typing import List, Tuple
 
-from warp.fem.types import Coords
 from warp.fem.polynomial import Polynomial, quadrature_1d
+from warp.fem.types import Coords
 
 
 class Element:
@@ -13,6 +13,10 @@ class Element:
     def instantiate_quadrature(order: int, family: Polynomial) -> Tuple[List[Coords], List[float]]:
         """Returns a quadrature of a given order for a prototypical element"""
         raise NotImplementedError
+
+    def center(self) -> Tuple[float]:
+        coords, _ = self.instantiate_quadrature(order=0, family=None)
+        return coords[0]
 
 
 def _point_count_from_order(order: int, family: Polynomial):
