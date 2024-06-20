@@ -59,9 +59,6 @@ def add_preprocessor_macro_definition(dir: str):
 def set_cpp_standard(cpp_standard: str):
     warp.context.runtime.core.build_set_cpp_standard(cpp_standard.encode("utf-8"))
 
-kernel_bin_dir = None
-kernel_gen_dir = None
-
 
 def init_kernel_cache(path=None):
     """Initialize kernel cache directory.
