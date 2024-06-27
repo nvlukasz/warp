@@ -2719,7 +2719,11 @@ def codegen_func_forward(adj, func_type="kernel", device="cpu"):
         if var.constant is None:
             lines += [f"{var.ctype()} {var.emit()};\n"]
         else:
-            lines += [f"const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
+            # HACK: don't declare custom type values as const so that they are mutable
+            if warp.types.type_is_external(var.type):
+                lines += [f"{var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
+            else:
+                lines += [f"const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
 
     # forward pass
     lines += ["//---------\n"]
@@ -2754,7 +2758,11 @@ def codegen_func_reverse(adj, func_type="kernel", device="cpu"):
         if var.constant is None:
             lines += [f"{var.ctype()} {var.emit()};\n"]
         else:
-            lines += [f"const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
+            # HACK: don't declare custom type values as const so that they are mutable
+            if warp.types.type_is_external(var.type):
+                lines += [f"{var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
+            else:
+                lines += [f"const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
 
     # dual vars
     lines += ["//---------\n"]
