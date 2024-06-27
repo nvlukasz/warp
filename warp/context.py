@@ -4296,6 +4296,14 @@ def pack_arg(kernel, arg_type, arg_name, value, device, adjoint=False):
 
     elif isinstance(value, arg_type):
         try:
+            # check if custom type
+            # print(f"~!~!~! Packing arg type {arg_type}")
+            type_info = warp.types._custom_types.get(arg_type)
+            # print(f"~!~!~ Type info: {type_info}")
+            if type_info is not None:
+                # print(f"~!~!~! Pack {value}")
+                return value
+
             # try to pack as a scalar type
             if arg_type is warp.types.float16:
                 return arg_type._type_(warp.types.float_to_half_bits(value.value))
