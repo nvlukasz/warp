@@ -4735,7 +4735,7 @@ def type_is_generic_scalar(t):
 
 
 def type_is_external(t):
-    return hasattr(t, "_type_") and inspect.isclass(t._type_) and issubclass(t._type_, ctypes.Structure)
+    return t in _custom_types
 
 
 def type_matches_template(arg_type, template_type):
@@ -4895,7 +4895,7 @@ def get_type_code(arg_type):
                 raise TypeError("Invalid vector/matrix dimensionality")
         # !!!
         elif type_is_external(arg_type):
-            return arg_type.__name__
+            return _custom_types[arg_type].native_name
         else:
             # simple type
             type_code = simple_type_codes.get(arg_type)
@@ -4950,3 +4950,31 @@ def get_signature(arg_types, func_name=None, arg_names=None):
 
 def is_generic_signature(sig):
     return "?" in sig
+
+
+class TypeInfo:
+    def __init__(self, T, native_name, has_binary_ctor):
+        self.T = T
+        self.native_name = native_name
+        self.has_binary_ctor = has_binary_ctor
+
+# !!!
+_custom_types = {}
+
+
+def add_type(T, native_name=None, has_binary_ctor=False):
+
+    # TODO:
+    # - allow for specifying a custom ctor function?
+    # - allow for specifying whether this can be instantiated as a constexpr
+
+    if not inspect.isclass(T) or not issubclass(T, ctypes.Structure):
+        raise TypeError(f"Type must be a subclass of ctypes.Structure, got {T}")
+
+    if native_name is None:
+        native_name = T.__name__
+
+    print(f"~!~!~! ADDING TYPE {native_name}: {T}")
+    type_info = TypeInfo(T, native_name, has_binary_ctor=has_binary_ctor)
+
+    _custom_types[T] = type_info

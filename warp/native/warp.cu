@@ -2591,6 +2591,9 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     if (fast_math)
         opts.push_back("--use_fast_math");
 
+    // suppress unused variable warnings
+    opts.push_back("--diag-suppress=177");
+
     std::vector<const char*> headers;
     std::vector<const char*> header_names;
     for (auto it = wp::jitsafe_headers_map.begin(); it != wp::jitsafe_headers_map.end(); ++it)

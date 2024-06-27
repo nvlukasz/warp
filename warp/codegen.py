@@ -517,6 +517,12 @@ class Var:
             return compute_type_str(f"wp::{t._wp_generic_type_str_}", t._wp_type_params_)
         elif t.__name__ in ("bool", "int", "float"):
             return t.__name__
+        # !!!
+        elif warp.types.type_is_external(t):
+            type_info = warp.types._custom_types[t]
+            # print(f"~!~!~ Type info: {type_info}")
+            type_name = type_info.native_name
+            return f"wp::{type_name}"
         else:
             return f"wp::{t.__name__}"
 
@@ -2532,16 +2538,67 @@ def constant_str(value):
     # !!! custom type constant
     # FIXME: device mismatch?
     elif warp.types.type_is_external(type(value)):
-        # NOTE: we require that the custom type has a constructor that takes all the fields in declaration order
-        type_ctype = type(value)._type_
-        type_name = type(value).__name__
+        # # NOTE: we require that the custom type has a constructor that takes all the fields in declaration order
+        # type_ctype = type(value)._type_
+        # type_name = type(value).__name__
+        # ctor_name = f"wp::{type_name}"
+        # field_values = []
+        # # TODO: this should work recursively if members are also custom types
+        # for field_name, field_type in type_ctype._fields_:
+        #     field_values.append(getattr(value, field_name))
+        # ctor_args = ", ".join([str(v) for v in field_values])
+        # return f"{ctor_name}{{{ctor_args}}}"
+
+        # !!! WIP !!!
+
+        _numeric_types = {
+            ctypes.c_int8,
+            ctypes.c_int16,
+            ctypes.c_int32,
+            ctypes.c_int64,
+
+            ctypes.c_uint8,
+            ctypes.c_uint16,
+            ctypes.c_uint32,
+            ctypes.c_uint64,
+
+            ctypes.c_float,
+            ctypes.c_double,
+        }
+
+        type_ctype = type(value)
+        type_info = warp.types._custom_types[type_ctype]
+        type_name = type_info.native_name
         ctor_name = f"wp::{type_name}"
-        field_values = []
-        # TODO: this should work recursively if members are also custom types
-        for field_name, field_type in type_ctype._fields_:
-            field_values.append(getattr(value, field_name))
-        ctor_args = ", ".join([str(v) for v in field_values])
-        return f"{ctor_name}{{{ctor_args}}}"
+
+        if type_info.has_binary_ctor:
+
+            # !!! Use binary string encoding !!!
+            value_bytes = bytes(value)
+            value_str = "".join([f"\\x{b:02x}" for b in value_bytes])
+            value_len = len(value_bytes)
+
+            return f"{ctor_name}{{\"{value_str}\", {value_len}}}"
+
+        else:
+            field_values = []
+            # TODO: this should work recursively if members are also custom types
+            for field_name, field_type in type_ctype._fields_:
+                field_value = getattr(value, field_name)
+                if warp.types.type_is_external(field_type):
+                    # recurse
+                    field_values.append(constant_str(field_value))
+                elif field_type in _numeric_types:
+                    field_values.append(field_value)
+                elif field_type is ctypes.c_bool:
+                    field_values.append("true" if field_value else "false")
+                else:
+                    # TODO: handle pointers
+
+                    field_values.append("{/* !!! */}")
+
+            ctor_args = ", ".join([str(v) for v in field_values])
+            return f"{ctor_name}{{{ctor_args}}}"
 
     else:
         # otherwise just convert constant to string
@@ -2662,7 +2719,11 @@ def codegen_func_forward(adj, func_type="kernel", device="cpu"):
         if var.constant is None:
             lines += [f"{var.ctype()} {var.emit()};\n"]
         else:
-            lines += [f"const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
+            # HACK: don't declare custom type values as const so that they are mutable
+            if warp.types.type_is_external(var.type):
+                lines += [f"{var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
+            else:
+                lines += [f"const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
 
     # forward pass
     lines += ["//---------\n"]
@@ -2697,7 +2758,11 @@ def codegen_func_reverse(adj, func_type="kernel", device="cpu"):
         if var.constant is None:
             lines += [f"{var.ctype()} {var.emit()};\n"]
         else:
-            lines += [f"const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
+            # HACK: don't declare custom type values as const so that they are mutable
+            if warp.types.type_is_external(var.type):
+                lines += [f"{var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
+            else:
+                lines += [f"const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
 
     # dual vars
     lines += ["//---------\n"]
