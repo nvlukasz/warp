@@ -756,7 +756,7 @@ bool memcpy_p2p(void* dst_context, void* dst, void* src_context, void* src, size
 
 __global__ void memset_kernel(int* dest, int value, size_t n)
 {
-    const size_t tid = wp::grid_index();
+    const size_t tid = static_cast<size_t>(blockDim.x) * static_cast<size_t>(blockIdx.x) + static_cast<size_t>(threadIdx.x);
     
     if (tid < n)
     {
@@ -790,7 +790,7 @@ void memset_device(void* context, void* dest, int value, size_t n)
 // fill memory buffer with a value: generic memtile kernel using memcpy for each element
 __global__ void memtile_kernel(void* dst, const void* src, size_t srcsize, size_t n)
 {
-    size_t tid = wp::grid_index();
+    size_t tid = static_cast<size_t>(blockDim.x) * static_cast<size_t>(blockIdx.x) + static_cast<size_t>(threadIdx.x);
     if (tid < n)
     {
         memcpy((int8_t*)dst + srcsize * tid, src, srcsize);
@@ -801,7 +801,7 @@ __global__ void memtile_kernel(void* dst, const void* src, size_t srcsize, size_
 template <typename T>
 __global__ void memtile_value_kernel(T* dst, T value, size_t n)
 {
-    size_t tid = wp::grid_index();
+    size_t tid = static_cast<size_t>(blockDim.x) * static_cast<size_t>(blockIdx.x) + static_cast<size_t>(threadIdx.x);
     if (tid < n)
     {
         dst[tid] = value;
@@ -2262,6 +2262,11 @@ int cuda_stream_is_capturing(void* stream)
     check_cuda(cudaStreamIsCapturing(static_cast<cudaStream_t>(stream), &status));
     
     return int(status != cudaStreamCaptureStatusNone);
+}
+
+uint64_t cuda_stream_get_capture_id(void* stream)
+{
+    return get_capture_id(static_cast<CUstream>(stream));
 }
 
 void* cuda_event_create(void* context, unsigned flags)
