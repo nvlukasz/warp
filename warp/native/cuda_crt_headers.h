@@ -1005,10 +1005,11 @@ static const char* jitsafe_header_math_h =
     "} // namespace __wpjit_math_ns\n"
     "namespace std { using namespace __wpjit_math_ns; }\n"
     "#define M_PI 3.14159265358979323846\n"
-    // +++ Warp additions: INFINITY, HUGE_VAL, HUGE_VALF
+    // +++ Warp additions: INFINITY, HUGE_VAL, HUGE_VALF, NAN
     "#define INFINITY   ((float)(DBL_MAX * DBL_MAX))\n"
     "#define HUGE_VAL   ((double)INFINITY)\n"
     "#define HUGE_VALF  ((float)INFINITY)\n"
+    "#define NAN        ((float)(0.0 / 0.0))\n"
     // Note: Global namespace already includes CUDA math funcs
     "//using namespace __wpjit_math_ns;\n"
     "#endif /* WPJIT_HEADER_MATH_H */\n";

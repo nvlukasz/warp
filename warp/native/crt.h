@@ -59,7 +59,7 @@ extern "C" WP_API int _wp_isinf(double);
 #else
 
 #if defined(__CUDACC_RTC__)
-// When compiling using NVRTC, we supply builtin standard headers
+// When compiling using NVRTC, we supply builtin standard headers (see cuda_crt_headers.h)
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
