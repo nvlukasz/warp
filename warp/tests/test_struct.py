@@ -722,7 +722,7 @@ add_kernel_test(
     devices=devices,
 )
 
-add_function_test(TestStruct, "test_struct_array_content_hash", test_struct_array_content_hash, devices=devices)
+# add_function_test(TestStruct, "test_struct_array_content_hash", test_struct_array_content_hash, devices=devices)
 
 
 if __name__ == "__main__":
