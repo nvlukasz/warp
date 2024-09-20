@@ -41,24 +41,6 @@ def generalized_inner(x: wp.mat33, y: wp.vec3):
 
 
 @wp.func
-def apply_right(x: Any, y: Any):
-    """Performs x y multiplication with y a square matrix and x either a row-vector or a matrix.
-    Will be removed once native @ operator is implemented.
-    """
-    return x * y
-
-
-@wp.func
-def apply_right(x: wp.vec2, y: wp.mat22):
-    return x[0] * y[0] + x[1] * y[1]
-
-
-@wp.func
-def apply_right(x: wp.vec3, y: wp.mat33):
-    return x[0] * y[0] + x[1] * y[1] + x[2] * y[2]
-
-
-@wp.func
 def unit_element(template_type: Any, coord: int):
     """Returns a instance of `template_type` with a single coordinate set to 1 in the canonical basis"""
 
@@ -225,7 +207,7 @@ def tridiagonal_symmetric_eigenvalues_qr(D: Any, L: Any, Q: Any, tol: Any):
     Args:
         D: Main diagonal of the matrix
         L: Lower diagonal of the matrix, indexed such that L[i] = A[i+1, i]
-        Q: Initialization for the eigenvectors, useful if a pre-transformation has been apllied, otherwise may be identity
+        Q: Initialization for the eigenvectors, useful if a pre-transformation has been applied, otherwise may be identity
         tol: Tolerance for the diagonalization residual (Linf norm of off-diagonal over diagonal terms)
 
     Returns a tuple (D: vector of eigenvalues, P: matrix with one eigenvector per row) such that A = P^T D P

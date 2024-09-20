@@ -237,6 +237,12 @@ def vector(length, dtype):
         def __rtruediv__(self, x):
             return warp.div(x, self)
 
+        def __mod__(self, x):
+            return warp.mod(self, x)
+
+        def __rmod__(self, x):
+            return warp.mod(x, self)
+
         def __pos__(self):
             return warp.pos(self)
 
@@ -518,6 +524,12 @@ class scalar_base:
 
     def __rtruediv__(self, x):
         return warp.div(x, self)
+
+    def __mod__(self, x):
+        return warp.mod(self, x)
+
+    def __rmod__(self, x):
+        return warp.mod(x, self)
 
     def __pos__(self):
         return warp.pos(self)
@@ -978,6 +990,43 @@ vector_types = (
     spatial_matrixf,
     spatial_matrixd,
 )
+
+atomic_vector_types = (
+    vec2i,
+    vec2ui,
+    vec2l,
+    vec2ul,
+    vec2h,
+    vec2f,
+    vec2d,
+    vec3i,
+    vec3ui,
+    vec3l,
+    vec3ul,
+    vec3h,
+    vec3f,
+    vec3d,
+    vec4i,
+    vec4ui,
+    vec4l,
+    vec4ul,
+    vec4h,
+    vec4f,
+    vec4d,
+    mat22h,
+    mat22f,
+    mat22d,
+    mat33h,
+    mat33f,
+    mat33d,
+    mat44h,
+    mat44f,
+    mat44d,
+    quath,
+    quatf,
+    quatd,
+)
+atomic_types = float_types + (int32, uint32, int64, uint64) + atomic_vector_types
 
 np_dtype_to_warp_type = {
     # Numpy scalar types
@@ -1486,7 +1535,7 @@ def array_ctype_from_interface(interface: dict, dtype=None, owner=None):
         strides = strides_from_shape(shape, element_dtype)
 
     if dtype is None:
-        # accept verbatum
+        # accept verbatim
         pass
     elif hasattr(dtype, "_shape_"):
         # vector/matrix types, ensure element dtype matches
@@ -1601,6 +1650,9 @@ class array(Array):
         self._array_interface = None
         self.is_transposed = False
 
+        # reference to other array
+        self._ref = None
+
         # canonicalize dtype
         if dtype == int:
             dtype = int32
@@ -1651,9 +1703,6 @@ class array(Array):
                 self._requires_grad = requires_grad
                 if requires_grad:
                     self._alloc_grad()
-
-        # reference to other array
-        self._ref = None
 
     def _init_from_data(self, data, dtype, shape, device, copy, pinned):
         if not hasattr(data, "__len__"):
@@ -2005,24 +2054,27 @@ class array(Array):
         if self.device is None:
             raise RuntimeError("Array has no device assigned")
 
-        if self.device.is_cuda and stream != -1:
-            if not isinstance(stream, int):
-                raise TypeError("DLPack stream must be an integer or None")
+        # check if synchronization is needed
+        if stream != -1:
+            if self.device.is_cuda:
+                # validate stream argument
+                if stream is None:
+                    stream = 1  # legacy default stream
+                elif not isinstance(stream, int) or stream < -1:
+                    raise TypeError("DLPack stream must None or an integer >= -1")
 
-            # assume that the array is being used on its device's current stream
-            array_stream = self.device.stream
+                # assume that the array is being used on its device's current stream
+                array_stream = self.device.stream
 
-            # the external stream should wait for outstanding operations to complete
-            if stream in (None, 0, 1):
-                external_stream = 0
-            else:
-                external_stream = stream
-
-            # Performance note: avoid wrapping the external stream in a temporary Stream object
-            if external_stream != array_stream.cuda_stream:
-                warp.context.runtime.core.cuda_stream_wait_stream(
-                    external_stream, array_stream.cuda_stream, array_stream.cached_event.cuda_event
-                )
+                # Performance note: avoid wrapping the external stream in a temporary Stream object
+                if stream != array_stream.cuda_stream:
+                    warp.context.runtime.core.cuda_stream_wait_stream(
+                        stream, array_stream.cuda_stream, array_stream.cached_event.cuda_event
+                    )
+            elif self.device.is_cpu:
+                # on CPU, stream must be None or -1
+                if stream is not None:
+                    raise TypeError("DLPack stream must be None or -1 for CPU device")
 
         return warp.dlpack.to_dlpack(self)
 
@@ -2991,7 +3043,7 @@ class Mesh:
 
         Args:
             points (:class:`warp.array`): Array of vertex positions of type :class:`warp.vec3`
-            indices (:class:`warp.array`): Array of triangle indices of type :class:`warp.int32`, should be a 1d array with shape (num_tris, 3)
+            indices (:class:`warp.array`): Array of triangle indices of type :class:`warp.int32`, should be a 1d array with shape (num_tris * 3)
             velocities (:class:`warp.array`): Array of vertex velocities of type :class:`warp.vec3` (optional)
             support_winding_number (bool): If true the mesh will build additional datastructures to support `wp.mesh_query_point_sign_winding_number()` queries
         """
@@ -3529,8 +3581,9 @@ class Volume:
         )
         if hasattr(bg_value, "__len__"):
             # vec3, assuming the numpy array is 4D
-            padded_array = np.array((target_shape[0], target_shape[1], target_shape[2], 3), dtype=np.single)
-            padded_array[:, :, :, :] = np.array(bg_value)
+            padded_array = np.full(
+                shape=(target_shape[0], target_shape[1], target_shape[2], 3), fill_value=bg_value, dtype=np.single
+            )
             padded_array[0 : ndarray.shape[0], 0 : ndarray.shape[1], 0 : ndarray.shape[2], :] = ndarray
         else:
             padded_amount = (
@@ -5031,7 +5084,7 @@ def get_type_code(arg_type):
     elif isinstance(arg_type, indexedfabricarray):
         return f"ifa{arg_type.ndim}{get_type_code(arg_type.dtype)}"
     elif isinstance(arg_type, warp.codegen.Struct):
-        return warp.codegen.make_full_qualified_name(arg_type.cls)
+        return arg_type.native_name
     elif arg_type == Scalar:
         # generic scalar type
         return "s?"

@@ -549,7 +549,9 @@ add_builtin(
 add_builtin(
     "skew",
     input_types={"vec": vector(length=3, dtype=Scalar)},
-    value_func=lambda arg_types, arg_values: matrix(shape=(3, 3), dtype=arg_types["vec"]._wp_scalar_type_),
+    value_func=lambda arg_types, arg_values: matrix(shape=(3, 3), dtype=Scalar)
+    if arg_types is None
+    else matrix(shape=(3, 3), dtype=arg_types["vec"]._wp_scalar_type_),
     group="Vector Math",
     doc="Compute the skew-symmetric 3x3 matrix for a 3D vector ``vec``.",
 )
@@ -603,9 +605,9 @@ add_builtin(
 add_builtin(
     "transpose",
     input_types={"a": matrix(shape=(Any, Any), dtype=Scalar)},
-    value_func=lambda arg_types, arg_values: matrix(
-        shape=(arg_types["a"]._shape_[1], arg_types["a"]._shape_[0]), dtype=arg_types["a"]._wp_scalar_type_
-    ),
+    value_func=lambda arg_types, arg_values: matrix(shape=(Any, Any), dtype=Scalar)
+    if arg_types is None
+    else matrix(shape=(arg_types["a"]._shape_[1], arg_types["a"]._shape_[0]), dtype=arg_types["a"]._wp_scalar_type_),
     group="Vector Math",
     doc="Return the transpose of the matrix ``a``.",
 )
@@ -1531,7 +1533,7 @@ add_builtin(
 
 def spatial_vector_value_func(arg_types: Mapping[str, type], arg_values: Mapping[str, Any]):
     if arg_types is None:
-        return spatial_vector(dtype=Float)
+        return vector(length=6, dtype=Float)
 
     dtype = arg_values.get("dtype", None)
 
@@ -1652,14 +1654,18 @@ add_builtin(
 add_builtin(
     "spatial_top",
     input_types={"svec": vector(length=6, dtype=Float)},
-    value_func=lambda arg_types, arg_values: vector(length=3, dtype=arg_types["svec"]._wp_scalar_type_),
+    value_func=lambda arg_types, arg_values: vector(length=3, dtype=Float)
+    if arg_types is None
+    else vector(length=3, dtype=arg_types["svec"]._wp_scalar_type_),
     group="Spatial Math",
     doc="Return the top (first) part of a 6D screw vector.",
 )
 add_builtin(
     "spatial_bottom",
     input_types={"svec": vector(length=6, dtype=Float)},
-    value_func=lambda arg_types, arg_values: vector(length=3, dtype=arg_types["svec"]._wp_scalar_type_),
+    value_func=lambda arg_types, arg_values: vector(length=3, dtype=Float)
+    if arg_types is None
+    else vector(length=3, dtype=arg_types["svec"]._wp_scalar_type_),
     group="Spatial Math",
     doc="Return the bottom (second) part of a 6D screw vector.",
 )
@@ -2752,6 +2758,7 @@ add_builtin(
     "rand_init",
     input_types={"seed": int},
     value_type=uint32,
+    export=False,
     group="Random",
     doc="Initialize a new random number generator given a user-defined seed. Returns a 32-bit integer representing the RNG state.",
 )
@@ -2760,6 +2767,7 @@ add_builtin(
     "rand_init",
     input_types={"seed": int, "offset": int},
     value_type=uint32,
+    export=False,
     group="Random",
     doc="""Initialize a new random number generator given a user-defined seed and an offset.
 
@@ -2771,6 +2779,7 @@ add_builtin(
     "randi",
     input_types={"state": uint32},
     value_type=int,
+    export=False,
     group="Random",
     doc="Return a random integer in the range [0, 2^32).",
 )
@@ -2778,6 +2787,7 @@ add_builtin(
     "randi",
     input_types={"state": uint32, "low": int, "high": int},
     value_type=int,
+    export=False,
     group="Random",
     doc="Return a random integer between [low, high).",
 )
@@ -2785,6 +2795,7 @@ add_builtin(
     "randf",
     input_types={"state": uint32},
     value_type=float,
+    export=False,
     group="Random",
     doc="Return a random float between [0.0, 1.0).",
 )
@@ -2792,17 +2803,24 @@ add_builtin(
     "randf",
     input_types={"state": uint32, "low": float, "high": float},
     value_type=float,
+    export=False,
     group="Random",
     doc="Return a random float between [low, high).",
 )
 add_builtin(
-    "randn", input_types={"state": uint32}, value_type=float, group="Random", doc="Sample a normal distribution."
+    "randn",
+    input_types={"state": uint32},
+    value_type=float,
+    export=False,
+    group="Random",
+    doc="Sample a normal distribution.",
 )
 
 add_builtin(
     "sample_cdf",
     input_types={"state": uint32, "cdf": array(dtype=float)},
     value_type=int,
+    export=False,
     group="Random",
     doc="Inverse-transform sample a cumulative distribution function.",
 )
@@ -2810,6 +2828,7 @@ add_builtin(
     "sample_triangle",
     input_types={"state": uint32},
     value_type=vec2,
+    export=False,
     group="Random",
     doc="Uniformly sample a triangle. Returns sample barycentric coordinates.",
 )
@@ -2817,6 +2836,7 @@ add_builtin(
     "sample_unit_ring",
     input_types={"state": uint32},
     value_type=vec2,
+    export=False,
     group="Random",
     doc="Uniformly sample a ring in the xy plane.",
 )
@@ -2824,6 +2844,7 @@ add_builtin(
     "sample_unit_disk",
     input_types={"state": uint32},
     value_type=vec2,
+    export=False,
     group="Random",
     doc="Uniformly sample a disk in the xy plane.",
 )
@@ -2831,6 +2852,7 @@ add_builtin(
     "sample_unit_sphere_surface",
     input_types={"state": uint32},
     value_type=vec3,
+    export=False,
     group="Random",
     doc="Uniformly sample a unit sphere surface.",
 )
@@ -2838,6 +2860,7 @@ add_builtin(
     "sample_unit_sphere",
     input_types={"state": uint32},
     value_type=vec3,
+    export=False,
     group="Random",
     doc="Uniformly sample a unit sphere.",
 )
@@ -2845,6 +2868,7 @@ add_builtin(
     "sample_unit_hemisphere_surface",
     input_types={"state": uint32},
     value_type=vec3,
+    export=False,
     group="Random",
     doc="Uniformly sample a unit hemisphere surface.",
 )
@@ -2852,6 +2876,7 @@ add_builtin(
     "sample_unit_hemisphere",
     input_types={"state": uint32},
     value_type=vec3,
+    export=False,
     group="Random",
     doc="Uniformly sample a unit hemisphere.",
 )
@@ -2859,6 +2884,7 @@ add_builtin(
     "sample_unit_square",
     input_types={"state": uint32},
     value_type=vec2,
+    export=False,
     group="Random",
     doc="Uniformly sample a unit square.",
 )
@@ -2866,6 +2892,7 @@ add_builtin(
     "sample_unit_cube",
     input_types={"state": uint32},
     value_type=vec3,
+    export=False,
     group="Random",
     doc="Uniformly sample a unit cube.",
 )
@@ -2874,6 +2901,7 @@ add_builtin(
     "poisson",
     input_types={"state": uint32, "lam": float},
     value_type=uint32,
+    export=False,
     group="Random",
     doc="""Generate a random sample from a Poisson distribution.
 
@@ -3079,7 +3107,7 @@ add_builtin(
 add_builtin(
     "select",
     input_types={"cond": builtins.bool, "value_if_false": Any, "value_if_true": Any},
-    value_func=lambda arg_types, arg_values: arg_types["value_if_false"],
+    value_func=lambda arg_types, arg_values: Any if arg_types is None else arg_types["value_if_false"],
     doc="Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``",
     group="Utility",
 )
@@ -3087,14 +3115,14 @@ for t in int_types:
     add_builtin(
         "select",
         input_types={"cond": t, "value_if_false": Any, "value_if_true": Any},
-        value_func=lambda arg_types, arg_values: arg_types["value_if_false"],
+        value_func=lambda arg_types, arg_values: Any if arg_types is None else arg_types["value_if_false"],
         doc="Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``",
         group="Utility",
     )
 add_builtin(
     "select",
     input_types={"arr": array(dtype=Any), "value_if_false": Any, "value_if_true": Any},
-    value_func=lambda arg_types, arg_values: arg_types["value_if_false"],
+    value_func=lambda arg_types, arg_values: Any if arg_types is None else arg_types["value_if_false"],
     doc="Select between two arguments, if ``arr`` is null then return ``value_if_false``, otherwise return ``value_if_true``",
     group="Utility",
 )
@@ -3325,6 +3353,9 @@ add_builtin(
 
 
 def atomic_op_value_func(arg_types: Mapping[str, type], arg_values: Mapping[str, Any]):
+    if arg_types is None:
+        return Any
+
     arr_type = arg_types["arr"]
     value_type = arg_types["value"]
     idx_types = tuple(arg_types[x] for x in "ijkl" if arg_types.get(x, None) is not None)
@@ -3367,7 +3398,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="Atomically add ``value`` onto ``arr[i]``.",
+        doc="Atomically add ``value`` onto ``arr[i]`` and return the old value.",
         group="Utility",
         skip_replay=True,
     )
@@ -3376,7 +3407,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "j": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="Atomically add ``value`` onto ``arr[i,j]``.",
+        doc="Atomically add ``value`` onto ``arr[i,j]`` and return the old value.",
         group="Utility",
         skip_replay=True,
     )
@@ -3385,7 +3416,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "j": int, "k": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="Atomically add ``value`` onto ``arr[i,j,k]``.",
+        doc="Atomically add ``value`` onto ``arr[i,j,k]`` and return the old value.",
         group="Utility",
         skip_replay=True,
     )
@@ -3394,7 +3425,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "j": int, "k": int, "l": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="Atomically add ``value`` onto ``arr[i,j,k,l]``.",
+        doc="Atomically add ``value`` onto ``arr[i,j,k,l]`` and return the old value.",
         group="Utility",
         skip_replay=True,
     )
@@ -3404,7 +3435,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="Atomically subtract ``value`` onto ``arr[i]``.",
+        doc="Atomically subtract ``value`` onto ``arr[i]`` and return the old value.",
         group="Utility",
         skip_replay=True,
     )
@@ -3413,7 +3444,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "j": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="Atomically subtract ``value`` onto ``arr[i,j]``.",
+        doc="Atomically subtract ``value`` onto ``arr[i,j]`` and return the old value.",
         group="Utility",
         skip_replay=True,
     )
@@ -3422,7 +3453,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "j": int, "k": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="Atomically subtract ``value`` onto ``arr[i,j,k]``.",
+        doc="Atomically subtract ``value`` onto ``arr[i,j,k]`` and return the old value.",
         group="Utility",
         skip_replay=True,
     )
@@ -3431,7 +3462,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "j": int, "k": int, "l": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="Atomically subtract ``value`` onto ``arr[i,j,k,l]``.",
+        doc="Atomically subtract ``value`` onto ``arr[i,j,k,l]`` and return the old value.",
         group="Utility",
         skip_replay=True,
     )
@@ -3441,7 +3472,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="""Compute the minimum of ``value`` and ``arr[i]`` and atomically update the array.
+        doc="""Compute the minimum of ``value`` and ``arr[i]``, atomically update the array, and return the old value.
 
     .. note:: The operation is only atomic on a per-component basis for vectors and matrices.""",
         group="Utility",
@@ -3452,7 +3483,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "j": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="""Compute the minimum of ``value`` and ``arr[i,j]`` and atomically update the array.
+        doc="""Compute the minimum of ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
 
     .. note:: The operation is only atomic on a per-component basis for vectors and matrices.""",
         group="Utility",
@@ -3463,7 +3494,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "j": int, "k": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="""Compute the minimum of ``value`` and ``arr[i,j,k]`` and atomically update the array.
+        doc="""Compute the minimum of ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
 
     .. note:: The operation is only atomic on a per-component basis for vectors and matrices.""",
         group="Utility",
@@ -3474,7 +3505,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "j": int, "k": int, "l": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="""Compute the minimum of ``value`` and ``arr[i,j,k,l]`` and atomically update the array.
+        doc="""Compute the minimum of ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
 
     .. note:: The operation is only atomic on a per-component basis for vectors and matrices.""",
         group="Utility",
@@ -3486,7 +3517,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="""Compute the maximum of ``value`` and ``arr[i]`` and atomically update the array.
+        doc="""Compute the maximum of ``value`` and ``arr[i]``, atomically update the array, and return the old value.
 
     .. note:: The operation is only atomic on a per-component basis for vectors and matrices.""",
         group="Utility",
@@ -3497,7 +3528,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "j": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="""Compute the maximum of ``value`` and ``arr[i,j]`` and atomically update the array.
+        doc="""Compute the maximum of ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
 
     .. note:: The operation is only atomic on a per-component basis for vectors and matrices.""",
         group="Utility",
@@ -3508,7 +3539,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "j": int, "k": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="""Compute the maximum of ``value`` and ``arr[i,j,k]`` and atomically update the array.
+        doc="""Compute the maximum of ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
 
     .. note:: The operation is only atomic on a per-component basis for vectors and matrices.""",
         group="Utility",
@@ -3519,7 +3550,7 @@ for array_type in array_types:
         hidden=hidden,
         input_types={"arr": array_type(dtype=Any), "i": int, "j": int, "k": int, "l": int, "value": Any},
         value_func=atomic_op_value_func,
-        doc="""Compute the maximum of ``value`` and ``arr[i,j,k,l]`` and atomically update the array.
+        doc="""Compute the maximum of ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
 
     .. note:: The operation is only atomic on a per-component basis for vectors and matrices.""",
         group="Utility",
@@ -3630,6 +3661,30 @@ add_builtin(
 )
 
 
+def vector_assign_value_func(arg_types: Mapping[str, type], arg_values: Mapping[str, Any]):
+    vec_type = arg_types["a"]
+    return vec_type
+
+
+# implements vector[index] = value
+add_builtin(
+    "assign",
+    input_types={"a": vector(length=Any, dtype=Scalar), "i": int, "value": Scalar},
+    value_func=vector_assign_value_func,
+    hidden=True,
+    group="Utility",
+)
+
+# implements quaternion[index] = value
+add_builtin(
+    "assign",
+    input_types={"a": quaternion(dtype=Scalar), "i": int, "value": Scalar},
+    value_func=vector_assign_value_func,
+    hidden=True,
+    group="Utility",
+)
+
+
 def matrix_index_row_value_func(arg_types: Mapping[str, type], arg_values: Mapping[str, Any]):
     mat_type = arg_types["a"]
     row_type = mat_type._wp_row_type_
@@ -3637,7 +3692,7 @@ def matrix_index_row_value_func(arg_types: Mapping[str, type], arg_values: Mappi
     return Reference(row_type)
 
 
-# implements matrix[i] = row
+# implements &matrix[i] = row
 add_builtin(
     "index",
     input_types={"a": matrix(shape=(Any, Any), dtype=Scalar), "i": int},
@@ -3655,7 +3710,7 @@ def matrix_index_value_func(arg_types: Mapping[str, type], arg_values: Mapping[s
     return Reference(value_type)
 
 
-# implements matrix[i,j] = scalar
+# implements &matrix[i,j] = scalar
 add_builtin(
     "index",
     input_types={"a": matrix(shape=(Any, Any), dtype=Scalar), "i": int, "j": int},
@@ -3664,6 +3719,41 @@ add_builtin(
     group="Utility",
     skip_replay=True,
 )
+
+
+def matrix_assign_value_func(arg_types: Mapping[str, type], arg_values: Mapping[str, Any]):
+    mat_type = arg_types["a"]
+    return mat_type
+
+
+def matrix_vector_sametype(arg_types: Mapping[str, Any]):
+    mat_size = arg_types["a"]._shape_[0]
+    vec_size = arg_types["value"]._length_
+    mat_type = arg_types["a"]._type_
+    vec_type = arg_types["value"]._type_
+    return mat_size == vec_size and mat_type == vec_type
+
+
+# implements matrix[i,j] = scalar
+add_builtin(
+    "assign",
+    input_types={"a": matrix(shape=(Any, Any), dtype=Scalar), "i": int, "j": int, "value": Scalar},
+    value_func=matrix_assign_value_func,
+    hidden=True,
+    group="Utility",
+)
+
+
+# implements matrix[i] = vector
+add_builtin(
+    "assign",
+    input_types={"a": matrix(shape=(Any, Any), dtype=Scalar), "i": int, "value": vector(length=Any, dtype=Scalar)},
+    constraint=matrix_vector_sametype,
+    value_func=matrix_assign_value_func,
+    hidden=True,
+    group="Utility",
+)
+
 
 for t in scalar_types + vector_types + (bool,):
     if "vec" in t.__name__ or "mat" in t.__name__:
@@ -4046,7 +4136,7 @@ def matmat_mul_constraint(arg_types: Mapping[str, type]):
 
 def matmat_mul_value_func(arg_types: Mapping[str, type], arg_values: Mapping[str, Any]):
     if arg_types is None:
-        return matrix(length=Any, dtype=Scalar)
+        return matrix(shape=(Any, Any), dtype=Scalar)
 
     if arg_types["a"]._wp_scalar_type_ != arg_types["b"]._wp_scalar_type_:
         raise RuntimeError(
@@ -4092,7 +4182,19 @@ add_builtin(
 )
 
 add_builtin(
-    "mod", input_types={"a": Scalar, "b": Scalar}, value_func=sametypes_create_value_func(Scalar), group="Operators"
+    "mod",
+    input_types={"a": Scalar, "b": Scalar},
+    value_func=sametypes_create_value_func(Scalar),
+    doc="Modulo operation using truncated division.",
+    group="Operators",
+)
+add_builtin(
+    "mod",
+    input_types={"a": vector(length=Any, dtype=Scalar), "b": vector(length=Any, dtype=Scalar)},
+    constraint=sametypes,
+    value_func=sametypes_create_value_func(Scalar),
+    doc="Modulo operation using truncated division.",
+    group="Operators",
 )
 
 add_builtin(
