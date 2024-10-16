@@ -1523,6 +1523,9 @@ class ModuleHasher:
             return bytes(value)
         elif isinstance(value, warp.codegen.StructInstance):
             return bytes(value._ctype)
+        elif warp.types.type_is_external(type(value)):
+            # instance of an external type, assume it's bytes-convertible (e.g., via ctypes)
+            return bytes(value)
         else:
             raise TypeError(f"Invalid constant type: {type(value)}")
 

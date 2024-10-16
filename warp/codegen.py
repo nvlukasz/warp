@@ -2947,10 +2947,16 @@ class Adjoint:
                 obj = adj.resolve_external_reference(node.id)
                 if warp.types.is_value(obj):
                     constants[node.id] = obj
+                elif warp.types.type_is_external(type(obj)):
+                    # instance of an external type
+                    constants[node.id] = obj
 
             elif isinstance(node, ast.Attribute):
                 obj, path = adj.resolve_static_expression(node, eval_types=False)
                 if warp.types.is_value(obj):
+                    constants[".".join(path)] = obj
+                elif warp.types.type_is_external(type(obj)):
+                    # instance of an external type
                     constants[".".join(path)] = obj
 
             elif isinstance(node, ast.Call):
