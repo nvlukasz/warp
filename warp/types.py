@@ -66,8 +66,8 @@ def constant(x):
         x: Compile-time constant value, can be any of the built-in math types.
     """
 
-    if not isinstance(x, (builtins.bool, int, float, tuple(scalar_and_bool_types), ctypes.Array)):
-        raise RuntimeError(f"Invalid constant type: {type(x)}")
+    if not is_value(x):
+        raise TypeError(f"Invalid constant type: {type(x)}")
 
     return x
 
@@ -100,8 +100,10 @@ def vector(length, dtype):
 
         if dtype is bool:
             _type_ = ctypes.c_bool
-        elif dtype in [Scalar, Float]:
+        elif dtype in (Scalar, Float):
             _type_ = ctypes.c_float
+        elif dtype is Int:
+            _type_ = ctypes.c_int
         else:
             _type_ = dtype._type_
 
@@ -289,8 +291,10 @@ def matrix(shape, dtype):
 
         if dtype is bool:
             _type_ = ctypes.c_bool
-        elif dtype in [Scalar, Float]:
+        elif dtype in (Scalar, Float):
             _type_ = ctypes.c_float
+        elif dtype is Int:
+            _type_ = ctypes.c_int
         else:
             _type_ = dtype._type_
 
@@ -1302,7 +1306,7 @@ def type_to_warp(dtype):
 
 def type_typestr(dtype):
     if dtype == bool:
-        return "?"
+        return "|b1"
     elif dtype == float16:
         return "<f2"
     elif dtype == float32:
@@ -1310,9 +1314,9 @@ def type_typestr(dtype):
     elif dtype == float64:
         return "<f8"
     elif dtype == int8:
-        return "b"
+        return "|i1"
     elif dtype == uint8:
-        return "B"
+        return "|u1"
     elif dtype == int16:
         return "<i2"
     elif dtype == uint16:
@@ -1384,7 +1388,7 @@ value_types = (int, float, builtins.bool) + scalar_types
 
 # returns true for all value types (int, float, bool, scalars, vectors, matrices)
 def type_is_value(x):
-    return x in value_types or issubclass(x, ctypes.Array)
+    return x in value_types or hasattr(x, "_wp_scalar_type_")
 
 
 # equivalent of the above but for values
@@ -1489,6 +1493,10 @@ def types_equal(a, b, match_generic=False):
         return True
 
     if is_array(a) and type(a) is type(b):
+        return True
+
+    # match NewStructInstance and Struct dtype
+    if getattr(a, "cls", "a") is getattr(b, "cls", "b"):
         return True
 
     return scalars_equal(a, b, match_generic)
@@ -2257,13 +2265,22 @@ class array(Array):
             self._requires_grad = False
         else:
             # make sure the given gradient array is compatible
-            if (
-                grad.dtype != self.dtype
-                or grad.shape != self.shape
-                or grad.strides != self.strides
-                or grad.device != self.device
-            ):
-                raise ValueError("The given gradient array is incompatible")
+            if grad.dtype != self.dtype:
+                raise ValueError(
+                    f"The given gradient array is incompatible: expected dtype {self.dtype}, got {grad.dtype}"
+                )
+            if grad.shape != self.shape:
+                raise ValueError(
+                    f"The given gradient array is incompatible: expected shape {self.shape}, got {grad.shape}"
+                )
+            if grad.device != self.device:
+                raise ValueError(
+                    f"The given gradient array is incompatible: expected device {self.device}, got {grad.device}"
+                )
+            if grad.strides != self.strides:
+                raise ValueError(
+                    f"The given gradient array is incompatible: expected strides {self.strides}, got {grad.strides}"
+                )
             self._grad = grad
             self._requires_grad = True
 
@@ -3064,8 +3081,8 @@ class Mesh:
             raise RuntimeError("Mesh indices should be a flattened 1d array of indices")
 
         self.device = points.device
-        self.points = points
-        self.velocities = velocities
+        self._points = points
+        self._velocities = velocities
         self.indices = indices
 
         self.runtime = warp.context.runtime
@@ -3108,6 +3125,72 @@ class Mesh:
             self.runtime.core.mesh_refit_host(self.id)
         else:
             self.runtime.core.mesh_refit_device(self.id)
+            self.runtime.verify_cuda_device(self.device)
+
+    @property
+    def points(self):
+        """The array of mesh's vertex positions of type :class:`warp.vec3`.
+
+        The `Mesh.points` property has a custom setter method. Users can modify the vertex positions in-place,
+        but the `refit()` method must be called manually after such modifications. Alternatively, assigning a new array
+        to this property is also supported. The new array must have the same shape as the original, and once assigned,
+        the `Mesh` class will automatically perform a refit operation based on the new vertex positions.
+        """
+        return self._points
+
+    @points.setter
+    def points(self, points_new):
+        if points_new.device != self._points.device:
+            raise RuntimeError(
+                "The new points and the original points must live on the same device, currently "
+                "the new points lives on {} while the old points lives on {}.".format(
+                    points_new.device, self._points.device
+                )
+            )
+
+        if points_new.ndim != 1 or points_new.shape[0] != self._points.shape[0]:
+            raise RuntimeError(
+                "the new points and the original points must have the same shape, currently new points shape is: {},"
+                " while the old points' shape is: {}".format(points_new.shape, self._points.shape)
+            )
+
+        self._points = points_new
+        if self.device.is_cpu:
+            self.runtime.core.mesh_set_points_host(self.id, points_new.__ctype__())
+        else:
+            self.runtime.core.mesh_set_points_device(self.id, points_new.__ctype__())
+            self.runtime.verify_cuda_device(self.device)
+
+    @property
+    def velocities(self):
+        """The array of mesh's velocities of type :class:`warp.vec3`.
+
+        This is a property with a custom setter method. Users can modify the velocities in-place,
+        or assigning a new array to this property. No refitting is needed for changing velocities.
+        """
+        return self._velocities
+
+    @velocities.setter
+    def velocities(self, velocities_new):
+        if velocities_new.device != self._velocities.device:
+            raise RuntimeError(
+                "The new points and the original points must live on the same device, currently "
+                "the new points lives on {} while the old points lives on {}.".format(
+                    velocities_new.device, self._velocities.device
+                )
+            )
+
+        if velocities_new.ndim != 1 or velocities_new.shape[0] != self._velocities.shape[0]:
+            raise RuntimeError(
+                "the new points and the original points must have the same shape, currently new points shape is: {},"
+                " while the old points' shape is: {}".format(velocities_new.shape, self._velocities.shape)
+            )
+
+        self._velocities = velocities_new
+        if self.device.is_cpu:
+            self.runtime.core.mesh_set_velocities_host(self.id, velocities_new.__ctype__())
+        else:
+            self.runtime.core.mesh_set_velocities_device(self.id, velocities_new.__ctype__())
             self.runtime.verify_cuda_device(self.device)
 
 
@@ -3395,7 +3478,7 @@ class Volume:
         )
 
     def feature_array(self, feature_index: int, dtype=None) -> array:
-        """Returns one the the grid's feature data arrays as a Warp array
+        """Returns one the grid's feature data arrays as a Warp array
 
         Args:
             feature_index: Index of the supplemental data array in the grid

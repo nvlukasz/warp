@@ -6,7 +6,6 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import ast
-import builtins
 import ctypes
 import functools
 import hashlib
@@ -22,7 +21,6 @@ import typing
 import weakref
 from copy import copy as shallowcopy
 from pathlib import Path
-from struct import pack as struct_pack
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -1251,6 +1249,7 @@ def add_builtin(
                     key,
                     input_types=arg_types,
                     value_type=return_type,
+                    value_func=value_func if return_type is Any else None,
                     export_func=export_func,
                     dispatch_func=dispatch_func,
                     doc=doc,
@@ -1442,9 +1441,9 @@ class ModuleHasher:
 
             # custom bits
             if ovl.custom_grad_func:
-                ch.update(bytes(ovl.custom_grad_func.adj.source, "utf-8"))
+                ch.update(self.hash_adjoint(ovl.custom_grad_func.adj))
             if ovl.custom_replay_func:
-                ch.update(bytes(ovl.custom_replay_func.adj.source, "utf-8"))
+                ch.update(self.hash_adjoint(ovl.custom_replay_func.adj))
             if ovl.replay_snippet:
                 ch.update(bytes(ovl.replay_snippet, "utf-8"))
             if ovl.native_snippet:
@@ -1487,26 +1486,16 @@ class ModuleHasher:
         # hash referenced constants
         for name, value in constants.items():
             ch.update(bytes(name, "utf-8"))
-            # hash the referenced object
-            if isinstance(value, builtins.bool):
-                # This needs to come before the check for `int` since all boolean
-                # values are also instances of `int`.
-                ch.update(struct_pack("?", value))
-            elif isinstance(value, int):
-                ch.update(struct_pack("<q", value))
-            elif isinstance(value, float):
-                ch.update(struct_pack("<d", value))
-            elif isinstance(value, warp.types.float16):
-                # float16 is a special case
-                p = ctypes.pointer(ctypes.c_float(value.value))
-                ch.update(p.contents)
-            elif isinstance(value, tuple(warp.types.scalar_types)):
-                p = ctypes.pointer(value._type_(value.value))
-                ch.update(p.contents)
-            elif isinstance(value, ctypes.Array):
-                ch.update(bytes(value))
+            ch.update(self.get_constant_bytes(value))
+
+        # hash wp.static() expressions that were evaluated at declaration time
+        for k, v in adj.static_expressions.items():
+            ch.update(bytes(k, "utf-8"))
+            if isinstance(v, Function):
+                if v not in self.functions_in_progress:
+                    ch.update(self.hash_function(v))
             else:
-                raise RuntimeError(f"Invalid constant type: {type(value)}")
+                ch.update(self.get_constant_bytes(v))
 
         # hash referenced types
         for t in types.keys():
@@ -1518,6 +1507,24 @@ class ModuleHasher:
                 ch.update(self.hash_function(f))
 
         return ch.digest()
+
+    def get_constant_bytes(self, value):
+        if isinstance(value, int):
+            # this also handles builtins.bool
+            return bytes(ctypes.c_int(value))
+        elif isinstance(value, float):
+            return bytes(ctypes.c_float(value))
+        elif isinstance(value, warp.types.float16):
+            # float16 is a special case
+            return bytes(ctypes.c_float(value.value))
+        elif isinstance(value, tuple(warp.types.scalar_and_bool_types)):
+            return bytes(value._type_(value.value))
+        elif hasattr(value, "_wp_scalar_type_"):
+            return bytes(value)
+        elif isinstance(value, warp.codegen.StructInstance):
+            return bytes(value._ctype)
+        else:
+            raise TypeError(f"Invalid constant type: {type(value)}")
 
     def get_module_hash(self):
         return self.module_hash
@@ -1686,8 +1693,12 @@ class ModuleExec:
             )
         else:
             func = ctypes.CFUNCTYPE(None)
-            forward = func(runtime.llvm.lookup(self.handle.encode("utf-8"), (name + "_cpu_forward").encode("utf-8")))
-            backward = func(runtime.llvm.lookup(self.handle.encode("utf-8"), (name + "_cpu_backward").encode("utf-8")))
+            forward = (
+                func(runtime.llvm.lookup(self.handle.encode("utf-8"), (name + "_cpu_forward").encode("utf-8"))) or None
+            )
+            backward = (
+                func(runtime.llvm.lookup(self.handle.encode("utf-8"), (name + "_cpu_backward").encode("utf-8"))) or None
+            )
 
         hooks = KernelHooks(forward, backward)
         self.kernel_hooks[kernel] = hooks
@@ -1724,6 +1735,13 @@ class Module:
 
         # hash data, including the module hash
         self.hasher = None
+
+        # LLVM executable modules are identified using strings.  Since it's possible for multiple
+        # executable versions to be loaded at the same time, we need a way to ensure uniqueness.
+        # A unique handle is created from the module name and this auto-incremented integer id.
+        # NOTE: The module hash is not sufficient for uniqueness in rare cases where a module
+        # is retained and later reloaded with the same hash.
+        self.cpu_exec_id = 0
 
         self.options = {
             "max_unroll": warp.config.max_unroll,
@@ -2036,8 +2054,9 @@ class Module:
             # -----------------------------------------------------------
             # Load CPU or CUDA binary
             if device.is_cpu:
-                # LLVM modules are identified using strings, so include the hash for uniqueness
-                module_handle = f"{module_name}_{module_hash.hex()[:7]}"
+                # LLVM modules are identified using strings, so we need to ensure uniqueness
+                module_handle = f"{module_name}_{self.cpu_exec_id}"
+                self.cpu_exec_id += 1
                 runtime.llvm.load_obj(binary_path.encode("utf-8"), module_handle.encode("utf-8"))
                 module_exec = ModuleExec(module_handle, module_hash, device)
                 self.execs[None] = module_exec
@@ -2983,6 +3002,12 @@ class Runtime:
 
             self.core.mesh_refit_host.argtypes = [ctypes.c_uint64]
             self.core.mesh_refit_device.argtypes = [ctypes.c_uint64]
+
+            self.core.mesh_set_points_host.argtypes = [ctypes.c_uint64, warp.types.array_t]
+            self.core.mesh_set_points_device.argtypes = [ctypes.c_uint64, warp.types.array_t]
+
+            self.core.mesh_set_velocities_host.argtypes = [ctypes.c_uint64, warp.types.array_t]
+            self.core.mesh_set_velocities_device.argtypes = [ctypes.c_uint64, warp.types.array_t]
 
             self.core.hash_grid_create_host.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
             self.core.hash_grid_create_host.restype = ctypes.c_uint64
@@ -5818,9 +5843,6 @@ def export_stubs(file):  # pragma: no cover
     print('Cols = TypeVar("Cols", bound=int)', file=file)
     print('DType = TypeVar("DType")', file=file)
 
-    print('Int = TypeVar("Int")', file=file)
-    print('Float = TypeVar("Float")', file=file)
-    print('Scalar = TypeVar("Scalar")', file=file)
     print("Vector = Generic[Length, Scalar]", file=file)
     print("Matrix = Generic[Rows, Cols, Scalar]", file=file)
     print("Quaternion = Generic[Float]", file=file)

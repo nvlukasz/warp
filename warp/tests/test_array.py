@@ -2590,6 +2590,105 @@ def test_array_from_int64_domain(test, device):
     wp.zeros(np.array([1504, 1080, 520], dtype=np.int64), dtype=wp.float32, device=device)
 
 
+def test_numpy_array_interface(test, device):
+    # We should be able to convert between NumPy and Warp arrays using __array_interface__ on CPU.
+    # This tests all scalar types supported by both.
+
+    n = 10
+
+    scalar_types = wp.types.scalar_types
+
+    for dtype in scalar_types:
+        # test round trip
+        a1 = wp.zeros(n, dtype=dtype, device="cpu")
+        na = np.array(a1)
+        a2 = wp.array(na, device="cpu")
+
+        assert a1.dtype == a2.dtype
+        assert a1.shape == a2.shape
+        assert a1.strides == a2.strides
+
+
+@wp.kernel
+def kernel_indexing_types(
+    arr_1d: wp.array(dtype=wp.int32, ndim=1),
+    arr_2d: wp.array(dtype=wp.int32, ndim=2),
+    arr_3d: wp.array(dtype=wp.int32, ndim=3),
+    arr_4d: wp.array(dtype=wp.int32, ndim=4),
+):
+    x = arr_1d[wp.uint8(0)]
+    y = arr_1d[wp.int16(1)]
+    z = arr_1d[wp.uint32(2)]
+    w = arr_1d[wp.int64(3)]
+
+    x = arr_2d[wp.uint8(0), wp.uint8(0)]
+    y = arr_2d[wp.int16(1), wp.int16(1)]
+    z = arr_2d[wp.uint32(2), wp.uint32(2)]
+    w = arr_2d[wp.int64(3), wp.int64(3)]
+
+    x = arr_3d[wp.uint8(0), wp.uint8(0), wp.uint8(0)]
+    y = arr_3d[wp.int16(1), wp.int16(1), wp.int16(1)]
+    z = arr_3d[wp.uint32(2), wp.uint32(2), wp.uint32(2)]
+    w = arr_3d[wp.int64(3), wp.int64(3), wp.int64(3)]
+
+    x = arr_4d[wp.uint8(0), wp.uint8(0), wp.uint8(0), wp.uint8(0)]
+    y = arr_4d[wp.int16(1), wp.int16(1), wp.int16(1), wp.int16(1)]
+    z = arr_4d[wp.uint32(2), wp.uint32(2), wp.uint32(2), wp.uint32(2)]
+    w = arr_4d[wp.int64(3), wp.int64(3), wp.int64(3), wp.int64(3)]
+
+    arr_1d[wp.uint8(0)] = 123
+    arr_1d[wp.int16(1)] = 123
+    arr_1d[wp.uint32(2)] = 123
+    arr_1d[wp.int64(3)] = 123
+
+    arr_2d[wp.uint8(0), wp.uint8(0)] = 123
+    arr_2d[wp.int16(1), wp.int16(1)] = 123
+    arr_2d[wp.uint32(2), wp.uint32(2)] = 123
+    arr_2d[wp.int64(3), wp.int64(3)] = 123
+
+    arr_3d[wp.uint8(0), wp.uint8(0), wp.uint8(0)] = 123
+    arr_3d[wp.int16(1), wp.int16(1), wp.int16(1)] = 123
+    arr_3d[wp.uint32(2), wp.uint32(2), wp.uint32(2)] = 123
+    arr_3d[wp.int64(3), wp.int64(3), wp.int64(3)] = 123
+
+    arr_4d[wp.uint8(0), wp.uint8(0), wp.uint8(0), wp.uint8(0)] = 123
+    arr_4d[wp.int16(1), wp.int16(1), wp.int16(1), wp.int16(1)] = 123
+    arr_4d[wp.uint32(2), wp.uint32(2), wp.uint32(2), wp.uint32(2)] = 123
+    arr_4d[wp.int64(3), wp.int64(3), wp.int64(3), wp.int64(3)] = 123
+
+    wp.atomic_add(arr_1d, wp.uint8(0), 123)
+    wp.atomic_sub(arr_1d, wp.int16(1), 123)
+    wp.atomic_min(arr_1d, wp.uint32(2), 123)
+    wp.atomic_max(arr_1d, wp.int64(3), 123)
+
+    wp.atomic_add(arr_2d, wp.uint8(0), wp.uint8(0), 123)
+    wp.atomic_sub(arr_2d, wp.int16(1), wp.int16(1), 123)
+    wp.atomic_min(arr_2d, wp.uint32(2), wp.uint32(2), 123)
+    wp.atomic_max(arr_2d, wp.int64(3), wp.int64(3), 123)
+
+    wp.atomic_add(arr_3d, wp.uint8(0), wp.uint8(0), wp.uint8(0), 123)
+    wp.atomic_sub(arr_3d, wp.int16(1), wp.int16(1), wp.int16(1), 123)
+    wp.atomic_min(arr_3d, wp.uint32(2), wp.uint32(2), wp.uint32(2), 123)
+    wp.atomic_max(arr_3d, wp.int64(3), wp.int64(3), wp.int64(3), 123)
+
+    wp.atomic_add(arr_4d, wp.uint8(0), wp.uint8(0), wp.uint8(0), wp.uint8(0), 123)
+    wp.atomic_sub(arr_4d, wp.int16(1), wp.int16(1), wp.int16(1), wp.int16(1), 123)
+    wp.atomic_min(arr_4d, wp.uint32(2), wp.uint32(2), wp.uint32(2), wp.uint32(2), 123)
+    wp.atomic_max(arr_4d, wp.int64(3), wp.int64(3), wp.int64(3), wp.int64(3), 123)
+
+
+def test_indexing_types(test, device):
+    arr_1d = wp.zeros(shape=(4,), dtype=wp.int32)
+    arr_2d = wp.zeros(shape=(4, 4), dtype=wp.int32)
+    arr_3d = wp.zeros(shape=(4, 4, 4), dtype=wp.int32)
+    arr_4d = wp.zeros(shape=(4, 4, 4, 4), dtype=wp.int32)
+    wp.launch(
+        kernel=kernel_indexing_types,
+        dim=1,
+        inputs=(arr_1d, arr_2d, arr_3d, arr_4d),
+    )
+
+
 devices = get_test_devices()
 
 
@@ -2648,6 +2747,7 @@ add_function_test(TestArray, "test_array_of_structs_from_numpy", test_array_of_s
 add_function_test(TestArray, "test_array_of_structs_roundtrip", test_array_of_structs_roundtrip, devices=devices)
 add_function_test(TestArray, "test_array_from_numpy", test_array_from_numpy, devices=devices)
 add_function_test(TestArray, "test_array_aliasing_from_numpy", test_array_aliasing_from_numpy, devices=["cpu"])
+add_function_test(TestArray, "test_numpy_array_interface", test_numpy_array_interface, devices=["cpu"])
 
 add_function_test(TestArray, "test_array_inplace_ops", test_array_inplace_ops, devices=devices)
 add_function_test(TestArray, "test_direct_from_numpy", test_direct_from_numpy, devices=["cpu"])
@@ -2655,6 +2755,7 @@ add_function_test(TestArray, "test_kernel_array_from_ptr", test_kernel_array_fro
 
 add_function_test(TestArray, "test_array_from_int32_domain", test_array_from_int32_domain, devices=devices)
 add_function_test(TestArray, "test_array_from_int64_domain", test_array_from_int64_domain, devices=devices)
+add_function_test(TestArray, "test_indexing_types", test_indexing_types, devices=devices)
 
 try:
     import torch

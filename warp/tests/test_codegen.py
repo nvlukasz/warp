@@ -405,22 +405,22 @@ def test_error_global_var(test, device):
 
     kernel = wp.Kernel(func=kernel_1_fn)
     with test.assertRaisesRegex(
-        RuntimeError,
-        r"Cannot reference a global variable from a kernel unless `wp.constant\(\)` is being used",
+        TypeError,
+        r"Invalid external reference type: <class 'warp.types.array'>",
     ):
         wp.launch(kernel, dim=out.shape, inputs=(), outputs=(out,), device=device)
 
     kernel = wp.Kernel(func=kernel_2_fn)
     with test.assertRaisesRegex(
-        RuntimeError,
-        r"Cannot reference a global variable from a kernel unless `wp.constant\(\)` is being used",
+        TypeError,
+        r"Invalid external reference type: <class 'warp.types.array'>",
     ):
         wp.launch(kernel, dim=out.shape, inputs=(), outputs=(out,), device=device)
 
     kernel = wp.Kernel(func=kernel_3_fn)
     with test.assertRaisesRegex(
-        RuntimeError,
-        r"Cannot reference a global variable from a kernel unless `wp.constant\(\)` is being used",
+        TypeError,
+        r"Invalid external reference type: <class 'warp.types.array'>",
     ):
         wp.launch(kernel, dim=out.shape, inputs=(), outputs=(out,), device=device)
 
@@ -489,6 +489,52 @@ def test_error_unmatched_arguments(test, device):
         wp.launch(kernel, dim=1, device=device)
 
 
+def test_error_mutating_constant_in_dynamic_loop(test, device):
+    @wp.kernel
+    def dynamic_loop_kernel(n: int, input: wp.array(dtype=float)):
+        my_constant = 0.0
+        for i in range(n):
+            my_constant += input[i]
+
+    inputs = wp.array([1.0, 2.0, 3.0], dtype=float, device=device)
+    with test.assertRaisesRegex(
+        wp.codegen.WarpCodegenError,
+        r"Error mutating a constant my_constant inside a dynamic loop, use the following syntax\: pi = float\(3\.141\) to declare a dynamic variable",
+    ):
+        wp.launch(dynamic_loop_kernel, dim=1, inputs=[3, inputs], device=device)
+
+    # the following nested loop must not raise an error
+    const_a = 7
+    const_b = 5
+
+    @wp.kernel
+    def mixed_dyn_static_loop_kernel(dyn_a: int, dyn_b: int, dyn_c: int, output: wp.array(dtype=float, ndim=2)):
+        tid = wp.tid()
+        for i in range(const_a + 1):
+            for j in range(dyn_a + 1):
+                for k in range(dyn_b + 1):
+                    for l in range(const_b + 1):
+                        for m in range(dyn_c + 1):
+                            coeff = i + j + k + l + m
+                            output[tid, coeff] = 1.0
+
+    dyn_a, dyn_b, dyn_c = 3, 4, 5
+    num_threads = 10
+    output = wp.empty([num_threads, const_a + const_b + dyn_a + dyn_b + dyn_c + 1], dtype=float, device=device)
+    wp.launch(
+        mixed_dyn_static_loop_kernel,
+        num_threads,
+        inputs=[
+            dyn_a,
+            dyn_b,
+            dyn_c,
+        ],
+        outputs=[output],
+        device=device,
+    )
+    assert_np_equal(output.numpy(), np.ones([num_threads, const_a + const_b + dyn_a + dyn_b + dyn_c + 1]))
+
+
 @wp.kernel
 def test_call_syntax():
     expected_pow = 16.0
@@ -516,6 +562,19 @@ def sum(a: wp.vec3) -> float:
 @wp.kernel
 def test_shadow_builtin():
     wp.expect_eq(sum(wp.vec3(1.0)), 3.0)
+
+
+@wp.struct
+class Iterator:
+    valid: wp.bool
+
+
+@wp.kernel(enable_backward=False)
+def test_while_condition_eval():
+    it = Iterator()
+    it.valid = True
+    while it.valid:
+        it.valid = False
 
 
 class TestCodeGen(unittest.TestCase):
@@ -654,9 +713,16 @@ add_function_test(
 add_function_test(
     TestCodeGen, func=test_error_unmatched_arguments, name="test_error_unmatched_arguments", devices=devices
 )
+add_function_test(
+    TestCodeGen,
+    func=test_error_mutating_constant_in_dynamic_loop,
+    name="test_error_mutating_constant_in_dynamic_loop",
+    devices=devices,
+)
 
 add_kernel_test(TestCodeGen, name="test_call_syntax", kernel=test_call_syntax, dim=1, devices=devices)
 add_kernel_test(TestCodeGen, name="test_shadow_builtin", kernel=test_shadow_builtin, dim=1, devices=devices)
+add_kernel_test(TestCodeGen, name="test_while_condition_eval", kernel=test_while_condition_eval, dim=1, devices=devices)
 
 
 if __name__ == "__main__":
