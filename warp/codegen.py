@@ -565,8 +565,9 @@ class Struct:
 
 
 class Reference:
-    def __init__(self, value_type):
+    def __init__(self, value_type, is_constant=False):
         self.value_type = value_type
+        self.is_constant = is_constant
 
 
 def is_reference(type):
@@ -644,7 +645,11 @@ class Var:
             return t.native_name
         elif is_reference(t):
             if not value_type:
-                return Var.type_to_ctype(t.value_type) + "*"
+                # return Var.type_to_ctype(t.value_type) + "*"
+                if t.is_constant:
+                    return "const " + Var.type_to_ctype(t.value_type) + "*"
+                else:
+                    return Var.type_to_ctype(t.value_type) + "*"
             else:
                 return Var.type_to_ctype(t.value_type)
         elif hasattr(t, "_wp_generic_type_str_"):
@@ -1117,7 +1122,14 @@ class Adjoint:
         adj.blocks[-1].body_reverse.append(adj.indentation + statement)
 
     def add_constant(adj, n):
-        output = adj.add_var(type=type(n), constant=n)
+        if isinstance(n, StructInstance):
+            output = adj.add_var(type=n._cls, constant=n)
+            if adj.builder is not None:
+                adj.builder.build_struct_recursive(n._cls)
+        else:
+            output = adj.add_var(type=type(n), constant=n)
+
+        # output = adj.add_var(type=type(n), constant=n)
         return output
 
     def load(adj, var):
@@ -1683,6 +1695,12 @@ class Adjoint:
             adj.symbols[node.id] = out
             return out
 
+        if isinstance(obj, StructInstance):
+            # evaluate as a constant
+            out = adj.add_constant(obj)
+            adj.symbols[node.id] = out
+            return out
+
         # see if it's a custom type object
         if warp.types.type_is_external(type(obj)):
             # evaluate as a constant
@@ -1763,7 +1781,10 @@ class Adjoint:
                 return adj.add_builtin_call("extract", [aggregate, index])
 
             else:
-                attr_type = Reference(aggregate_type.vars[node.attr].type)
+                # check if it's a constant reference
+                is_constant = aggregate.constant is not None
+                attr_type = Reference(aggregate_type.vars[node.attr].type, is_constant=is_constant)
+                # attr_type = Reference(aggregate_type.vars[node.attr].type)
                 attr = adj.add_var(attr_type)
 
                 if is_reference(aggregate.type):
@@ -2496,6 +2517,11 @@ class Adjoint:
 
             else:
                 attr = adj.emit_Attribute(lhs)
+
+                # check if aggregate is a constant
+                if aggregate.constant is not None:
+                    raise RuntimeError(f"Cannot assign to constant {aggregate.constant} of type {aggregate_type}")
+
                 if is_reference(attr.type):
                     adj.add_builtin_call("store", [attr, rhs])
                 else:
