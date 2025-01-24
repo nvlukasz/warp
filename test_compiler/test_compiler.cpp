@@ -3,7 +3,9 @@
 
 #include <nvrtc.h>
 
+#include <ctype.h>
 #include <stdio.h>
+#include <string.h>
 #include <dlfcn.h>
 #include <vector>
 
@@ -151,10 +153,8 @@ CUresult cuLaunchKernel_f(CUfunction f, unsigned int gridDimX, unsigned int grid
 }
 
 
-int main()
+int main(int argc, char** argv)
 {
-    printf("Hello\n");
-
     static void* hCudaDriver = dlopen("libcuda.so", RTLD_NOW);
     if (hCudaDriver == NULL) {
         // WSL and possibly other systems might require the .1 suffix
@@ -184,12 +184,54 @@ int main()
     get_driver_entry_point("cuModuleGetFunction", 2000, &(void*&)pfn_cuModuleGetFunction);
     get_driver_entry_point("cuLaunchKernel", 4000, &(void*&)pfn_cuLaunchKernel);
 
+    // process arguments
+    if (argc < 3)
+    {
+        fprintf(stderr, "Error, missing arguments.\n");
+        fprintf(stderr, "USAGE:\n    %s source_file cflags_file\n", argv[0]);
+        fprintf(stderr, "EXAMPLE:\n    %s src/source1.cu src/cflags1.txt\n", argv[0]);
+        fprintf(stderr, "\n");
+        return 1;
+    }
+
+    const char* src_path = argv[1];
+    const char* cflags_path = argv[2];
+
+    // parse NVRTC cflags
+    std::vector<const char*> opts;
+    FILE* cflags_fp = fopen(cflags_path, "r");
+    if (!cflags_fp)
+    {
+        fprintf(stderr, "*** Failed to open source file %s\n", cflags_path);
+        return 1;
+    }
+    while (true)
+    {
+        char linebuf[4096];
+        fgets(linebuf, sizeof(linebuf), cflags_fp);
+        if (feof(cflags_fp))
+            break;
+
+        const char* lineptr = linebuf;
+        char optbuf[4096];
+        while (sscanf(lineptr, "%s", optbuf) == 1)
+        {
+            // if comment, skip reset of line
+            if (optbuf[0] == '#')
+                break;
+            size_t optlen = strlen(optbuf);
+            opts.push_back(strdup(optbuf));
+            lineptr += optlen;
+        }
+    }
+    fclose(cflags_fp);
+
     //
     // compile
     //
 
-    // const char* src_path = "src/source1.cu";
-    const char* src_path = "src/source2.cu";
+    bool print_source = true;
+    bool print_cflags = true;
 
     // read the source
     FILE* fp = fopen(src_path, "r");
@@ -199,27 +241,37 @@ int main()
         return 1;
     }
     fseek(fp, 0, SEEK_END);
-    long flen = ftell(fp);
+    long source_len = ftell(fp);
     fseek(fp, 0, SEEK_SET);
-    printf("Source size: %ld\n", flen);
 
-    std::vector<char> source(flen + 1);
-    fread(source.data(), 1, flen, fp);
-    source[flen] = '\0';
-    printf("----------\n");
-    printf("%s", source.data());
-    printf("----------\n");
+    std::vector<char> source(source_len + 1);
+    fread(source.data(), 1, source_len, fp);
+    source[source_len] = '\0';
+    printf("Source size: %ld\n", source_len);
+
+    if (print_source)
+    {
+        printf("-------------------------------------------------------------\n");
+        // trim trailing whitespace
+        char* p = source.data() + source_len - 1;
+        while (p >= source.data() && isspace(*p))
+            *p-- = '\0';
+        printf("%s", source.data());
+        printf("\n-------------------------------------------------------------\n");
+    }
+
+    if (print_cflags)
+    {
+        if (!print_source)
+            printf("-------------------------------------------------------------\n");
+        printf("NVRTC compiler flags:\n ");
+        for (int i = 0; i < int(opts.size()); i++)
+            printf(" %s", opts[i]);
+        printf("\n-------------------------------------------------------------\n");
+    }
 
     nvrtcProgram prog;
     check_nvrtc(nvrtcCreateProgram(&prog, source.data(), "source.cu", 0, NULL, NULL));
-
-    // NVRTC compiler options
-    std::vector<const char*> opts
-    {
-        "--std=c++17",
-        "-I/work/src/cccl/libcudacxx/include",
-        "-I/work/src/cccl/libcudacxx/include/cuda/std",
-    };
 
     if (!check_nvrtc(nvrtcCompileProgram(prog, int(opts.size()), opts.data())))
     {
