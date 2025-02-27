@@ -351,7 +351,7 @@ def update_collider(
     db: OgnClothSimulateDatabase,
 ) -> None:
     """Updates the collider state."""
-    state = db.internal_state
+    state = db.per_instance_state
 
     points = omni.warp.nodes.mesh_get_points(db.inputs.collider)
     xform = omni.warp.nodes.bundle_get_world_xform(db.inputs.collider)
@@ -397,7 +397,7 @@ def update_cloth(
     db: OgnClothSimulateDatabase,
 ) -> None:
     """Updates the cloth state."""
-    state = db.internal_state
+    state = db.per_instance_state
 
     xform = omni.warp.nodes.bundle_get_world_xform(db.inputs.cloth)
 
@@ -405,13 +405,20 @@ def update_cloth(
     xform_0 = state.xform
     xform_1 = xform
 
+    try:
+        xform_0_inv = np.linalg.inv(xform_0)
+    except np.linalg.LinAlgError:
+        # On the first run, OG sometimes return an invalid matrix,
+        # so we default it to the identity one.
+        xform_0_inv = np.identity(4)
+
     # Update the internal point positions and velocities.
     wp.launch(
         kernel=update_cloth_kernel,
         dim=len(state.state_0.particle_q),
         inputs=[
             state.state_0.particle_q,
-            np.matmul(np.linalg.inv(xform_0), xform_1).T,
+            np.matmul(xform_0_inv, xform_1).T,
         ],
         outputs=[
             state.state_0.particle_q,
@@ -425,7 +432,7 @@ def update_cloth(
 
 def step(db: OgnClothSimulateDatabase) -> None:
     """Steps through the simulation."""
-    state = db.internal_state
+    state = db.per_instance_state
 
     sim_dt = state.sim_dt / db.inputs.substepCount
 
@@ -461,7 +468,7 @@ def step(db: OgnClothSimulateDatabase) -> None:
 
 def simulate(db: OgnClothSimulateDatabase) -> None:
     """Simulates the cloth at the current time."""
-    state = db.internal_state
+    state = db.per_instance_state
 
     if USE_GRAPH:
         wp.capture_launch(state.graph)
@@ -474,7 +481,7 @@ def compute(db: OgnClothSimulateDatabase, device: wp.context.Device) -> None:
     if not db.inputs.cloth.valid or not db.outputs.cloth.valid:
         return
 
-    state = db.internal_state
+    state = db.per_instance_state
 
     if not db.inputs.enabled:
         # Pass through the data.
@@ -519,6 +526,13 @@ def compute(db: OgnClothSimulateDatabase, device: wp.context.Device) -> None:
             # Retrieve some data from the cloth mesh.
             xform = omni.warp.nodes.bundle_get_world_xform(db.inputs.cloth)
 
+            try:
+                xform_inv = np.linalg.inv(xform)
+            except np.linalg.LinAlgError:
+                # On the first run, OG sometimes return an invalid matrix,
+                # so we default it to the identity one.
+                xform_inv = np.identity(4)
+
             # Transform the cloth point positions back into local space
             # and store them into the bundle.
             out_points = omni.warp.nodes.points_get_points(db.outputs.cloth)
@@ -527,7 +541,7 @@ def compute(db: OgnClothSimulateDatabase, device: wp.context.Device) -> None:
                 dim=len(out_points),
                 inputs=[
                     state.state_0.particle_q,
-                    np.linalg.inv(xform).T,
+                    xform_inv.T,
                 ],
                 outputs=[
                     out_points,
@@ -633,10 +647,10 @@ class OgnClothSimulate:
                 compute(db, device)
         except Exception:
             db.log_error(traceback.format_exc())
-            db.internal_state.is_valid = False
+            db.per_instance_state.is_valid = False
             return
 
-        db.internal_state.is_valid = True
+        db.per_instance_state.is_valid = True
 
         # Fire the execution for the downstream nodes.
         db.outputs.execOut = og.ExecutionAttributeState.ENABLED

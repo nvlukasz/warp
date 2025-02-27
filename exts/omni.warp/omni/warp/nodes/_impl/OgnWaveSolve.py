@@ -14,10 +14,11 @@ import numpy as np
 import omni.graph.core as og
 import omni.timeline
 import omni.warp.nodes
-from omni.warp.nodes._impl.kernels.grid_create import grid_create_launch_kernel
 from omni.warp.nodes.ogn.OgnWaveSolveDatabase import OgnWaveSolveDatabase
 
 import warp as wp
+
+from .kernels.grid_create import grid_create_launch_kernel
 
 PROFILING = False
 
@@ -207,7 +208,7 @@ def displace(
     cell_size: np.ndarray,
 ) -> None:
     """Displaces the height map with the collider."""
-    state = db.internal_state
+    state = db.per_instance_state
 
     # Retrieve some data from the grid mesh.
     xform = omni.warp.nodes.bundle_get_world_xform(db.outputs.mesh)
@@ -219,9 +220,16 @@ def displace(
         axis_aligned=True,
     )
 
+    try:
+        xform_inv = np.linalg.inv(xform)
+    except np.linalg.LinAlgError:
+        # On the first run, OG sometimes return an invalid matrix,
+        # so we default it to the identity one.
+        xform_inv = np.identity(4)
+
     # Retrieve the collider's position in the grid's object space.
     collider_pos = np.pad(collider_xform[3][:3], (0, 1), constant_values=1)
-    collider_pos = np.dot(np.linalg.inv(xform).T, collider_pos)
+    collider_pos = np.dot(xform_inv.T, collider_pos)
 
     # Compute the collider's radius.
     collider_radius = np.amax(collider_extent[1] - collider_extent[0]) * 0.5
@@ -264,7 +272,7 @@ def simulate(
     sim_dt: bool,
 ) -> None:
     """Solves the wave simulation."""
-    state = db.internal_state
+    state = db.per_instance_state
 
     cell_size_uniform = (cell_size[0] + cell_size[1]) * 0.5
     wp.launch(
@@ -293,7 +301,7 @@ def simulate(
 
 def update_mesh(db: OgnWaveSolveDatabase) -> None:
     """Updates the output grid mesh."""
-    state = db.internal_state
+    state = db.per_instance_state
 
     wp.launch(
         kernel=update_mesh_kernel,
@@ -314,7 +322,7 @@ def compute(db: OgnWaveSolveDatabase) -> None:
     if not db.outputs.mesh.valid:
         return
 
-    state = db.internal_state
+    state = db.per_instance_state
 
     # Compute the number of divisions.
     dims = (db.inputs.size / db.inputs.cellSize).astype(int)
@@ -390,10 +398,10 @@ class OgnWaveSolve:
                 compute(db)
         except Exception:
             db.log_error(traceback.format_exc())
-            db.internal_state.is_valid = False
+            db.per_instance_state.is_valid = False
             return
 
-        db.internal_state.is_valid = True
+        db.per_instance_state.is_valid = True
 
         # Fire the execution for the downstream nodes.
         db.outputs.execOut = og.ExecutionAttributeState.ENABLED

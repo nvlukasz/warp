@@ -15,7 +15,7 @@ class Tape:
     """
     Record kernel launches within a Tape scope to enable automatic differentiation.
     Gradients can be computed after the operations have been recorded on the tape via
-    ``tape.backward()``.
+    :meth:`Tape.backward()`.
 
     Example
     -------
@@ -43,7 +43,6 @@ class Tape:
 
     def __init__(self):
         self.gradients = {}
-        self.const_gradients = set()
         self.launches = []
         self.scopes = []
 
@@ -106,7 +105,6 @@ class Tape:
                 else:
                     # ensure we can capture this backward pass in a CUDA graph
                     a.grad.assign(g)
-                self.const_gradients.add(a)
 
         # run launches backwards
         for launch in reversed(self.launches):
@@ -115,13 +113,13 @@ class Tape:
 
             else:
                 # kernel option takes precedence over module option
-                kernel_enable_backward = launch[0].options.get("enable_backward")
-                if kernel_enable_backward is False:
+                enable_backward = launch[0].options.get("enable_backward")
+                if enable_backward is False:
                     msg = f"Running the tape backwards may produce incorrect gradients because recorded kernel {launch[0].key} is configured with the option 'enable_backward=False'."
                     wp.utils.warn(msg)
-                elif kernel_enable_backward is None:
-                    module_enable_backward = launch[0].module.options.get("enable_backward")
-                    if module_enable_backward is False:
+                elif enable_backward is None:
+                    enable_backward = launch[0].module.options.get("enable_backward")
+                    if enable_backward is False:
                         msg = f"Running the tape backwards may produce incorrect gradients because recorded kernel {launch[0].key} is defined in a module with the option 'enable_backward=False' set."
                         wp.utils.warn(msg)
 
@@ -131,6 +129,7 @@ class Tape:
                 inputs = launch[3]
                 outputs = launch[4]
                 device = launch[5]
+                block_dim = launch[6]
 
                 adj_inputs = []
                 adj_outputs = []
@@ -143,23 +142,25 @@ class Tape:
                 for a in outputs:
                     adj_outputs.append(self.get_adjoint(a))
 
-                wp.launch(
-                    kernel=kernel,
-                    dim=dim,
-                    inputs=inputs,
-                    outputs=outputs,
-                    adj_inputs=adj_inputs,
-                    adj_outputs=adj_outputs,
-                    device=device,
-                    adjoint=True,
-                    max_blocks=max_blocks,
-                )
+                if enable_backward:
+                    wp.launch(
+                        kernel=kernel,
+                        dim=dim,
+                        inputs=inputs,
+                        outputs=outputs,
+                        adj_inputs=adj_inputs,
+                        adj_outputs=adj_outputs,
+                        device=device,
+                        adjoint=True,
+                        max_blocks=max_blocks,
+                        block_dim=block_dim,
+                    )
 
     # record a kernel launch on the tape
-    def record_launch(self, kernel, dim, max_blocks, inputs, outputs, device, metadata=None):
+    def record_launch(self, kernel, dim, max_blocks, inputs, outputs, device, block_dim=0, metadata=None):
         if metadata is None:
             metadata = {}
-        self.launches.append([kernel, dim, max_blocks, inputs, outputs, device, metadata])
+        self.launches.append([kernel, dim, max_blocks, inputs, outputs, device, block_dim, metadata])
 
     def record_func(self, backward, arrays):
         """
@@ -220,9 +221,9 @@ class Tape:
     # returns the adjoint of a kernel parameter
     def get_adjoint(self, a):
         if not wp.types.is_array(a) and not isinstance(a, wp.codegen.StructInstance):
-            # if input is a simple type (e.g.: float, vec3, etc) then
-            # no gradient needed (we only return gradients through arrays and structs)
-            return a
+            # if input is a simple type (e.g.: float, vec3, etc) or a non-Warp array,
+            # then no gradient needed (we only return gradients through Warp arrays and structs)
+            return None
 
         elif wp.types.is_array(a) and a.grad:
             # keep track of all gradients used by the tape (for zeroing)
@@ -265,13 +266,12 @@ class Tape:
         Zero out all gradients recorded on the tape.
         """
         for a, g in self.gradients.items():
-            if a not in self.const_gradients:
-                if isinstance(a, wp.codegen.StructInstance):
-                    for name in g._cls.vars:
-                        if isinstance(g._cls.vars[name].type, wp.array) and g._cls.vars[name].requires_grad:
-                            getattr(g, name).zero_()
-                else:
-                    g.zero_()
+            if isinstance(a, wp.codegen.StructInstance):
+                for name in g._cls.vars:
+                    if isinstance(g._cls.vars[name].type, wp.array) and g._cls.vars[name].requires_grad:
+                        getattr(g, name).zero_()
+            else:
+                g.zero_()
 
     def _reset_array_read_flags(self):
         """
@@ -515,7 +515,7 @@ class GraphvizTapeVisitor(TapeVisitor):
         node_attrs = f"label=<{label}>"
         if "caller" in launch_data:
             caller = launch_data["caller"]
-            node_attrs += f",tooltip=\"{self.sanitize(caller['file'])}:{caller['lineno']} ({caller['func']})\""
+            node_attrs += f',tooltip="{self.sanitize(caller["file"])}:{caller["lineno"]} ({caller["func"]})"'
 
         self.graphviz_lines.append(f"{chart_indent}{kernel_launch_id} [{node_attrs}];")
 
@@ -614,7 +614,9 @@ class ArrayStatsVisitor(TapeVisitor):
         self.array_grad_stats.insert(0, grad_stats)
 
 
-Launch = namedtuple("Launch", ["id", "kernel", "dim", "max_blocks", "inputs", "outputs", "device", "metadata"])
+Launch = namedtuple(
+    "Launch", ["id", "kernel", "dim", "max_blocks", "inputs", "outputs", "device", "block_dim", "metadata"]
+)
 RepeatedSequence = namedtuple("RepeatedSequence", ["start", "end", "repetitions"])
 
 
@@ -645,8 +647,8 @@ def visit_tape(
     def get_launch_id(launch):
         kernel = launch[0]
         suffix = ""
-        if len(launch) > 6:
-            metadata = launch[6]
+        if len(launch) > 7:
+            metadata = launch[7]
             # calling function helps to identify unique launches
             if "caller" in metadata:
                 caller = metadata["caller"]
@@ -680,7 +682,8 @@ def visit_tape(
             inputs=launch[3],
             outputs=launch[4],
             device=launch[5],
-            metadata=launch[6] if len(launch) > 6 else {},
+            block_dim=launch[6],
+            metadata=launch[7] if len(launch) > 7 else {},
         )
         for launch in kernel_launches
     ]

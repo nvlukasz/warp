@@ -1,3 +1,5 @@
+.. _differentiability:
+
 Differentiability
 =================
 
@@ -6,11 +8,12 @@ Differentiability
 By default, Warp generates a forward and backward (adjoint) version of each kernel definition. The backward version of a kernel can be used 
 to compute gradients of loss functions that can be back propagated to machine learning frameworks like PyTorch.
 
-Arrays that participate in the chain of computation which require gradients should be created with ``requires_grad=True``, for example::
+Arrays that participate in the chain of computation which require gradients must be created with ``requires_grad=True``, for example::
 
     a = wp.zeros(1024, dtype=wp.vec3, device="cuda", requires_grad=True)
 
-The ``wp.Tape`` class can then be used to record kernel launches, and replay them to compute the gradient of a scalar loss function with respect to the kernel inputs::
+The :class:`wp.Tape <Tape>` class can then be used to record kernel launches and replay them to compute the gradient of
+a scalar loss function with respect to the kernel inputs::
 
     tape = wp.Tape()
 
@@ -23,25 +26,126 @@ The ``wp.Tape`` class can then be used to record kernel launches, and replay the
     # reverse pass
     tape.backward(l)
 
-After the backward pass has completed, the gradients with respect to the inputs are available from the ``array.grad`` attribute::
+After the backward pass has completed, the gradients with respect to the inputs are available from the :py:attr:`array.grad` attribute::
 
     # gradient of loss with respect to input a
     print(a.grad)
 
-Note that gradients are accumulated on the participating buffers, so if you wish to reuse the same buffers for multiple backward passes you should first zero the gradients::
-
-    tape.zero()
+Note that gradients are accumulated on the participating buffers, so if you wish to reuse the same buffers for multiple
+backward passes you should first zero the gradients using :meth:`Tape.zero()`.
 
 .. autoclass:: Tape
     :members:
 
+Array Overwrites
+################
+
+To correctly compute gradients, automatic differentiation frameworks must store the intermediate results of 
+computations for backpropagation. Overwriting previously computed results can lead to incorrect gradient calculations.
+For this reason, frameworks like PyTorch and JAX implicitly allocate new memory for every operation output.
+In Warp, the user explicitly manages memory, and so should take care to avoid overwriting previous results 
+when using features like ``tape.backward()``.
+
+Consider the following gradient calculation in PyTorch:
+
+.. code-block:: python
+
+    import torch
+
+    x = torch.tensor([1.0, 2.0, 3.0], requires_grad=True)
+    y = x ** 2 + 3 * x + 1
+    y.backward(torch.ones_like(x))
+
+    print(x.grad)
+
+Or, equivalently, in JAX:
+
+.. code-block:: python
+
+    import jax
+    import jax.numpy as jnp
+
+    def func(x):
+        return x ** 2 + 3 * x + 1
+
+    x = jnp.array([1.0, 2.0, 3.0])
+    grad_func = jax.vmap(jax.grad(func))
+    x_grad = grad_func(x)
+
+    print(x_grad)
+
+Both frameworks only require the user to explicitly allocate the tensor ``x``: ``y`` and 
+``x_grad`` are implicitly allocated by assignment. In Warp, we would write:
+
+.. testcode::
+
+    import warp as wp
+
+    @wp.kernel
+    def kernel_func(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+        tid = wp.tid()
+        y[tid] = x[tid] ** 2.0 + 3.0 * x[tid] + 1.0
+
+    x = wp.array([1.0, 2.0, 3.0], dtype=float, requires_grad=True)
+    y = wp.zeros_like(x)
+
+    tape = wp.Tape()
+    with tape:
+        wp.launch(kernel_func, x.shape, inputs=[x], outputs=[y])
+    tape.backward(grads={y: wp.ones_like(x)})
+
+    print(x.grad)
+
+.. testoutput::
+
+    [5. 7. 9.]
+
+``x`` and ``y`` are explicitly allocated up front. Note that we could have written
+``wp.launch(kernel_func, x.shape, inputs=[x,y])``, but sometimes it is useful to keep track of which 
+arrays are being read from/written to by using the ``inputs`` and ``outputs`` arguments in ``wp.launch()`` 
+(in fact it is essential to do so when :ref:`visualizing computation graphs<visualizing_computation_graphs>`).
+If gradients and prior values of ``x`` aren't needed, we can instead write:
+
+.. testcode::
+
+    import warp as wp
+    wp.config.enable_backward = False
+
+    @wp.kernel
+    def kernel_func(x: wp.array(dtype=float)):
+        tid = wp.tid()
+        x[tid] = x[tid] ** 2.0 + 3.0 * x[tid] + 1.0
+
+    x = wp.array([1.0, 2.0, 3.0], dtype=float)
+
+    wp.launch(kernel_func, x.shape, inputs=[x])
+
+    print(x)
+
+.. testoutput::
+
+    [ 5. 11. 19.]
+
+which only requires a quarter of the memory allocation, but this nullifies gradient tracking.
+
+It can be difficult to discern if an array is being overwritten, especially for larger computation graphs.
+In such cases, it can be helpful to set ``wp.config.verify_autograd_array_access=True``, which will automatically
+detect array overwrites. :ref:`Read more here<array_overwrite_tracking>`.
+
+.. note::
+    Though in-place operations such as ``x[tid] += 1.0`` and ``wp.atomic_add()`` are technically overwrite operations,
+    the Warp graph specifically accommodates adjoint accumulation in these cases. :ref:`Read more here<in_place_math>`.
+
 Copying is Differentiable
 #########################
 
-``wp.copy()``, ``wp.clone()``, and ``array.assign()`` are differentiable functions and can participate in the computation graph recorded on the tape. Consider the following examples and their
+:func:`wp.copy() <copy>`, :func:`wp.clone() <clone>`, and :meth:`array.assign()` are differentiable functions and can
+participate in the computation graph recorded on the tape. Consider the following examples and their
 PyTorch equivalents (for comparison):
 
-``wp.copy()``::
+``wp.copy()``:
+
+.. testcode::
 
     @wp.kernel
     def double(x: wp.array(dtype=float), y: wp.array(dtype=float)):
@@ -60,7 +164,10 @@ PyTorch equivalents (for comparison):
     tape.backward(grads={z: wp.ones_like(x)})
 
     print(x.grad)
-    # [2. 2. 2.]
+
+.. testoutput::
+
+    [2. 2. 2.]
 
 Equivalently, in PyTorch::
 
@@ -73,7 +180,9 @@ Equivalently, in PyTorch::
     print(x.grad)
     # tensor([2., 2., 2.])
 
-``wp.clone()``::
+``wp.clone()``:
+
+.. testcode::
 
     x = wp.array(np.arange(3), dtype=float, requires_grad=True)
     y = wp.zeros_like(x)
@@ -86,7 +195,10 @@ Equivalently, in PyTorch::
     tape.backward(grads={z: wp.ones_like(x)})
 
     print(x.grad)
-    # [2. 2. 2.]
+
+.. testoutput::
+
+    [2. 2. 2.]
 
 In PyTorch::
     
@@ -101,7 +213,9 @@ In PyTorch::
 .. note:: In PyTorch, one may clone a tensor x and detach it from the current computation graph by calling
     ``x.clone().detach()``. The equivalent in Warp is ``wp.clone(x, requires_grad=False)``.
 
-``array.assign()``::
+``array.assign()``:
+
+.. testcode::
 
     x = wp.array(np.arange(3), dtype=float, requires_grad=True)
     y = wp.zeros_like(x)
@@ -115,7 +229,10 @@ In PyTorch::
     tape.backward(grads={z: wp.ones_like(x)})
 
     print(x.grad)
-    # [2. 2. 2.]
+
+.. testoutput::
+
+    [2. 2. 2.]
 
 .. note:: ``array.assign()`` is equivalent to ``wp.copy()`` with an additional step that wraps the source array in a Warp array if it is not already a Warp array.
 
@@ -233,38 +350,49 @@ Both the replay and the grad implementations can be customized by the user. They
 Example 1: Custom Grad Function
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-In the following, we define a Warp function ``safe_sqrt`` that computes the square root of a number::
+In the following, we define a Warp function ``safe_sqrt`` that computes the square root of a number:
+
+.. testcode::
 
     @wp.func
     def safe_sqrt(x: float):
         return wp.sqrt(x)
 
-To evaluate this function, we define a kernel that applies ``safe_sqrt`` to an array of input values::
+To evaluate this function, we define a kernel that applies ``safe_sqrt`` to an array of input values:
+
+.. testcode::
 
     @wp.kernel
     def run_safe_sqrt(xs: wp.array(dtype=float), output: wp.array(dtype=float)):
         i = wp.tid()
         output[i] = safe_sqrt(xs[i])
 
-Calling the kernel for an array of values ``[1.0, 2.0, 0.0]`` yields the expected outputs, the gradients are finite except for the zero input::
+Calling the kernel for an array of values ``[1.0, 2.0, 0.0]`` yields the expected outputs,
+and the gradients are finite except for the zero input:
+
+.. testcode::
 
     xs = wp.array([1.0, 2.0, 0.0], dtype=wp.float32, requires_grad=True)
     ys = wp.zeros_like(xs)
     
-    tape = wp.Tape()
-    with tape:
+    with wp.Tape() as tape:
         wp.launch(run_safe_sqrt, dim=len(xs), inputs=[xs], outputs=[ys])
     tape.backward(grads={ys: wp.array(np.ones(len(xs)), dtype=wp.float32)})
     
     print("ys     ", ys)
     print("xs.grad", xs.grad)
+    tape.zero()
 
-    # ys      [1.   1.4142135   0. ]
-    # xs.grad [0.5  0.35355338  inf]
+.. testoutput::
+
+    ys      [1.        1.4142135 0.       ]
+    xs.grad [0.5        0.35355338        inf]
 
 It is often desired to catch nonfinite gradients in the computation graph as they may cause the entire gradient computation to be nonfinite.
 To do so, we can define a custom gradient function that replaces the adjoint function for ``safe_sqrt`` which is automatically generated by
-decorating the custom gradient code via ``@wp.func_grad(safe_sqrt)``::
+decorating the custom gradient code via ``@wp.func_grad(safe_sqrt)``:
+
+.. testcode::
 
     @wp.func_grad(safe_sqrt)
     def adj_safe_sqrt(x: float, adj_ret: float):
@@ -276,61 +404,77 @@ decorating the custom gradient code via ``@wp.func_grad(safe_sqrt)``::
     The keys of this dictionary are the input arguments of the forward function, and the values are the partial derivatives of the forward function
     output with respect to the input argument.
 
+.. testcode::
+    :hide:
+
+    with wp.Tape() as tape:
+        wp.launch(run_safe_sqrt, dim=len(xs), inputs=[xs], outputs=[ys])
+    tape.backward(grads={ys: wp.array(np.ones(len(xs)), dtype=wp.float32)})
+    
+    print("ys     ", ys)
+    print("xs.grad", xs.grad)
+
+Now, the output of the above code is:
+
+.. testoutput::
+
+    ys      [1.        1.4142135 0.       ]
+    xs.grad [0.5        0.35355338 0.        ]
 
 Example 2: Custom Replay Function
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 In the following, we increment an array index in each thread via :func:`wp.atomic_add() <atomic_add>` and compute
-the square root of an input array at the incremented index::
+the square root of an input array at the incremented index:
+
+.. testcode::
 
     @wp.kernel
     def test_add(counter: wp.array(dtype=int), input: wp.array(dtype=float), output: wp.array(dtype=float)):
         idx = wp.atomic_add(counter, 0, 1)
         output[idx] = wp.sqrt(input[idx])
 
-    def main():
-        dim = 16
-        use_reversible_increment = False
-        input = wp.array(np.arange(1, dim + 1), dtype=wp.float32, requires_grad=True)
-        counter = wp.zeros(1, dtype=wp.int32)
-        thread_ids = wp.zeros(dim, dtype=wp.int32)
-        output = wp.zeros(dim, dtype=wp.float32, requires_grad=True)
-        tape = wp.Tape()
-        with tape:
-            if use_reversible_increment:
-                wp.launch(test_add_diff, dim, inputs=[counter, thread_ids, input], outputs=[output])
-            else:
-                wp.launch(test_add, dim, inputs=[counter, input], outputs=[output])
 
-        print("counter:    ", counter.numpy())
-        print("thread_ids: ", thread_ids.numpy())
-        print("input:      ", input.numpy())
-        print("output:     ", output.numpy())
+    dim = 8
+    use_reversible_increment = False
+    input = wp.array(np.arange(1, dim + 1), dtype=wp.float32, requires_grad=True)
+    counter = wp.zeros(1, dtype=wp.int32)
+    thread_ids = wp.zeros(dim, dtype=wp.int32)
+    output = wp.zeros(dim, dtype=wp.float32, requires_grad=True)
+    with wp.Tape() as tape:
+        if use_reversible_increment:
+            wp.launch(test_add_diff, dim, inputs=[counter, thread_ids, input], outputs=[output])
+        else:
+            wp.launch(test_add, dim, inputs=[counter, input], outputs=[output])
 
-        tape.backward(grads={
-            output: wp.array(np.ones(dim), dtype=wp.float32)
-        })
-        print("input.grad: ", input.grad.numpy())
+    print("counter:    ", counter.numpy())
+    print("thread_ids: ", thread_ids.numpy())
+    print("input:      ", input.numpy())
+    print("output:     ", output.numpy())
 
-    if __name__ == "__main__":
-        main()
+    tape.backward(grads={output: wp.array(np.ones(dim), dtype=wp.float32)})
+    print("input.grad: ", input.grad.numpy())
+    tape.zero()
 
 The output of the above code is:
 
-.. code-block:: js
+.. testoutput::
 
     counter:     [8]
     thread_ids:  [0 0 0 0 0 0 0 0]
     input:       [1. 2. 3. 4. 5. 6. 7. 8.]
-    output:      [1.  1.4142135  1.7320508  2.  2.236068  2.4494898  2.6457512  2.828427]
+    output:      [1.        1.4142135 1.7320508 2.        2.236068  2.4494898 2.6457512
+     2.828427 ]
     input.grad:  [4. 0. 0. 0. 0. 0. 0. 0.]
 
 The gradient of the input is incorrect because the backward pass involving the atomic operation ``wp.atomic_add()`` does not know which thread ID corresponds
 to which input value.
-The index returned by the adjoint of ``wp.atomic_add()`` is always zero so that the gradient the first entry of the input array,
+The index returned by the adjoint of ``wp.atomic_add()`` is always zero so that the gradient is the first entry of the input array,
 i.e. :math:`\frac{1}{2\sqrt{1}} = 0.5`, is accumulated ``dim`` times (hence ``input.grad[0] == 4.0`` and all other entries zero).
 
-To fix this, we define a new Warp function ``reversible_increment()`` with a custom *replay* definition that stores the thread ID in a separate array::
+To fix this, we define a new Warp function ``reversible_increment()`` with a custom *replay* definition that stores the thread ID in a separate array:
+
+.. testcode::
 
     @wp.func
     def reversible_increment(
@@ -364,7 +508,9 @@ That way, the backward pass can reproduce the same addition operation as in the 
 
 .. warning:: The function signature of the custom replay code must match the forward function signature.
 
-To use our function we write the following kernel::
+To use our function we write the following kernel:
+
+.. testcode::
 
     @wp.kernel
     def test_add_diff(
@@ -380,20 +526,48 @@ To use our function we write the following kernel::
 Running the ``test_add_diff`` kernel via the previous ``main`` function with ``use_reversible_increment = True``, we now compute correct gradients
 for the input array:
 
-.. code-block:: js
+.. testcode::
+    :hide:
+
+    dim = 8
+    use_reversible_increment = True
+    input = wp.array(np.arange(1, dim + 1), dtype=wp.float32, requires_grad=True)
+    counter = wp.zeros(1, dtype=wp.int32)
+    thread_ids = wp.zeros(dim, dtype=wp.int32)
+    output = wp.zeros(dim, dtype=wp.float32, requires_grad=True)
+    with wp.Tape() as tape:
+        if use_reversible_increment:
+            wp.launch(test_add_diff, dim, inputs=[counter, thread_ids, input], outputs=[output])
+        else:
+            wp.launch(test_add, dim, inputs=[counter, input], outputs=[output])
+
+    print("counter:    ", counter.numpy())
+    print("thread_ids: ", thread_ids.numpy())
+    print("input:      ", input.numpy())
+    print("output:     ", output.numpy())
+
+    tape.backward(grads={output: wp.array(np.ones(dim), dtype=wp.float32)})
+    print("input.grad: ", input.grad.numpy())
+
+.. testoutput::
 
     counter:     [8]
     thread_ids:  [0 1 2 3 4 5 6 7]
     input:       [1. 2. 3. 4. 5. 6. 7. 8.]
-    output:      [1.   1.4142135   1.7320508   2.    2.236068   2.4494898   2.6457512   2.828427  ]
-    input.grad:  [0.5  0.35355338  0.28867513  0.25  0.2236068  0.20412414  0.18898225  0.17677669]
+    output:      [1.        1.4142135 1.7320508 2.        2.236068  2.4494898 2.6457512
+     2.828427 ]
+    input.grad:  [0.5        0.35355338 0.28867513 0.25       0.2236068  0.20412414
+     0.18898225 0.17677669]
 
 Custom Native Functions
 #######################
 
 Users may insert native C++/CUDA code in Warp kernels using ``@func_native`` decorated functions.
 These accept native code as strings that get compiled after code generation, and are called within ``@wp.kernel`` functions.
-For example::
+For example:
+
+.. testcode::
+    :skipif: wp.get_cuda_device_count() == 0
 
     snippet = """
         __shared__ int sum[128];
@@ -414,21 +588,29 @@ For example::
         """
 
     @wp.func_native(snippet)
-    def reduce(arr: wp.array(dtype=int), out: wp.array(dtype=int), tid: int):
-        ...
+    def reduce(arr: wp.array(dtype=int), out: wp.array(dtype=int), tid: int): ...
+
 
     @wp.kernel
     def reduce_kernel(arr: wp.array(dtype=int), out: wp.array(dtype=int)):
         tid = wp.tid()
         reduce(arr, out, tid)
 
+
     N = 128
-    x = wp.array(np.arange(N, dtype=int), dtype=int, device=device)
-    out = wp.zeros(1, dtype=int, device=device)
+    x = wp.array(np.arange(N, dtype=int), dtype=int)
+    out = wp.zeros(1, dtype=int)
 
-    wp.launch(kernel=reduce_kernel, dim=N, inputs=[x, out], device=device)
+    wp.launch(kernel=reduce_kernel, dim=N, inputs=[x, out])
 
-Notice the use of shared memory here: the Warp library does not expose shared memory as a feature, but the CUDA compiler will
+    print(out)
+
+.. testoutput::
+    :skipif: wp.get_cuda_device_count() == 0
+
+    [8128]
+
+Notice the use of shared memory here: The Warp library does not expose shared memory as a feature, but the CUDA compiler will
 readily accept the above snippet. This means CUDA features not exposed in Warp are still accessible in Warp scripts.
 Warp kernels meant for the CPU won't be able to leverage CUDA features of course, but this same mechanism supports pure C++ snippets as well.
 
@@ -437,7 +619,10 @@ as in the above example. This means your ``@wp.func_native`` function signature 
 as well as a thread index of type ``int``. The function body itself should be stubbed with ``...`` (the snippet will be inserted during compilation).
 
 Should you wish to record your native function on the tape and then subsequently rewind the tape, you must include an adjoint snippet
-alongside your snippet as an additional input to the decorator, as in the following example::
+alongside your snippet as an additional input to the decorator, as in the following example:
+
+.. testcode::
+    :skipif: wp.get_cuda_device_count() == 0
 
     snippet = """
     out[tid] = a * x[tid] + y[tid];
@@ -470,27 +655,48 @@ alongside your snippet as an additional input to the decorator, as in the follow
 
     N = 128
     a = 2.0
-    x = wp.array(np.arange(N, dtype=np.float32), dtype=wp.float32, device=device, requires_grad=True)
-    y = wp.zeros_like(x1)
-    out = wp.array(np.arange(N, dtype=np.float32), dtype=wp.float32, device=device)
-    adj_out = wp.array(np.ones(N, dtype=np.float32), dtype=wp.float32, device=device)
+    x = wp.array(np.arange(N, dtype=np.float32), dtype=wp.float32, requires_grad=True)
+    y = wp.zeros_like(x)
+    out = wp.array(np.arange(N, dtype=np.float32), dtype=wp.float32)
+    adj_out = wp.array(np.ones(N, dtype=np.float32), dtype=wp.float32)
 
     tape = wp.Tape()
 
     with tape:
-        wp.launch(kernel=saxpy_kernel, dim=N, inputs=[a, x, y], outputs=[out], device=device)
+        wp.launch(kernel=saxpy_kernel, dim=N, inputs=[a, x, y], outputs=[out])
 
     tape.backward(grads={out: adj_out})
 
-You may also include a custom replay snippet, to be executed as part of the adjoint (see `Custom Gradient Functions`_ for a full explanation).
-Consider the following example::
+    print(f"x.grad = {x.grad}")
+    print(f"y.grad = {y.grad}")
 
-    def test_custom_replay_grad():
-        num_threads = 8
-        counter = wp.zeros(1, dtype=wp.int32)
-        thread_values = wp.zeros(num_threads, dtype=wp.int32)
-        inputs = wp.array(np.arange(num_threads, dtype=np.float32), requires_grad=True)
-        outputs = wp.zeros_like(inputs)
+.. testoutput::
+    :skipif: wp.get_cuda_device_count() == 0
+
+    x.grad = [2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2.
+     2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2.
+     2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2.
+     2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2.
+     2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2. 2.
+     2. 2. 2. 2. 2. 2. 2. 2.]
+    y.grad = [1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1.
+     1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1.
+     1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1.
+     1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1.
+     1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1. 1.
+     1. 1. 1. 1. 1. 1. 1. 1.]
+
+You may also include a custom replay snippet to be executed as part of the adjoint (see `Custom Gradient Functions`_ for a full explanation).
+Consider the following example:
+
+.. testcode::
+    :skipif: wp.get_cuda_device_count() == 0
+
+    num_threads = 8
+    counter = wp.zeros(1, dtype=wp.int32)
+    thread_values = wp.zeros(num_threads, dtype=wp.int32)
+    inputs = wp.array(np.arange(num_threads, dtype=np.float32), requires_grad=True)
+    outputs = wp.zeros_like(inputs)
 
     snippet = """
         int next_index = atomicAdd(counter, 1);
@@ -498,11 +704,11 @@ Consider the following example::
         """
     replay_snippet = ""
 
+
     @wp.func_native(snippet, replay_snippet=replay_snippet)
-    def reversible_increment(
-        counter: wp.array(dtype=int), thread_values: wp.array(dtype=int), tid: int
-    ):
+    def reversible_increment(counter: wp.array(dtype=int), thread_values: wp.array(dtype=int), tid: int):
         ...
+
 
     @wp.kernel
     def run_atomic_add(
@@ -516,19 +722,26 @@ Consider the following example::
         idx = thread_values[tid]
         output[idx] = input[idx] ** 2.0
 
-    tape = wp.Tape()
-    with tape:
-        wp.launch(
-            run_atomic_add, dim=num_threads, inputs=[inputs, counter, thread_values], outputs=[outputs]
-        )
 
-    tape.backward(grads={outputs: wp.array(np.ones(num_threads, dtype=np.float32))})
+    with wp.Tape() as tape:
+        wp.launch(run_atomic_add, dim=num_threads, inputs=[inputs, counter, thread_values], outputs=[outputs])
 
-By default, ``snippet`` would be called in the backward pass, but in this case, we have a custom replay snippet defined, which is called instead.
-In this case, ``replay_snippet`` is a no-op, which is all that we require, since ``thread_values`` are cached in the forward pass.
+    tape.backward(grads={outputs: wp.ones(num_threads, dtype=wp.float32)})
+
+    print(f"inputs.grad = {np.round(inputs.grad.numpy(), 5)}")
+
+.. testoutput::
+    :skipif: wp.get_cuda_device_count() == 0
+
+    inputs.grad = [ 0.  2.  4.  6.  8. 10. 12. 14.]
+
+By default, ``snippet`` would be called in the backward pass, but in this case, we have defined a custom replay snippet that is called instead.
+``replay_snippet`` is a no-op, which is all that we require, since ``thread_values`` are cached in the forward pass.
 If we did not have a ``replay_snippet`` defined, ``thread_values`` would be overwritten with counter values that exceed the input array size in the backward pass.
 
-A native snippet may also include a return statement. If this is the case, you must specify the return type in the native function definition, as in the following example::
+A native snippet may also include a return statement. If this is the case, you must specify the return type in the native function definition, as in the following example:
+
+.. testcode::
 
     snippet = """
         float sq = x * x;
@@ -538,8 +751,11 @@ A native snippet may also include a return statement. If this is the case, you m
         adj_x += 2.f * x * adj_ret;
         """
 
+
     @wp.func_native(snippet, adj_snippet)
-    def square(x: float) -> float: ...
+    def square(x: float) -> float:
+        ...
+
 
     @wp.kernel
     def square_kernel(input: wp.array(dtype=Any), output: wp.array(dtype=Any)):
@@ -547,46 +763,61 @@ A native snippet may also include a return statement. If this is the case, you m
         x = input[tid]
         output[tid] = square(x)
 
+
     N = 5
     x = wp.array(np.arange(N, dtype=float), dtype=float, requires_grad=True)
     y = wp.zeros_like(x)
 
-    tape = wp.Tape()
-    with tape:
+    with wp.Tape() as tape:
         wp.launch(kernel=square_kernel, dim=N, inputs=[x, y])
 
     tape.backward(grads={y: wp.ones(N, dtype=float)})
 
+    print(f"x.grad = {x.grad}")
+
+.. testoutput::
+
+    x.grad = [0. 2. 4. 6. 8.]
+
 Debugging Gradients
 ###################
-
-.. note::
-    We are continuously expanding the debugging section to provide tools to help users debug gradient computations in upcoming Warp releases.
-
-Measuring Gradient Accuracy
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. currentmodule:: warp.autograd
     
 Warp provides utility functions to evaluate the partial Jacobian matrices for input/output argument pairs given to kernel launches.
-:func:`jacobian` computes the Jacobian matrix of a kernel using Warp's automatic differentiation engine.
-:func:`jacobian_fd` computes the Jacobian matrix of a kernel using finite differences.
+:func:`jacobian` computes the Jacobian matrix of a Warp kernel, or any Python function calling Warp kernels and having Warp arrays as inputs and outputs, using Warp's automatic differentiation engine.
+:func:`jacobian_fd` computes the Jacobian matrix of a kernel or a function using finite differences.
 :func:`gradcheck` compares the Jacobian matrices computed by the autodiff engine and finite differences to measure the accuracy of the gradients.
 :func:`jacobian_plot` visualizes the Jacobian matrices returned by the :func:`jacobian` and :func:`jacobian_fd` functions.
 
+``warp.autograd.gradcheck``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 .. autofunction:: gradcheck
+
+``warp.autograd.gradcheck_tape``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. autofunction:: gradcheck_tape
 
+``warp.autograd.jacobian``
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 .. autofunction:: jacobian
 
+``warp.autograd.jacobian_fd``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 .. autofunction:: jacobian_fd
+
+``warp.autograd.jacobian_plot``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. autofunction:: jacobian_plot
 
 
 Example usage
-"""""""""""""
+^^^^^^^^^^^^^
 
 .. code-block:: python
 
@@ -705,6 +936,7 @@ Furthermore, it is possible to check the gradients of multiple kernels recorded 
 
     assert passed
 
+.. _visualizing_computation_graphs:
 
 Visualizing Computation Graphs
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -773,6 +1005,8 @@ In the example above we can see that the array ``c`` does not have its ``require
 .. note::
     Arrays can be labeled with custom names using the ``array_labels`` argument to the ``tape.visualize()`` method.
 
+.. _array_overwrite_tracking:
+
 Array Overwrite Tracking
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -802,24 +1036,27 @@ two force arrays, ``force0`` and ``force1``, so that we are not overwriting data
 
 This sort of problem boils down to a single pattern to be avoided: writing to an array after reading from it. This typically happens over consecutive kernel launches (A), but it might also happen within a single kernel (B).
 
-A: Inter-Kernel Overwrite::
+A: Inter-Kernel Overwrite:
 
-    import warp as wp
+.. testcode::
 
     @wp.kernel
     def square_kernel(x: wp.array(dtype=float), y: wp.array(dtype=float)):
         tid = wp.tid()
         y[tid] = x[tid] * x[tid]
 
+
     @wp.kernel
     def overwrite_kernel(z: wp.array(dtype=float), x: wp.array(dtype=float)):
         tid = wp.tid()
         x[tid] = z[tid]
 
+
     @wp.kernel
     def loss_kernel(x: wp.array(dtype=float), loss: wp.array(dtype=float)):
         tid = wp.tid()
         wp.atomic_add(loss, 0, x[tid])
+
 
     a = wp.array(np.array([1.0, 2.0, 3.0]), dtype=float, requires_grad=True)
     b = wp.zeros_like(a)
@@ -830,16 +1067,24 @@ A: Inter-Kernel Overwrite::
     with tape:
         wp.launch(square_kernel, a.shape, inputs=[a], outputs=[b])
         wp.launch(overwrite_kernel, c.shape, inputs=[c], outputs=[a])
-        wp.launch(loss_kernel, a.shape, inputs=[a, loss])
+        wp.launch(loss_kernel, a.shape, inputs=[b, loss])
 
     tape.backward(loss)
 
     print(a.grad)
-    # prints [-2. -4. -6.] instead of [2. 4. 6.]
 
-B: Intra-Kernel Overwrite::
+The output of the above code produces incorrect gradients for ``a``:
 
-    import warp as wp
+.. testoutput::
+
+    [-2. -4. -6.]
+
+If the ``overwrite_kernel`` launch were removed, we would get the correct result
+for ``a.grad`` of ``[2. 4. 6.]``.
+
+B: Intra-Kernel Overwrite:
+
+.. testcode::
 
     @wp.kernel
     def readwrite_kernel(a: wp.array(dtype=float), b: wp.array(dtype=float)):
@@ -864,7 +1109,15 @@ B: Intra-Kernel Overwrite::
     tape.backward(loss)
 
     print(a.grad)
-    # prints [2. 2. 2.] instead of [2. 4. 6.]
+
+The above code produces the incorrect output:
+
+.. testoutput::
+
+    [2. 2. 2.]
+
+If ``a[tid] = 1.0`` were removed, we would get the correct result for ``a.grad``
+of ``[2. 4. 6.]``.
 
 If ``wp.config.verify_autograd_array_access = True`` is set, Warp will automatically detect and report array overwrites, covering the above two cases as well as other problematic configurations.
 It does so by flagging which kernel array arguments are read from and/or written to in each kernel function during compilation. At runtime, if an array is passed to a kernel argument marked with a read flag,
@@ -873,9 +1126,6 @@ it is marked as having been read from. Later, if the same array is passed to a k
 
 .. note::
     Setting ``wp.config.verify_autograd_array_access = True`` will disable kernel caching and force the current module to rebuild.
-
-.. note::
-    Though in-place operations such as ``x[tid] += 1.0`` are technically ``read -> write``, the Warp graph specifically accommodates adjoint accumulation in these cases, so we mark them as write operations.
 
 .. note::
     This feature does not yet support arrays packed in Warp structs.
@@ -891,24 +1141,69 @@ Warp uses a source-code transformation approach to auto-differentiation.
 In this approach, the backwards pass must keep a record of intermediate values computed during the forward pass.
 This imposes some restrictions on what kernels can do if they are to remain differentiable.
 
+.. _in_place_math:
+
+In-Place Math Operations
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+In-place addition and subtraction can be used in kernels participating in the backward pass, e.g.
+
+.. testcode::
+
+    @wp.kernel
+    def inplace(a: wp.array(dtype=float), b: wp.array(dtype=float)):
+        i = wp.tid()
+
+        a[i] -= b[i]
+
+
+    a = wp.full(10, value=10.0, dtype=float, requires_grad=True)
+    b = wp.full(10, value=2.0, dtype=float, requires_grad=True)
+
+    with wp.Tape() as tape:
+        wp.launch(inplace, a.shape, inputs=[a, b])
+
+    tape.backward(grads={a: wp.ones_like(a)})
+
+    print(f"a.grad = {a.grad}")
+    print(f"b.grad = {b.grad}")
+
+The code produces the expected output:
+
+.. testoutput::
+
+    a.grad = [1. 1. 1. 1. 1. 1. 1. 1. 1. 1.]
+    b.grad = [-1. -1. -1. -1. -1. -1. -1. -1. -1. -1.]
+
+In-place multiplication and division are *not* supported and incorrect results will be obtained in the backward pass.
+A warning will be emitted during code generation if ``wp.config.verbose = True``.
+
+Vector, Matrix, and Quaternion Component Assignment
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Within a kernel, assigning a value to a locally defined vector, matrix, or quaternion component is differentiable, with one
+important caveat: each component may only be assigned a value once (not including default initialization). Each component may
+then be safely updated with in-place addition or subtraction (``+=`` or ``-=``) operations, but direct re-assignment (``=``)
+will invalidate gradient computations related to the vector, matrix, or quaternion.
+
 Dynamic Loops
 ^^^^^^^^^^^^^
 Currently, dynamic loops are not replayed or unrolled in the backward pass, meaning intermediate values that are
 meant to be computed in the loop and may be necessary for adjoint calculations are not updated.
 
-In the following example, the correct gradient is computed because the ``x`` array adjoints do not depend on intermediate values of ``sum``::
+In the following example, the correct gradient is computed because the ``x`` array adjoints do not depend on intermediate values of ``sum``:
+
+.. testcode::
 
     @wp.kernel
-    def dynamic_loop_sum(x: wp.array(dtype=float),
-                    loss: wp.array(dtype=float),
-                    iters: int):
-
+    def dynamic_loop_sum(x: wp.array(dtype=float), loss: wp.array(dtype=float), iters: int):
         sum = float(0.0)
 
         for i in range(iters):
             sum += x[i]
 
         wp.atomic_add(loss, 0, sum)
+
 
     iters = 3
     x = wp.full(shape=iters, value=1.0, dtype=float, requires_grad=True)
@@ -920,22 +1215,27 @@ In the following example, the correct gradient is computed because the ``x`` arr
     tape.backward(loss)
 
     print(x.grad)
-    # [1. 1. 1.] (correct)
+
+This results in the expected output:
+
+.. testoutput::
+
+    [1. 1. 1.]
 
 In contrast, in this example, the ``x`` array adjoints do depend on intermediate values of ``prod``
-(``adj_x[i] = adj_prod[i+1] * prod[i]``) so the gradients are not correctly computed::
+(``adj_x[i] = adj_prod[i+1] * prod[i]``) so the gradients are not correctly computed:
+
+.. testcode::
 
     @wp.kernel
-    def dynamic_loop_mult(x: wp.array(dtype=float),
-                    loss: wp.array(dtype=float),
-                    iters: int):
-
+    def dynamic_loop_mult(x: wp.array(dtype=float), loss: wp.array(dtype=float), iters: int):
         prod = float(1.0)
 
         for i in range(iters):
             prod *= x[i]
 
         wp.atomic_add(loss, 0, prod)
+
 
     iters = 3
     x = wp.full(shape=iters, value=2.0, dtype=float, requires_grad=True)
@@ -947,24 +1247,28 @@ In contrast, in this example, the ``x`` array adjoints do depend on intermediate
     tape.backward(loss)
 
     print(x.grad)
-    # [32. 8. 2.] (incorrect)
+
+This code produces incorrect gradients instead of ``[4. 4. 4.]``:
+
+.. testoutput::
+
+    [32.  8.  2.]
 
 We can fix the latter case by switching to a static loop (e.g. replacing ``range(iters)`` with ``range(3)``). Static loops are
 automatically unrolled if the number of loop iterations is less than or equal to the ``max_unroll`` parameter set in ``wp.config`` 
 or at the module level with ``wp.set_module_options({"max_unroll": N})``, and so intermediate values in the loop are individually stored.
 But in scenarios where this is not possible, you may consider allocating additional memory to store intermediate values in the dynamic loop.
-For example, we can fix the above case like so::
+For example, we can fix the above case like so:
+
+.. testcode::
 
     @wp.kernel
-    def dynamic_loop_mult(x: wp.array(dtype=float),
-                    prods: wp.array(dtype=float),
-                    loss: wp.array(dtype=float),
-                    iters: int):
-
+    def dynamic_loop_mult(x: wp.array(dtype=float), prods: wp.array(dtype=float), loss: wp.array(dtype=float), iters: int):
         for i in range(iters):
-            prods[i+1] = x[i] * prods[i]
+            prods[i + 1] = x[i] * prods[i]
 
         wp.atomic_add(loss, 0, prods[iters])
+
 
     iters = 3
     x = wp.full(shape=iters, value=2.0, dtype=float, requires_grad=True)
@@ -977,27 +1281,31 @@ For example, we can fix the above case like so::
     tape.backward(loss)
 
     print(x.grad)
-    # [4. 4. 4] (correct)
+
+Now, we get the expected gradients:
+
+.. testoutput::
+
+    [4. 4. 4.]
 
 Even if an array's adjoints do not depend on `intermediate` local values in a dynamic loop, it may be that
-the `final` value of a local variable is necessary for the adjoint computation. Consider the following scenario::
+the `final` value of a local variable is necessary for the adjoint computation. Consider the following scenario:
+
+.. testcode::
 
     @wp.kernel
-    def dynamic_loop_sum(x: wp.array(dtype=float),
-                    weights: wp.array(dtype=float),
-                    loss: wp.array(dtype=float),
-                    iters: int):
-
+    def dynamic_loop_sum(x: wp.array(dtype=float), weights: wp.array(dtype=float), loss: wp.array(dtype=float), iters: int):
         sum = float(0.0)
         norm = float(0.0)
 
         for i in range(iters):
             w = weights[i]
             norm += w
-            sum += x[i]*w
+            sum += x[i] * w
 
         l = sum / norm
         wp.atomic_add(loss, 0, l)
+
 
     iters = 3
     x = wp.full(shape=iters, value=1.0, dtype=float, requires_grad=True)
@@ -1010,40 +1318,42 @@ the `final` value of a local variable is necessary for the adjoint computation. 
     tape.backward(loss)
 
     print(x.grad)
-    # [inf inf inf] (incorrect)
+
+This code produces the incorrect output:
+
+.. testoutput::
+
+    [inf inf inf]
 
 In the backward pass, when computing the adjoint for ``sum``, which is used to compute the adjoint for the ``x`` array, there is a division by zero:
 ``norm`` is not recomputed in the backward pass because dynamic loops are not replayed. This means that ``norm`` is 0.0 at the start of the adjoint calculation
 rather than the value computed in the forward pass, 3.0.
 
 There is a different remedy for this particular scenario. One can force a dynamic loop to replay in the backward pass by migrating the body of the loop to
-a Warp function::
+a Warp function:
+
+.. testcode::
 
     @wp.func
-    def loop(x: wp.array(dtype=float),
-            weights: wp.array(dtype=float),
-            iters: int):
-
+    def loop(x: wp.array(dtype=float), weights: wp.array(dtype=float), iters: int):
         sum = float(0.0)
         norm = float(0.0)
 
         for i in range(iters):
             w = weights[i]
             norm += w
-            sum += x[i]*w
+            sum += x[i] * w
 
         return sum, norm
 
-    @wp.kernel
-    def dynamic_loop_sum(x: wp.array(dtype=float),
-                    weights: wp.array(dtype=float),
-                    loss: wp.array(dtype=float),
-                    iters: int):
 
+    @wp.kernel
+    def dynamic_loop_sum(x: wp.array(dtype=float), weights: wp.array(dtype=float), loss: wp.array(dtype=float), iters: int):
         sum, norm = loop(x, weights, iters)
 
         l = sum / norm
         wp.atomic_add(loss, 0, l)
+
 
     iters = 3
     x = wp.full(shape=iters, value=1.0, dtype=float, requires_grad=True)
@@ -1056,7 +1366,12 @@ a Warp function::
     tape.backward(loss)
 
     print(x.grad)
-    # [.33 .33 .33] (correct)
+
+Now, the above code produces the expected results:
+
+.. testoutput::
+
+    [0.33333334 0.33333334 0.33333334]
 
 However, this only works because the ``x`` array adjoints do not require an intermediate
 value for ``sum``; they only need the adjoint of ``sum``. In general this workaround is only valid for simple add/subtract operations such as

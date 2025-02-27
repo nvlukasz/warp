@@ -49,27 +49,59 @@ include:
     - $PYTHON -m venv _venv
     - source _venv/bin/activate
     - python -m pip install --upgrade pip
+    - python -m pip install --upgrade blosc
     - python -m pip install -e .
   install-python+warp-macos:
     - df -h
-    # This is required because there is no macos-universal for Python 3.7 in Packman sources
-    - if [[ $DEFAULT_PYTHON == 3.7* ]]; then
-        export PYTHON_NAME="${DEFAULT_PYTHON}-macos-x86_64";
-      else
-        export PYTHON_NAME="${DEFAULT_PYTHON}-macos-universal";
-      fi
+    - export PYTHON_NAME="${DEFAULT_PYTHON}-macos-universal";
     - tools/packman/packman install -l _build/target-deps/python python ${PYTHON_NAME}
     - $PYTHON -m venv _venv
     - source _venv/bin/activate
     - python -m pip install --upgrade pip
+    - python -m pip install --upgrade blosc
     - python -m pip install -e .
   prepare-kit-artifacts:
     - python3 tools/ci/publishing/build_nodes_info.py
-    - rm -rf warp/native/cutlass
     - mv warp exts/omni.warp.core/
     - find . -type f -exec chmod 664 {} +
     - find . -type d -exec chmod 775 {} +
     - find exts/ -name .gitignore -delete
+  test-kit-ext-linux-x86_64:
+    - export OMNI_KIT_ALLOW_ROOT=1
+    - export KIT_DIR="./_build/kit-deps/kit-kernel"
+    - mkdir ./_testoutput
+    - |
+      "${KIT_DIR}/kit" \
+        --enable omni.kit.test \
+        --enable omni.kit.loop-default \
+        --/app/enableStdoutOutput=0 \
+        --/exts/omni.kit.test/testExts/0="${TEST_KIT_EXT}" \
+        --ext-folder "${KIT_DIR}/exts" \
+        --ext-folder "${KIT_DIR}/extscache" \
+        --ext-folder "${KIT_DIR}/apps" \
+        --/exts/omni.kit.test/testExtOutputPath="./_testoutput" \
+        --portable-root "${KIT_DIR}/" \
+        --/telemetry/mode=test \
+        --/crashreporter/data/testName="ext-test-${TEST_KIT_EXT}" \
+        --ext-folder exts
+  test-kit-ext-windows-x86_64:
+    - $env:OMNI_KIT_ALLOW_ROOT = 1
+    - $env:KIT_DIR = ".\_build\kit-deps\kit-kernel"
+    - mkdir .\_testoutput
+    - |
+      & "${env:KIT_DIR}\kit.exe" `
+        --enable omni.kit.test `
+        --enable omni.kit.loop-default `
+        --/app/enableStdoutOutput=0 `
+        --/exts/omni.kit.test/testExts/0="${env:TEST_KIT_EXT}" `
+        --ext-folder "${env:KIT_DIR}/exts" `
+        --ext-folder "${env:KIT_DIR}/extscache" `
+        --ext-folder "${env:KIT_DIR}/apps" `
+        --/exts/omni.kit.test/testExtOutputPath="./_testoutput" `
+        --portable-root "${env:KIT_DIR}/" `
+        --/telemetry/mode=test `
+        --/crashreporter/data/testName="ext-test-${env:TEST_KIT_EXT}" `
+        --ext-folder exts
 
 # Used to log the output of jobs that run only run unit tests (no coverage report)
 .save_test_report_artifact:
@@ -106,6 +138,7 @@ include:
     PIP_CACHE_DIR: '$PARENT_PROJECT_DIR/.cache/pip'
     CUDA_BIN: '$PARENT_PROJECT_DIR/_build/target-deps/cuda/bin'
     CUDA: '$PARENT_PROJECT_DIR/_build/target-deps/cuda'
+    CUDA_HOME: '$CI_PROJECT_DIR/_build/target-deps/cuda'
     PYTHON: '$PARENT_PROJECT_DIR/_build/target-deps/python/python'
     LINBUILD: '$PARENT_PROJECT_DIR/_build/host-deps/linbuild/linbuild.sh'
     WARP_CACHE_ROOT: '$PARENT_PROJECT_DIR/.cache/warp' # Used by the parallel test runner

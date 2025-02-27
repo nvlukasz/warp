@@ -41,7 +41,6 @@ class TetmeshSideArg:
     face_tet_indices: wp.array(dtype=wp.vec2i)
 
 
-_mat32 = wp.mat(shape=(3, 2), dtype=float)
 _NULL_BVH = wp.constant(wp.uint64(-1))
 
 
@@ -77,6 +76,8 @@ class Tetmesh(Geometry):
         self._tet_edge_indices: wp.array = None
         self._edge_count = 0
         self._build_topology(temporary_store)
+
+        self._make_default_dependent_implementations()
 
         self._tet_bvh: wp.Bvh = None
         if build_bvh:
@@ -186,7 +187,7 @@ class Tetmesh(Geometry):
         p1 = args.positions[args.tet_vertex_indices[s.element_index, 1]]
         p2 = args.positions[args.tet_vertex_indices[s.element_index, 2]]
         p3 = args.positions[args.tet_vertex_indices[s.element_index, 3]]
-        return wp.mat33(p1 - p0, p2 - p0, p3 - p0)
+        return wp.matrix_from_cols(p1 - p0, p2 - p0, p3 - p0)
 
     @wp.func
     def cell_inverse_deformation_gradient(args: CellArg, s: Sample):
@@ -250,18 +251,6 @@ class Tetmesh(Geometry):
 
         return make_free_sample(closest_tet, closest_coords)
 
-    @wp.func
-    def cell_measure(args: CellArg, s: Sample):
-        return wp.abs(wp.determinant(Tetmesh.cell_deformation_gradient(args, s))) / 6.0
-
-    @wp.func
-    def cell_measure_ratio(args: CellArg, s: Sample):
-        return 1.0
-
-    @wp.func
-    def cell_normal(args: CellArg, s: Sample):
-        return wp.vec3(0.0)
-
     @cached_arg_value
     def side_index_arg_value(self, device) -> SideIndexArg:
         args = self.SideIndexArg()
@@ -307,38 +296,7 @@ class Tetmesh(Geometry):
     @wp.func
     def side_deformation_gradient(args: SideArg, s: Sample):
         e1, e2 = Tetmesh._side_vecs(args, s.element_index)
-        return _mat32(e1, e2)
-
-    @wp.func
-    def side_inner_inverse_deformation_gradient(args: SideArg, s: Sample):
-        cell_index = Tetmesh.side_inner_cell_index(args, s.element_index)
-        s_cell = make_free_sample(cell_index, Coords())
-        return Tetmesh.cell_inverse_deformation_gradient(args.cell_arg, s_cell)
-
-    @wp.func
-    def side_outer_inverse_deformation_gradient(args: SideArg, s: Sample):
-        cell_index = Tetmesh.side_outer_cell_index(args, s.element_index)
-        s_cell = make_free_sample(cell_index, Coords())
-        return Tetmesh.cell_inverse_deformation_gradient(args.cell_arg, s_cell)
-
-    @wp.func
-    def side_measure(args: SideArg, s: Sample):
-        e1, e2 = Tetmesh._side_vecs(args, s.element_index)
-        return 0.5 * wp.length(wp.cross(e1, e2))
-
-    @wp.func
-    def side_measure_ratio(args: SideArg, s: Sample):
-        inner = Tetmesh.side_inner_cell_index(args, s.element_index)
-        outer = Tetmesh.side_outer_cell_index(args, s.element_index)
-        return Tetmesh.side_measure(args, s) / wp.min(
-            Tetmesh.cell_measure(args.cell_arg, make_free_sample(inner, Coords())),
-            Tetmesh.cell_measure(args.cell_arg, make_free_sample(outer, Coords())),
-        )
-
-    @wp.func
-    def side_normal(args: SideArg, s: Sample):
-        e1, e2 = Tetmesh._side_vecs(args, s.element_index)
-        return wp.normalize(wp.cross(e1, e2))
+        return wp.matrix_from_cols(e1, e2)
 
     @wp.func
     def side_inner_cell_index(arg: SideArg, side_index: ElementIndex):

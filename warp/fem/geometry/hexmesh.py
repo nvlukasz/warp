@@ -7,7 +7,7 @@ from warp.fem.cache import (
     borrow_temporary_like,
     cached_arg_value,
 )
-from warp.fem.types import OUTSIDE, Coords, ElementIndex, Sample, make_free_sample
+from warp.fem.types import OUTSIDE, Coords, ElementIndex, Sample
 
 from .element import Cube, Square
 from .geometry import Geometry
@@ -30,8 +30,6 @@ class HexmeshSideArg:
     face_hex_indices: wp.array(dtype=wp.vec2i)
     face_hex_face_orientation: wp.array(dtype=wp.vec4i)
 
-
-_mat32 = wp.mat(shape=(3, 2), dtype=float)
 
 FACE_VERTEX_INDICES = wp.constant(
     wp.mat(shape=(6, 4), dtype=int)(
@@ -142,6 +140,8 @@ class Hexmesh(Geometry):
         self._edge_count = 0
         self._build_topology(temporary_store)
 
+        self._make_default_dependent_implementations()
+
     def cell_count(self):
         return self.hex_vertex_indices.shape[0]
 
@@ -246,18 +246,6 @@ class Hexmesh(Geometry):
             + wp.outer(cell_arg.positions[hex_idx[7]], wp.vec3(-w_p[1] * w_p[2], w_m[0] * w_p[2], w_m[0] * w_p[1]))
         )
 
-    @wp.func
-    def cell_inverse_deformation_gradient(cell_arg: CellArg, s: Sample):
-        return wp.inverse(Hexmesh.cell_deformation_gradient(cell_arg, s))
-
-    @wp.func
-    def cell_measure(args: CellArg, s: Sample):
-        return wp.abs(wp.determinant(Hexmesh.cell_deformation_gradient(args, s)))
-
-    @wp.func
-    def cell_normal(args: CellArg, s: Sample):
-        return wp.vec3(0.0)
-
     @cached_arg_value
     def side_index_arg_value(self, device) -> SideIndexArg:
         args = self.SideIndexArg()
@@ -317,40 +305,7 @@ class Hexmesh(Geometry):
     def side_deformation_gradient(args: SideArg, s: Sample):
         """Transposed side deformation gradient at `coords`"""
         v1, v2 = Hexmesh._side_deformation_vecs(args, s.element_index, s.element_coords)
-        return _mat32(v1, v2)
-
-    @wp.func
-    def side_inner_inverse_deformation_gradient(args: SideArg, s: Sample):
-        cell_index = Hexmesh.side_inner_cell_index(args, s.element_index)
-        cell_coords = Hexmesh.side_inner_cell_coords(args, s.element_index, s.element_coords)
-        return Hexmesh.cell_inverse_deformation_gradient(args.cell_arg, make_free_sample(cell_index, cell_coords))
-
-    @wp.func
-    def side_outer_inverse_deformation_gradient(args: SideArg, s: Sample):
-        cell_index = Hexmesh.side_outer_cell_index(args, s.element_index)
-        cell_coords = Hexmesh.side_outer_cell_coords(args, s.element_index, s.element_coords)
-        return Hexmesh.cell_inverse_deformation_gradient(args.cell_arg, make_free_sample(cell_index, cell_coords))
-
-    @wp.func
-    def side_measure(args: SideArg, s: Sample):
-        v1, v2 = Hexmesh._side_deformation_vecs(args, s.element_index, s.element_coords)
-        return wp.length(wp.cross(v1, v2))
-
-    @wp.func
-    def side_measure_ratio(args: SideArg, s: Sample):
-        inner = Hexmesh.side_inner_cell_index(args, s.element_index)
-        outer = Hexmesh.side_outer_cell_index(args, s.element_index)
-        inner_coords = Hexmesh.side_inner_cell_coords(args, s.element_index, s.element_coords)
-        outer_coords = Hexmesh.side_outer_cell_coords(args, s.element_index, s.element_coords)
-        return Hexmesh.side_measure(args, s) / wp.min(
-            Hexmesh.cell_measure(args.cell_arg, make_free_sample(inner, inner_coords)),
-            Hexmesh.cell_measure(args.cell_arg, make_free_sample(outer, outer_coords)),
-        )
-
-    @wp.func
-    def side_normal(args: SideArg, s: Sample):
-        v1, v2 = Hexmesh._side_deformation_vecs(args, s.element_index, s.element_coords)
-        return wp.normalize(wp.cross(v1, v2))
+        return wp.matrix_from_cols(v1, v2)
 
     @wp.func
     def side_inner_cell_index(arg: SideArg, side_index: ElementIndex):

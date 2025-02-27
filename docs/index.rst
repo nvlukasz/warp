@@ -190,12 +190,12 @@ warp/examples/optim
            :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/optim/example_spring_cage.py
       - .. image:: ./img/examples/optim_trajectory.png
            :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/optim/example_trajectory.py
-      - .. image:: ./img/examples/optim_walker.png
-           :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/optim/example_walker.py
+      - .. image:: ./img/examples/optim_softbody_properties.png
+           :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/optim/example_softbody_properties.py
     * - inverse kinematics
       - spring cage
       - trajectory
-      - walker
+      - soft body properties
 
 warp/examples/sim
 ^^^^^^^^^^^^^^^^^
@@ -239,6 +239,33 @@ warp/examples/sim
       - rigid gyroscopic
       - rigid soft contact
       - soft body
+    * - .. image:: ./img/examples/sim_example_cloth_self_contact.png
+           :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/sim/example_cloth_self_contact.py
+      -
+      -
+      -
+    * - cloth self contact
+      -
+      -
+      -
+
+warp/examples/tile
+^^^^^^^^^^^^^^^^^^
+
+.. list-table::
+    :class: gallery
+
+    * - .. image:: ./img/examples/tile_mlp.png
+            :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/tile/example_tile_mlp.py
+      - .. image:: ./img/examples/tile_nbody.png
+            :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/tile/example_tile_nbody.py
+      - .. image:: ./img/examples/tile_walker.png
+            :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/tile/example_tile_walker.py
+      -
+    * - mlp
+      - nbody
+      - walker
+      -
 
 Omniverse
 ---------
@@ -350,6 +377,7 @@ Full Table of Contents
     modules/devices
     modules/differentiability
     modules/generics
+    modules/tiles
     modules/interoperability
     configuration
     debugging

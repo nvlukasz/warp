@@ -366,12 +366,14 @@ inline CUDA_CALLABLE mat_t<3,3,Type> quat_to_matrix(const quat_t<Type>& q)
     vec_t<3,Type> c2 = quat_rotate(q, vec_t<3,Type>(0.0, 1.0, 0.0));
     vec_t<3,Type> c3 = quat_rotate(q, vec_t<3,Type>(0.0, 0.0, 1.0));
 
-    return mat_t<3,3,Type>(c1, c2, c3);
+    return matrix_from_cols<Type>(c1, c2, c3);
 }
 
-template<typename Type>
-inline CUDA_CALLABLE quat_t<Type> quat_from_matrix(const mat_t<3,3,Type>& m)
+template<unsigned Rows, unsigned Cols, typename Type>
+inline CUDA_CALLABLE quat_t<Type> quat_from_matrix(const mat_t<Rows,Cols,Type>& m)
 {
+    static_assert((Rows == 3 && Cols == 3) || (Rows == 4 && Cols == 4));
+
     const Type tr = m.data[0][0] + m.data[1][1] + m.data[2][2];
     Type x, y, z, w, h = Type(0);
 
@@ -487,8 +489,100 @@ inline CUDA_CALLABLE void adj_indexref(quat_t<Type>* q, int idx,
     // nop
 }
 
+
 template<typename Type>
-inline CUDA_CALLABLE quat_t<Type> assign(quat_t<Type>& q, int idx, Type value)
+inline CUDA_CALLABLE void add_inplace(quat_t<Type>& q, int idx, Type value)
+{
+#ifndef NDEBUG
+    if (idx < 0 || idx > 3)
+    {
+        printf("quat index %d out of bounds at %s %d\n", idx, __FILE__, __LINE__);
+        assert(0);
+    }
+#endif
+
+    q[idx] += value;
+}
+
+
+template<typename Type>
+inline CUDA_CALLABLE void adj_add_inplace(quat_t<Type>& q, int idx, Type value,
+                                        quat_t<Type>& adj_q, int adj_idx, Type& adj_value)
+{
+#ifndef NDEBUG
+    if (idx < 0 || idx > 3)
+    {
+        printf("quat index %d out of bounds at %s %d\n", idx, __FILE__, __LINE__);
+        assert(0);
+    }
+#endif
+
+    adj_value += adj_q[idx];
+}
+
+
+template<typename Type>
+inline CUDA_CALLABLE void sub_inplace(quat_t<Type>& q, int idx, Type value)
+{
+#ifndef NDEBUG
+    if (idx < 0 || idx > 3)
+    {
+        printf("quat index %d out of bounds at %s %d\n", idx, __FILE__, __LINE__);
+        assert(0);
+    }
+#endif
+
+    q[idx] -= value;
+}
+
+
+template<typename Type>
+inline CUDA_CALLABLE void adj_sub_inplace(quat_t<Type>& q, int idx, Type value,
+                                        quat_t<Type>& adj_q, int adj_idx, Type& adj_value)
+{
+#ifndef NDEBUG
+    if (idx < 0 || idx > 3)
+    {
+        printf("quat index %d out of bounds at %s %d\n", idx, __FILE__, __LINE__);
+        assert(0);
+    }
+#endif
+
+    adj_value -= adj_q[idx];
+}
+
+
+template<typename Type>
+inline CUDA_CALLABLE void assign_inplace(quat_t<Type>& q, int idx, Type value)
+{
+#ifndef NDEBUG
+    if (idx < 0 || idx > 3)
+    {
+        printf("quat index %d out of bounds at %s %d\n", idx, __FILE__, __LINE__);
+        assert(0);
+    }
+#endif
+
+    q[idx] = value;
+}
+
+template<typename Type>
+inline CUDA_CALLABLE void adj_assign_inplace(quat_t<Type>& q, int idx, Type value, quat_t<Type>& adj_q, int& adj_idx, Type& adj_value)
+{
+#ifndef NDEBUG
+    if (idx < 0 || idx > 3)
+    {
+        printf("quat index %d out of bounds at %s %d\n", idx, __FILE__, __LINE__);
+        assert(0);
+    }
+#endif
+
+    adj_value += adj_q[idx];
+}
+
+
+template<typename Type>
+inline CUDA_CALLABLE quat_t<Type> assign_copy(quat_t<Type>& q, int idx, Type value)
 {
 #ifndef NDEBUG
     if (idx < 0 || idx > 3)
@@ -504,7 +598,7 @@ inline CUDA_CALLABLE quat_t<Type> assign(quat_t<Type>& q, int idx, Type value)
 }
 
 template<typename Type>
-inline CUDA_CALLABLE void adj_assign(quat_t<Type>& q, int idx, Type value, quat_t<Type>& adj_q, int& adj_idx, Type& adj_value, const quat_t<Type>& adj_ret)
+inline CUDA_CALLABLE void adj_assign_copy(quat_t<Type>& q, int idx, Type value, quat_t<Type>& adj_q, int& adj_idx, Type& adj_value, const quat_t<Type>& adj_ret)
 {
 #ifndef NDEBUG
     if (idx < 0 || idx > 3)
@@ -521,6 +615,7 @@ inline CUDA_CALLABLE void adj_assign(quat_t<Type>& q, int idx, Type value, quat_
             adj_q[i] += adj_ret[i];
     }
 }
+
 
 template<typename Type>
 CUDA_CALLABLE inline quat_t<Type> lerp(const quat_t<Type>& a, const quat_t<Type>& b, Type t)
@@ -1008,9 +1103,11 @@ inline CUDA_CALLABLE void adj_quat_to_matrix(const quat_t<Type>& q, quat_t<Type>
     adj_quat_rotate(q, vec_t<3,Type>(0.0, 0.0, 1.0), adj_q, t, adj_ret.get_col(2));
 }
 
-template<typename Type>
-inline CUDA_CALLABLE void adj_quat_from_matrix(const mat_t<3,3,Type>& m, mat_t<3,3,Type>& adj_m, const quat_t<Type>& adj_ret)
+template<unsigned Rows, unsigned Cols, typename Type>
+inline CUDA_CALLABLE void adj_quat_from_matrix(const mat_t<Rows,Cols,Type>& m, mat_t<Rows,Cols,Type>& adj_m, const quat_t<Type>& adj_ret)
 {
+    static_assert((Rows == 3 && Cols == 3) || (Rows == 4 && Cols == 4));
+
     const Type tr = m.data[0][0] + m.data[1][1] + m.data[2][2];
     Type x, y, z, w, h = Type(0);
 
@@ -1229,6 +1326,37 @@ inline CUDA_CALLABLE quat_t<Type> quat_identity()
     return quat_t<Type>(Type(0), Type(0), Type(0), Type(1));
 }
 
+template<typename Type>
+CUDA_CALLABLE inline int len(const quat_t<Type>& x)
+{
+    return 4;
+}
 
+template<typename Type>
+CUDA_CALLABLE inline void adj_len(const quat_t<Type>& x, quat_t<Type>& adj_x, const int& adj_ret)
+{
+}
+
+template<typename Type>
+inline CUDA_CALLABLE void expect_near(const quat_t<Type>& actual, const quat_t<Type>& expected, const Type& tolerance)
+{
+    Type diff(0);
+    for(size_t i = 0; i < 4; ++i)
+    {
+        diff = max(diff, abs(actual[i] - expected[i]));
+    }
+    if (diff > tolerance)
+    {
+        printf("Error, expect_near() failed with tolerance "); print(tolerance);
+        printf("\t Expected: "); print(expected);
+        printf("\t Actual: "); print(actual);
+    }
+}
+
+template<typename Type>
+inline CUDA_CALLABLE void adj_expect_near(const quat_t<Type>& actual, const quat_t<Type>& expected, Type tolerance, quat_t<Type>& adj_actual, quat_t<Type>& adj_expected, Type adj_tolerance)
+{
+    // nop
+}
 
 } // namespace wp

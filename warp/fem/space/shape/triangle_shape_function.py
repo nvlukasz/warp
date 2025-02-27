@@ -4,6 +4,8 @@ import warp as wp
 from warp.fem import cache
 from warp.fem.types import Coords
 
+from .shape_function import ShapeFunction
+
 
 def _triangle_node_index(tx: int, ty: int, degree: int):
     VERTEX_NODE_COUNT = 3
@@ -34,16 +36,42 @@ def _triangle_node_index(tx: int, ty: int, degree: int):
     return vertex_edge_node_count + _triangle_node_index(tx - 1, ty - 1, degree - 3)
 
 
-class Triangle2DPolynomialShapeFunctions:
+class TriangleShapeFunction(ShapeFunction):
     VERTEX = wp.constant(0)
     EDGE = wp.constant(1)
     INTERIOR = wp.constant(2)
 
+    VERTEX_NODE_COUNT: int
+    """Number of shape function nodes per vertex"""
+
+    EDGE_NODE_COUNT: int
+    """Number of shape function nodes per triangle edge (excluding vertex nodes)"""
+
+    INTERIOR_NODE_COUNT: int
+    """Number of shape function nodes per triangle (excluding edge and vertex nodes)"""
+
+    @staticmethod
+    def node_type_and_index(node_index_in_elt: int):
+        pass
+
+    @wp.func
+    def _vertex_coords(vidx: int):
+        return wp.vec2(
+            float(vidx == 1),
+            float(vidx == 2),
+        )
+
+
+class TrianglePolynomialShapeFunctions(TriangleShapeFunction):
     def __init__(self, degree: int):
         self.ORDER = wp.constant(degree)
 
         self.NODES_PER_ELEMENT = wp.constant((degree + 1) * (degree + 2) // 2)
         self.NODES_PER_SIDE = wp.constant(degree + 1)
+
+        self.VERTEX_NODE_COUNT = wp.constant(1)
+        self.EDGE_NODE_COUNT = wp.constant(degree - 1)
+        self.INTERIOR_NODE_COUNT = wp.constant(max(0, degree - 2) * max(0, degree - 1) // 2)
 
         triangle_coords = np.empty((self.NODES_PER_ELEMENT, 2), dtype=int)
 
@@ -68,7 +96,7 @@ class Triangle2DPolynomialShapeFunctions:
         def node_triangle_coordinates(
             node_index_in_elt: int,
         ):
-            return wp.vec2i(NODE_TRIANGLE_COORDS[node_index_in_elt, 0], NODE_TRIANGLE_COORDS[node_index_in_elt, 1])
+            return NODE_TRIANGLE_COORDS[node_index_in_elt]
 
         return cache.get_func(node_triangle_coordinates, self.name)
 
@@ -79,12 +107,12 @@ class Triangle2DPolynomialShapeFunctions:
             node_index_in_elt: int,
         ):
             if node_index_in_elt < 3:
-                return Triangle2DPolynomialShapeFunctions.VERTEX, node_index_in_elt
+                return TrianglePolynomialShapeFunctions.VERTEX, node_index_in_elt
 
             if node_index_in_elt < 3 * ORDER:
-                return Triangle2DPolynomialShapeFunctions.EDGE, (node_index_in_elt - 3)
+                return TrianglePolynomialShapeFunctions.EDGE, (node_index_in_elt - 3)
 
-            return Triangle2DPolynomialShapeFunctions.INTERIOR, (node_index_in_elt - 3 * ORDER)
+            return TrianglePolynomialShapeFunctions.INTERIOR, (node_index_in_elt - 3 * ORDER)
 
         return cache.get_func(node_type_and_index, self.name)
 
@@ -125,9 +153,9 @@ class Triangle2DPolynomialShapeFunctions:
         def node_quadrature_weight(node_index_in_element: int):
             node_type, type_index = self.node_type_and_type_index(node_index_in_element)
 
-            if node_type == Triangle2DPolynomialShapeFunctions.VERTEX:
+            if node_type == TrianglePolynomialShapeFunctions.VERTEX:
                 return VERTEX_WEIGHT
-            elif node_type == Triangle2DPolynomialShapeFunctions.EDGE:
+            elif node_type == TrianglePolynomialShapeFunctions.EDGE:
                 return EDGE_WEIGHT
 
             return INTERIOR_WEIGHT
@@ -153,7 +181,7 @@ class Triangle2DPolynomialShapeFunctions:
         def trace_node_quadrature_weight(node_index_in_element: int):
             node_type, type_index = self.node_type_and_type_index(node_index_in_element)
 
-            return wp.select(node_type == Triangle2DPolynomialShapeFunctions.VERTEX, EDGE_WEIGHT, VERTEX_WEIGHT)
+            return wp.select(node_type == TrianglePolynomialShapeFunctions.VERTEX, EDGE_WEIGHT, VERTEX_WEIGHT)
 
         return trace_node_quadrature_weight
 
@@ -172,7 +200,7 @@ class Triangle2DPolynomialShapeFunctions:
         ):
             node_type, type_index = self.node_type_and_type_index(node_index_in_elt)
 
-            if node_type == Triangle2DPolynomialShapeFunctions.VERTEX:
+            if node_type == TrianglePolynomialShapeFunctions.VERTEX:
                 # Vertex
                 return coords[type_index] * (2.0 * coords[type_index] - 1.0)
 
@@ -187,11 +215,11 @@ class Triangle2DPolynomialShapeFunctions:
         ):
             node_type, type_index = self.node_type_and_type_index(node_index_in_elt)
 
-            if node_type == Triangle2DPolynomialShapeFunctions.VERTEX:
+            if node_type == TrianglePolynomialShapeFunctions.VERTEX:
                 # Vertex
                 return 0.5 * coords[type_index] * (3.0 * coords[type_index] - 1.0) * (3.0 * coords[type_index] - 2.0)
 
-            elif node_type == Triangle2DPolynomialShapeFunctions.EDGE:
+            elif node_type == TrianglePolynomialShapeFunctions.EDGE:
                 # Edge
                 edge = type_index // 2
                 k = type_index - 2 * edge
@@ -233,7 +261,7 @@ class Triangle2DPolynomialShapeFunctions:
 
             dw_dc = wp.vec3(0.0)
 
-            if node_type == Triangle2DPolynomialShapeFunctions.VERTEX:
+            if node_type == TrianglePolynomialShapeFunctions.VERTEX:
                 # Vertex
                 dw_dc[type_index] = 4.0 * coords[type_index] - 1.0
 
@@ -255,13 +283,13 @@ class Triangle2DPolynomialShapeFunctions:
 
             dw_dc = wp.vec3(0.0)
 
-            if node_type == Triangle2DPolynomialShapeFunctions.VERTEX:
+            if node_type == TrianglePolynomialShapeFunctions.VERTEX:
                 # Vertex
                 dw_dc[type_index] = (
                     0.5 * 27.0 * coords[type_index] * coords[type_index] - 9.0 * coords[type_index] + 1.0
                 )
 
-            elif node_type == Triangle2DPolynomialShapeFunctions.EDGE:
+            elif node_type == TrianglePolynomialShapeFunctions.EDGE:
                 # Edge
                 edge = type_index // 2
                 k = type_index - 2 * edge
@@ -318,9 +346,9 @@ class Triangle2DPolynomialShapeFunctions:
         return cells[np.newaxis, :], np.array([cell_type], dtype=np.int8)
 
 
-class Triangle2DNonConformingPolynomialShapeFunctions:
+class TriangleNonConformingPolynomialShapeFunctions(ShapeFunction):
     def __init__(self, degree: int):
-        self._tri_shape = Triangle2DPolynomialShapeFunctions(degree=degree)
+        self._tri_shape = TrianglePolynomialShapeFunctions(degree=degree)
         self.ORDER = self._tri_shape.ORDER
         self.NODES_PER_ELEMENT = self._tri_shape.NODES_PER_ELEMENT
 
@@ -346,7 +374,7 @@ class Triangle2DNonConformingPolynomialShapeFunctions:
 
     @property
     def name(self) -> str:
-        return f"Tri_P{self.ORDER}d"
+        return f"Tri_dP{self.ORDER}"
 
     def make_node_quadrature_weight(self):
         # Intrinsic quadrature -- precomputed integral of node shape functions
@@ -373,9 +401,9 @@ class Triangle2DNonConformingPolynomialShapeFunctions:
         def node_quadrature_weight(node_index_in_element: int):
             node_type, type_index = self._tri_shape.node_type_and_type_index(node_index_in_element)
 
-            if node_type == Triangle2DPolynomialShapeFunctions.VERTEX:
+            if node_type == TrianglePolynomialShapeFunctions.VERTEX:
                 return VERTEX_WEIGHT
-            elif node_type == Triangle2DPolynomialShapeFunctions.EDGE:
+            elif node_type == TrianglePolynomialShapeFunctions.EDGE:
                 return EDGE_WEIGHT
 
             return INTERIOR_WEIGHT
@@ -436,3 +464,194 @@ class Triangle2DNonConformingPolynomialShapeFunctions:
             return INV_TRI_SCALE * grad
 
         return element_inner_weight_gradient
+
+
+class TriangleNedelecFirstKindShapeFunctions(TriangleShapeFunction):
+    value = ShapeFunction.Value.CovariantVector
+
+    def __init__(self, degree: int):
+        if degree != 1:
+            raise NotImplementedError("Only linear Nédélec implemented right now")
+
+        self.ORDER = wp.constant(degree)
+
+        self.NODES_PER_ELEMENT = wp.constant(3)
+        self.NODES_PER_SIDE = wp.constant(1)
+
+        self.VERTEX_NODE_COUNT = wp.constant(0)
+        self.EDGE_NODE_COUNT = wp.constant(1)
+        self.INTERIOR_NODE_COUNT = wp.constant(0)
+
+        self.node_type_and_type_index = self._get_node_type_and_type_index()
+
+    @property
+    def name(self) -> str:
+        return f"TriN1_{self.ORDER}"
+
+    def _get_node_type_and_type_index(self):
+        @cache.dynamic_func(suffix=self.name)
+        def node_type_and_index(
+            node_index_in_elt: int,
+        ):
+            return TriangleShapeFunction.EDGE, node_index_in_elt
+
+        return node_type_and_index
+
+    def make_node_coords_in_element(self):
+        @cache.dynamic_func(suffix=self.name)
+        def node_coords_in_element(
+            node_index_in_elt: int,
+        ):
+            coords = Coords(0.5)
+            coords[(node_index_in_elt + 2) % 3] = 0.0
+            return coords
+
+        return node_coords_in_element
+
+    def make_node_quadrature_weight(self):
+        NODES_PER_ELEMENT = self.NODES_PER_ELEMENT
+
+        @cache.dynamic_func(suffix=self.name)
+        def node_quadrature_weight(node_index_in_element: int):
+            return 1.0 / float(NODES_PER_ELEMENT)
+
+        return node_quadrature_weight
+
+    def make_trace_node_quadrature_weight(self):
+        NODES_PER_SIDE = self.NODES_PER_SIDE
+
+        @cache.dynamic_func(suffix=self.name)
+        def trace_node_quadrature_weight(node_index_in_element: int):
+            return 1.0 / float(NODES_PER_SIDE)
+
+        return trace_node_quadrature_weight
+
+    @wp.func
+    def _vertex_coords(vidx: int):
+        return wp.vec2(
+            float(vidx == 1),
+            float(vidx == 2),
+        )
+
+    def make_element_inner_weight(self):
+        ORDER = self.ORDER
+
+        def element_inner_weight_linear(
+            coords: Coords,
+            node_index_in_elt: int,
+        ):
+            x = wp.vec2(coords[1], coords[2])
+            p = self._vertex_coords((node_index_in_elt + 2) % 3)
+
+            d = x - p
+            return wp.vec2(-d[1], d[0])
+
+        if ORDER == 1:
+            return cache.get_func(element_inner_weight_linear, self.name)
+
+        return None
+
+    def make_element_inner_weight_gradient(self):
+        ROT = wp.constant(wp.mat22f(0.0, -1.0, 1.0, 0.0))
+
+        def element_inner_weight_gradient_linear(
+            coords: Coords,
+            node_index_in_elt: int,
+        ):
+            return ROT
+
+        if self.ORDER == 1:
+            return cache.get_func(element_inner_weight_gradient_linear, self.name)
+
+        return None
+
+
+class TriangleRaviartThomasShapeFunctions(TriangleShapeFunction):
+    value = ShapeFunction.Value.ContravariantVector
+
+    def __init__(self, degree: int):
+        if degree != 1:
+            raise NotImplementedError("Only linear Raviart-Thomas implemented right now")
+
+        self.ORDER = wp.constant(degree)
+
+        self.NODES_PER_ELEMENT = wp.constant(3)
+        self.NODES_PER_SIDE = wp.constant(1)
+
+        self.VERTEX_NODE_COUNT = wp.constant(0)
+        self.EDGE_NODE_COUNT = wp.constant(1)
+        self.INTERIOR_NODE_COUNT = wp.constant(0)
+
+        self.node_type_and_type_index = self._get_node_type_and_type_index()
+
+    @property
+    def name(self) -> str:
+        return f"TriRT_{self.ORDER}"
+
+    def _get_node_type_and_type_index(self):
+        @cache.dynamic_func(suffix=self.name)
+        def node_type_and_index(
+            node_index_in_elt: int,
+        ):
+            return TriangleShapeFunction.EDGE, node_index_in_elt
+
+        return node_type_and_index
+
+    def make_node_coords_in_element(self):
+        @cache.dynamic_func(suffix=self.name)
+        def node_coords_in_element(
+            node_index_in_elt: int,
+        ):
+            coords = Coords(0.5)
+            coords[(node_index_in_elt + 2) % 3] = 0.0
+            return coords
+
+        return node_coords_in_element
+
+    def make_node_quadrature_weight(self):
+        NODES_PER_ELEMENT = self.NODES_PER_ELEMENT
+
+        @cache.dynamic_func(suffix=self.name)
+        def node_quadrature_weight(node_index_in_element: int):
+            return 1.0 / float(NODES_PER_ELEMENT)
+
+        return node_quadrature_weight
+
+    def make_trace_node_quadrature_weight(self):
+        NODES_PER_SIDE = self.NODES_PER_SIDE
+
+        @cache.dynamic_func(suffix=self.name)
+        def trace_node_quadrature_weight(node_index_in_element: int):
+            return 1.0 / float(NODES_PER_SIDE)
+
+        return trace_node_quadrature_weight
+
+    def make_element_inner_weight(self):
+        ORDER = self.ORDER
+
+        def element_inner_weight_linear(
+            coords: Coords,
+            node_index_in_elt: int,
+        ):
+            x = wp.vec2(coords[1], coords[2])
+            p = self._vertex_coords((node_index_in_elt + 2) % 3)
+
+            d = x - p
+            return d
+
+        if ORDER == 1:
+            return cache.get_func(element_inner_weight_linear, self.name)
+
+        return None
+
+    def make_element_inner_weight_gradient(self):
+        def element_inner_weight_gradient_linear(
+            coords: Coords,
+            node_index_in_elt: int,
+        ):
+            return wp.identity(n=2, dtype=float)
+
+        if self.ORDER == 1:
+            return cache.get_func(element_inner_weight_gradient_linear, self.name)
+
+        return None

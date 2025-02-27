@@ -35,26 +35,45 @@ stages:
 # Hide this job for now until debug aarch64 builds work
 .linux-aarch64 build:
   stage: build
-  image: ubuntu:22.04
+  image: ubuntu:20.04
   extends:
+    - .runner-build-linux-aarch64
     - .save_warp_bin_artifact
   before_script:
     - echo -e "\\e[0Ksection_start:`date +%s`:install_dependencies[collapsed=true]\\r\\e[0KInstalling dependencies"
     - apt-get update && apt-get install build-essential curl --no-install-recommends -y
+    - >
+      curl -k -H "Authorization: Bearer $ARTIFACTORY_ACCESS_TOKEN"
+      $ARTIFACTORY_BASE_URL/sw-cuda-math-mathdx-generic-local/cicd/libmathdx/release-0.1.2/L1_Nightly/5/libmathdx-Linux-aarch64-0.1.2.tar.gz
+      -o libmathdx.tar.gz
+    - mkdir -p _build/target-deps
+    - tar -xzf libmathdx.tar.gz -C _build/target-deps
+    - export LIBMATHDX_HOME="$CI_PROJECT_DIR/_build/target-deps/libmathdx"
+    - gcc --version
     - echo -e "\\e[0Ksection_end:`date +%s`:install_dependencies\\r\\e[0K"
   script:
-    - ./tools/ci/building/build-linux-aarch64/build.sh --debug --no-docker # We are already using the builder image
-  tags:
-    - arch/arm
+    - ./tools/ci/building/build-linux-aarch64/build.sh --debug --no-docker
 
 linux-x86_64 build:
   stage: build
-  image: urm.nvidia.com/ct-omniverse-docker/centos7-gcc10-builder:3.2.0
+  image: ubuntu:22.04
   extends:
     - .save_warp_bin_artifact
     - .runner-large-build-linux-x86_64
+  before_script:
+    - echo -e "\\e[0Ksection_start:`date +%s`:install_dependencies[collapsed=true]\\r\\e[0KInstalling dependencies"
+    - apt-get update && apt-get install build-essential curl --no-install-recommends -y
+    - >
+      curl -k -H "Authorization: Bearer $ARTIFACTORY_ACCESS_TOKEN"
+      $ARTIFACTORY_BASE_URL/sw-cuda-math-mathdx-generic-local/cicd/libmathdx/release-0.1.2/L1_Nightly/5/libmathdx-Linux-x86_64-0.1.2.tar.gz
+      -o libmathdx.tar.gz
+    - mkdir -p _build/target-deps
+    - tar -xzf libmathdx.tar.gz -C _build/target-deps
+    - export LIBMATHDX_HOME="$CI_PROJECT_DIR/_build/target-deps/libmathdx"
+    - gcc --version
+    - echo -e "\\e[0Ksection_end:`date +%s`:install_dependencies\\r\\e[0K"
   script:
-    - ./tools/ci/building/build-linux-x86_64/build.sh --debug --no-docker # We are already using the builder image
+    - ./tools/ci/building/build-linux-x86_64/build.sh --debug --no-docker
 
 windows-x86_64 build:
   stage: build
@@ -63,6 +82,16 @@ windows-x86_64 build:
     - .runner-build-windows-x86_64
   before_script:
     - powershell -command "Get-Volume | Format-Table -AutoSize"
+    - |
+      $headers = @{
+          "Authorization" = "Basic $([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("warp-cicd:${env:LIBMATHDX_REGISTRY_TOKEN}")))"
+      }
+      $url = "${CI_API_V4_URL}/projects/141992/packages/generic/libmathdx/0-1-2-2/libmathdx-win64-x86_64-0.1.2.zip"
+      $output = "libmathdx.zip"
+      Invoke-WebRequest -Uri $url -Headers $headers -OutFile $output -ErrorAction Stop
+    - Expand-Archive -Path libmathdx.zip -DestinationPath _build/target-deps -Force
+    - Get-ChildItem -Path "${env:CI_PROJECT_DIR}\_build\target-deps"
+    - $env:LIBMATHDX_HOME = "${env:CI_PROJECT_DIR}\_build\target-deps\libmathdx"
   script:
     - ./tools/ci/building/build-windows-x86_64/build.bat --debug
 
@@ -88,15 +117,15 @@ mac-x86_64 build:
   image: ubuntu:22.04
   needs: [linux-aarch64 build]
   extends:
+    - .omni_devplat_arm_docker_gpu
     - .save_test_report_artifact
   before_script:
     - echo -e "\\e[0Ksection_start:`date +%s`:install_dependencies[collapsed=true]\\r\\e[0KInstalling dependencies"
     - !reference [.snippets, install-python+warp-aarch64]
+    - python -m pip install -U "jax[cuda12]"
     - echo -e "\\e[0Ksection_end:`date +%s`:install_dependencies\\r\\e[0K"
   script:
     - python -m warp.tests --junit-report-xml rspec.xml -s autodetect --failfast
-  tags:
-    - arch/arm
 
 linux-x86_64 test:
   stage: test
@@ -114,7 +143,7 @@ linux-x86_64 test:
     - python -m pip install --upgrade pip
     - python -m pip install --upgrade usd-core
     - python -m pip install --upgrade torch --extra-index-url https://download.pytorch.org/whl/cu121
-    - python -m pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+    - python -m pip install -U "jax[cuda12]"
     - python -m pip install -e .
     - echo -e "\\e[0Ksection_end:`date +%s`:install_dependencies\\r\\e[0K"
     # HACK: disable P2P tests due to misbehaving agents
@@ -136,7 +165,8 @@ windows-x86_64 test:
     - tools/packman/packman.cmd install -l _build/target-deps/python python $python_name
     - '& $env:CI_PROJECT_DIR\_build\target-deps\python\python.exe -m venv _venv'
     - .\_venv\Scripts\Activate.ps1
-    - python -m pip install --upgrade pip usd-core numpy
+    - python -m pip install --upgrade pip
+    - python -m pip install --upgrade usd-core numpy
     - python -m pip install --upgrade torch --extra-index-url https://download.pytorch.org/whl/cu121
     - python -m pip install -e .
     - Write-Output "$([char]27)[0Ksection_end:$(GetTime):install_dependencies$([char]13)$([char]27)[0K"
@@ -156,7 +186,7 @@ mac-x86_64 test:
     - python -m pip install --upgrade usd-core
     - echo -e "\\e[0Ksection_end:`date +%s`:install_dependencies\\r\\e[0K"
   script:
-    - python -m warp.tests --junit-report-xml rspec.xml -s autodetect --failfast
+    - python -m warp.tests --maxjobs 4 --junit-report-xml rspec.xml -s autodetect --failfast
 
 # ==============================================================================
 # Packaging Jobs

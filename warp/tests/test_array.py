@@ -6,6 +6,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 import unittest
+from typing import Any
 
 import numpy as np
 
@@ -2361,64 +2362,85 @@ def test_array_from_cai(test, device):
     assert_np_equal(arr_warp.numpy(), np.array([[2, 1, 1], [1, 0, 0], [1, 0, 0]]))
 
 
-def test_array_inplace_ops(test, device):
-    @wp.kernel
-    def inplace_add_1d(x: wp.array(dtype=float), y: wp.array(dtype=float)):
-        i = wp.tid()
-        x[i] += y[i]
+@wp.kernel
+def inplace_add_1d(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+    i = wp.tid()
+    x[i] += y[i]
 
-    @wp.kernel
-    def inplace_add_2d(x: wp.array2d(dtype=float), y: wp.array2d(dtype=float)):
-        i, j = wp.tid()
-        x[i, j] += y[i, j]
 
-    @wp.kernel
-    def inplace_add_3d(x: wp.array3d(dtype=float), y: wp.array3d(dtype=float)):
-        i, j, k = wp.tid()
-        x[i, j, k] += y[i, j, k]
+@wp.kernel
+def inplace_add_2d(x: wp.array2d(dtype=float), y: wp.array2d(dtype=float)):
+    i, j = wp.tid()
+    x[i, j] += y[i, j]
 
-    @wp.kernel
-    def inplace_add_4d(x: wp.array4d(dtype=float), y: wp.array4d(dtype=float)):
-        i, j, k, l = wp.tid()
-        x[i, j, k, l] += y[i, j, k, l]
 
-    @wp.kernel
-    def inplace_sub_1d(x: wp.array(dtype=float), y: wp.array(dtype=float)):
-        i = wp.tid()
-        x[i] -= y[i]
+@wp.kernel
+def inplace_add_3d(x: wp.array3d(dtype=float), y: wp.array3d(dtype=float)):
+    i, j, k = wp.tid()
+    x[i, j, k] += y[i, j, k]
 
-    @wp.kernel
-    def inplace_sub_2d(x: wp.array2d(dtype=float), y: wp.array2d(dtype=float)):
-        i, j = wp.tid()
-        x[i, j] -= y[i, j]
 
-    @wp.kernel
-    def inplace_sub_3d(x: wp.array3d(dtype=float), y: wp.array3d(dtype=float)):
-        i, j, k = wp.tid()
-        x[i, j, k] -= y[i, j, k]
+@wp.kernel
+def inplace_add_4d(x: wp.array4d(dtype=float), y: wp.array4d(dtype=float)):
+    i, j, k, l = wp.tid()
+    x[i, j, k, l] += y[i, j, k, l]
 
-    @wp.kernel
-    def inplace_sub_4d(x: wp.array4d(dtype=float), y: wp.array4d(dtype=float)):
-        i, j, k, l = wp.tid()
-        x[i, j, k, l] -= y[i, j, k, l]
 
-    @wp.kernel
-    def inplace_add_vecs(x: wp.array(dtype=wp.vec3), y: wp.array(dtype=wp.vec3)):
-        i = wp.tid()
-        x[i] += y[i]
+@wp.kernel
+def inplace_sub_1d(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+    i = wp.tid()
+    x[i] -= y[i]
 
-    @wp.kernel
-    def inplace_add_mats(x: wp.array(dtype=wp.mat33), y: wp.array(dtype=wp.mat33)):
-        i = wp.tid()
-        x[i] += y[i]
 
-    @wp.kernel
-    def inplace_add_rhs(x: wp.array(dtype=float), y: wp.array(dtype=float), z: wp.array(dtype=float)):
-        i = wp.tid()
-        a = y[i]
-        a += x[i]
-        wp.atomic_add(z, 0, a)
+@wp.kernel
+def inplace_sub_2d(x: wp.array2d(dtype=float), y: wp.array2d(dtype=float)):
+    i, j = wp.tid()
+    x[i, j] -= y[i, j]
 
+
+@wp.kernel
+def inplace_sub_3d(x: wp.array3d(dtype=float), y: wp.array3d(dtype=float)):
+    i, j, k = wp.tid()
+    x[i, j, k] -= y[i, j, k]
+
+
+@wp.kernel
+def inplace_sub_4d(x: wp.array4d(dtype=float), y: wp.array4d(dtype=float)):
+    i, j, k, l = wp.tid()
+    x[i, j, k, l] -= y[i, j, k, l]
+
+
+@wp.kernel
+def inplace_add_vecs(x: wp.array(dtype=wp.vec3), y: wp.array(dtype=wp.vec3)):
+    i = wp.tid()
+    x[i] += y[i]
+
+
+@wp.kernel
+def inplace_add_mats(x: wp.array(dtype=wp.mat33), y: wp.array(dtype=wp.mat33)):
+    i = wp.tid()
+    x[i] += y[i]
+
+
+@wp.kernel
+def inplace_add_rhs(x: wp.array(dtype=float), y: wp.array(dtype=float), z: wp.array(dtype=float)):
+    i = wp.tid()
+    a = y[i]
+    a += x[i]
+    wp.atomic_add(z, 0, a)
+
+
+vec9 = wp.vec(length=9, dtype=float)
+
+
+@wp.kernel
+def inplace_add_custom_vec(x: wp.array(dtype=vec9), y: wp.array(dtype=vec9)):
+    i = wp.tid()
+    x[i] += y[i]
+    x[i] += y[i]
+
+
+def test_array_inplace_diff_ops(test, device):
     N = 3
     x1 = wp.ones(N, dtype=float, requires_grad=True, device=device)
     x2 = wp.ones((N, N), dtype=float, requires_grad=True, device=device)
@@ -2526,6 +2548,60 @@ def test_array_inplace_ops(test, device):
 
     assert_np_equal(x.grad.numpy(), np.ones(1, dtype=float))
     assert_np_equal(y.grad.numpy(), np.ones(1, dtype=float))
+    tape.reset()
+
+    x = wp.zeros(1, dtype=vec9, requires_grad=True, device=device)
+    y = wp.ones(1, dtype=vec9, requires_grad=True, device=device)
+
+    with tape:
+        wp.launch(inplace_add_custom_vec, 1, inputs=[x, y], device=device)
+
+    tape.backward(grads={x: wp.ones_like(x)})
+
+    assert_np_equal(x.numpy(), np.full((1, 9), 2.0, dtype=float))
+    assert_np_equal(y.grad.numpy(), np.full((1, 9), 2.0, dtype=float))
+
+
+@wp.kernel
+def inplace_mul_1d(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+    i = wp.tid()
+    x[i] *= y[i]
+
+
+@wp.kernel
+def inplace_div_1d(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+    i = wp.tid()
+    x[i] /= y[i]
+
+
+@wp.kernel
+def inplace_add_non_atomic_types(x: wp.array(dtype=Any), y: wp.array(dtype=Any)):
+    i = wp.tid()
+    x[i] += y[i]
+
+
+uint16vec3 = wp.vec(length=3, dtype=wp.uint16)
+
+
+def test_array_inplace_non_diff_ops(test, device):
+    N = 3
+    x1 = wp.full(N, value=10.0, dtype=float, device=device)
+    y1 = wp.full(N, value=5.0, dtype=float, device=device)
+
+    wp.launch(inplace_mul_1d, N, inputs=[x1, y1], device=device)
+    assert_np_equal(x1.numpy(), np.full(N, fill_value=50.0, dtype=float))
+
+    x1.fill_(10.0)
+    y1.fill_(5.0)
+    wp.launch(inplace_div_1d, N, inputs=[x1, y1], device=device)
+    assert_np_equal(x1.numpy(), np.full(N, fill_value=2.0, dtype=float))
+
+    for dtype in wp.types.non_atomic_types + (wp.vec2b, wp.vec2ub, wp.vec2s, wp.vec2us, uint16vec3):
+        x = wp.full(N, value=0, dtype=dtype, device=device)
+        y = wp.full(N, value=1, dtype=dtype, device=device)
+
+        wp.launch(inplace_add_non_atomic_types, N, inputs=[x, y], device=device)
+        assert_np_equal(x.numpy(), y.numpy())
 
 
 @wp.kernel
@@ -2690,6 +2766,101 @@ def test_indexing_types(test, device):
     )
 
 
+def test_alloc_strides(test, device):
+    def test_transposed(shape, dtype):
+        # allocate without specifying strides
+        a1 = wp.zeros(shape, dtype=dtype)
+
+        # allocate with contiguous strides
+        strides = wp.types.strides_from_shape(shape, dtype)
+        a2 = wp.zeros(shape, dtype=dtype, strides=strides)
+
+        # allocate with transposed (reversed) shape/strides
+        rshape = shape[::-1]
+        rstrides = strides[::-1]
+        a3 = wp.zeros(rshape, dtype=dtype, strides=rstrides)
+
+        # ensure that correct capacity was allocated
+        assert a2.capacity == a1.capacity
+        assert a3.capacity == a1.capacity
+
+    with wp.ScopedDevice(device):
+        shapes = [(5, 5), (5, 3), (3, 5), (2, 3, 4), (4, 2, 3), (3, 2, 4)]
+        for shape in shapes:
+            with test.subTest(msg=f"shape={shape}"):
+                test_transposed(shape, wp.int8)
+                test_transposed(shape, wp.float32)
+                test_transposed(shape, wp.vec3)
+
+
+def test_casting(test, device):
+    idxs = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+    idxs = wp.array(idxs, device=device).reshape((-1, 3))
+    idxs = wp.array(idxs, shape=idxs.shape[0], dtype=wp.vec3i, device=device)
+    assert idxs.dtype is wp.vec3i
+    assert idxs.shape == (4,)
+    assert idxs.strides == (12,)
+
+
+@wp.kernel
+def array_len_kernel(
+    a1: wp.array(dtype=int),
+    a2: wp.array(dtype=float, ndim=3),
+    out: wp.array(dtype=int),
+):
+    length = len(a1)
+    wp.expect_eq(len(a1), 123)
+    out[0] = len(a1)
+
+    length = len(a2)
+    wp.expect_eq(len(a2), 2)
+    out[1] = len(a2)
+
+
+def test_array_len(test, device):
+    a1 = wp.zeros(123, dtype=int, device=device)
+    a2 = wp.zeros((2, 3, 4), dtype=float, device=device)
+    out = wp.empty(2, dtype=int, device=device)
+    wp.launch(
+        array_len_kernel,
+        dim=(1,),
+        inputs=(
+            a1,
+            a2,
+        ),
+        outputs=(out,),
+        device=device,
+    )
+
+    test.assertEqual(out.numpy()[0], 123)
+    test.assertEqual(out.numpy()[1], 2)
+
+
+def test_cuda_interface_conversion(test, device):
+    class MyArrayInterface:
+        def __init__(self, data):
+            self.data = np.array(data)
+            self.__array_interface__ = self.data.__array_interface__
+            self.__cuda_array_interface__ = self.data.__array_interface__
+            self.__len__ = self.data.__len__
+
+    array = MyArrayInterface((1, 2, 3))
+    wp_array = wp.array(array, dtype=wp.int8, device=device)
+    assert wp_array.ptr != 0
+
+    array = MyArrayInterface((1, 2, 3))
+    wp_array = wp.array(array, dtype=wp.float32, device=device)
+    assert wp_array.ptr != 0
+
+    array = MyArrayInterface((1, 2, 3))
+    wp_array = wp.array(array, dtype=wp.vec3, device=device)
+    assert wp_array.ptr != 0
+
+    array = MyArrayInterface((1, 2, 3, 4))
+    wp_array = wp.array(array, dtype=wp.mat22, device=device)
+    assert wp_array.ptr != 0
+
+
 devices = get_test_devices()
 
 
@@ -2750,13 +2921,19 @@ add_function_test(TestArray, "test_array_from_numpy", test_array_from_numpy, dev
 add_function_test(TestArray, "test_array_aliasing_from_numpy", test_array_aliasing_from_numpy, devices=["cpu"])
 add_function_test(TestArray, "test_numpy_array_interface", test_numpy_array_interface, devices=["cpu"])
 
-add_function_test(TestArray, "test_array_inplace_ops", test_array_inplace_ops, devices=devices)
+add_function_test(TestArray, "test_array_inplace_diff_ops", test_array_inplace_diff_ops, devices=devices)
+add_function_test(TestArray, "test_array_inplace_non_diff_ops", test_array_inplace_non_diff_ops, devices=devices)
 add_function_test(TestArray, "test_direct_from_numpy", test_direct_from_numpy, devices=["cpu"])
 add_function_test(TestArray, "test_kernel_array_from_ptr", test_kernel_array_from_ptr, devices=devices)
 
 add_function_test(TestArray, "test_array_from_int32_domain", test_array_from_int32_domain, devices=devices)
 add_function_test(TestArray, "test_array_from_int64_domain", test_array_from_int64_domain, devices=devices)
 add_function_test(TestArray, "test_indexing_types", test_indexing_types, devices=devices)
+
+add_function_test(TestArray, "test_alloc_strides", test_alloc_strides, devices=devices)
+add_function_test(TestArray, "test_casting", test_casting, devices=devices)
+add_function_test(TestArray, "test_array_len", test_array_len, devices=devices)
+add_function_test(TestArray, "test_cuda_interface_conversion", test_cuda_interface_conversion, devices=devices)
 
 try:
     import torch

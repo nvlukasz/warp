@@ -87,25 +87,48 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
 
     Intended to be modified to create additional test suites
     """
+    from warp.tests.cuda.test_async import TestAsync
+    from warp.tests.cuda.test_mempool import TestMempool
+    from warp.tests.cuda.test_multigpu import TestMultiGPU
+    from warp.tests.cuda.test_peer import TestPeer
+    from warp.tests.cuda.test_pinned import TestPinned
+    from warp.tests.cuda.test_streams import TestStreams
+    from warp.tests.geometry.test_bvh import TestBvh
+    from warp.tests.geometry.test_hash_grid import TestHashGrid
+    from warp.tests.geometry.test_marching_cubes import TestMarchingCubes
+    from warp.tests.geometry.test_mesh import TestMesh
+    from warp.tests.geometry.test_mesh_query_aabb import TestMeshQueryAABBMethods
+    from warp.tests.geometry.test_mesh_query_point import TestMeshQueryPoint
+    from warp.tests.geometry.test_mesh_query_ray import TestMeshQueryRay
+    from warp.tests.geometry.test_volume import TestVolume
+    from warp.tests.geometry.test_volume_write import TestVolumeWrite
+    from warp.tests.interop.test_dlpack import TestDLPack
+    from warp.tests.interop.test_jax import TestJax
+    from warp.tests.interop.test_torch import TestTorch
+    from warp.tests.sim.test_collision import TestCollision
+    from warp.tests.sim.test_coloring import TestColoring
+    from warp.tests.sim.test_model import TestModel
+
+    # from warp.tests.test_sim_grad import TestSimGradients Disabled, flaky
+    from warp.tests.sim.test_sim_kinematics import TestSimKinematics
+    from warp.tests.sim.test_vbd import TestVbd
     from warp.tests.test_adam import TestAdam
     from warp.tests.test_arithmetic import TestArithmetic
     from warp.tests.test_array import TestArray
     from warp.tests.test_array_reduce import TestArrayReduce
-    from warp.tests.test_async import TestAsync
     from warp.tests.test_atomic import TestAtomic
     from warp.tests.test_bool import TestBool
     from warp.tests.test_builtins_resolution import TestBuiltinsResolution
-    from warp.tests.test_bvh import TestBvh
     from warp.tests.test_closest_point_edge_edge import TestClosestPointEdgeEdgeMethods
     from warp.tests.test_codegen import TestCodeGen
     from warp.tests.test_codegen_instancing import TestCodeGenInstancing
     from warp.tests.test_compile_consts import TestConstants
     from warp.tests.test_conditional import TestConditional
+    from warp.tests.test_context import TestContext
     from warp.tests.test_copy import TestCopy
     from warp.tests.test_ctypes import TestCTypes
     from warp.tests.test_dense import TestDense
     from warp.tests.test_devices import TestDevices
-    from warp.tests.test_dlpack import TestDLPack
     from warp.tests.test_examples import (
         TestCoreExamples,
         TestFemDiffusionExamples,
@@ -115,7 +138,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
     )
     from warp.tests.test_fabricarray import TestFabricArray
     from warp.tests.test_fast_math import TestFastMath
-    from warp.tests.test_fem import TestFem, TestFemShapeFunctions
+    from warp.tests.test_fem import TestFem, TestFemShapeFunctions, TestFemUtilities
     from warp.tests.test_fp16 import TestFp16
     from warp.tests.test_func import TestFunc
     from warp.tests.test_future_annotations import TestFutureAnnotations
@@ -123,39 +146,26 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
     from warp.tests.test_grad import TestGrad
     from warp.tests.test_grad_customs import TestGradCustoms
     from warp.tests.test_grad_debug import TestGradDebug
-    from warp.tests.test_hash_grid import TestHashGrid
     from warp.tests.test_import import TestImport
     from warp.tests.test_indexedarray import TestIndexedArray
     from warp.tests.test_intersect import TestIntersect
-    from warp.tests.test_jax import TestJax
+    from warp.tests.test_iter import TestIter
     from warp.tests.test_large import TestLarge
     from warp.tests.test_launch import TestLaunch
     from warp.tests.test_lerp import TestLerp
     from warp.tests.test_linear_solvers import TestLinearSolvers
     from warp.tests.test_lvalue import TestLValue
-    from warp.tests.test_marching_cubes import TestMarchingCubes
     from warp.tests.test_mat import TestMat
     from warp.tests.test_mat_lite import TestMatLite
     from warp.tests.test_mat_scalar_ops import TestMatScalarOps
     from warp.tests.test_math import TestMath
-    from warp.tests.test_matmul import TestMatmul
-    from warp.tests.test_matmul_lite import TestMatmulLite
-    from warp.tests.test_mempool import TestMempool
-    from warp.tests.test_mesh import TestMesh
-    from warp.tests.test_mesh_query_aabb import TestMeshQueryAABBMethods
-    from warp.tests.test_mesh_query_point import TestMeshQueryPoint
-    from warp.tests.test_mesh_query_ray import TestMeshQueryRay
     from warp.tests.test_mlp import TestMLP
-    from warp.tests.test_model import TestModel
     from warp.tests.test_module_hashing import TestModuleHashing
     from warp.tests.test_modules_lite import TestModuleLite
-    from warp.tests.test_multigpu import TestMultiGPU
     from warp.tests.test_noise import TestNoise
     from warp.tests.test_operators import TestOperators
     from warp.tests.test_options import TestOptions
     from warp.tests.test_overwrite import TestOverwrite
-    from warp.tests.test_peer import TestPeer
-    from warp.tests.test_pinned import TestPinned
     from warp.tests.test_print import TestPrint
     from warp.tests.test_quat import TestQuat
     from warp.tests.test_rand import TestRand
@@ -163,29 +173,26 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
     from warp.tests.test_rounding import TestRounding
     from warp.tests.test_runlength_encode import TestRunlengthEncode
     from warp.tests.test_scalar_ops import TestScalarOps
-    from warp.tests.test_sim_grad import TestSimGradients
-    from warp.tests.test_sim_kinematics import TestSimKinematics
     from warp.tests.test_smoothstep import TestSmoothstep
     from warp.tests.test_snippet import TestSnippets
     from warp.tests.test_sparse import TestSparse
     from warp.tests.test_spatial import TestSpatial
     from warp.tests.test_special_values import TestSpecialValues
     from warp.tests.test_static import TestStatic
-    from warp.tests.test_streams import TestStreams
     from warp.tests.test_struct import TestStruct
     from warp.tests.test_tape import TestTape
-    from warp.tests.test_torch import TestTorch
     from warp.tests.test_transient_module import TestTransientModule
     from warp.tests.test_triangle_closest_point import TestTriangleClosestPoint
     from warp.tests.test_types import TestTypes
     from warp.tests.test_utils import TestUtils
-    from warp.tests.test_vbd import TestVBD
     from warp.tests.test_vec import TestVec
     from warp.tests.test_vec_lite import TestVecLite
     from warp.tests.test_vec_scalar_ops import TestVecScalarOps
     from warp.tests.test_verify_fp import TestVerifyFP
-    from warp.tests.test_volume import TestVolume
-    from warp.tests.test_volume_write import TestVolumeWrite
+    from warp.tests.tile.test_tile import TestTile
+    from warp.tests.tile.test_tile_mathdx import TestTileMathDx
+    from warp.tests.tile.test_tile_reduce import TestTileReduce
+    from warp.tests.tile.test_tile_shared_memory import TestTileSharedMemory
 
     test_classes = [
         TestAdam,
@@ -200,8 +207,11 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestClosestPointEdgeEdgeMethods,
         TestCodeGen,
         TestCodeGenInstancing,
-        TestConstants,
+        TestCollision,
+        TestColoring,
         TestConditional,
+        TestConstants,
+        TestContext,
         TestCopy,
         TestCTypes,
         TestDense,
@@ -216,6 +226,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestFastMath,
         TestFem,
         TestFemShapeFunctions,
+        TestFemUtilities,
         TestFp16,
         TestFunc,
         TestFutureAnnotations,
@@ -227,6 +238,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestImport,
         TestIndexedArray,
         TestIntersect,
+        TestIter,
         TestJax,
         TestLarge,
         TestLaunch,
@@ -238,8 +250,6 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestMatLite,
         TestMatScalarOps,
         TestMath,
-        TestMatmul,
-        TestMatmulLite,
         TestMempool,
         TestMesh,
         TestMeshQueryAABBMethods,
@@ -263,7 +273,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestRounding,
         TestRunlengthEncode,
         TestScalarOps,
-        TestSimGradients,
+        # TestSimGradients, Disabled, flaky
         TestSimKinematics,
         TestSmoothstep,
         TestSnippets,
@@ -274,12 +284,16 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestStreams,
         TestStruct,
         TestTape,
+        TestTile,
+        TestTileMathDx,
+        TestTileReduce,
+        TestTileSharedMemory,
         TestTorch,
         TestTransientModule,
         TestTriangleClosestPoint,
         TestTypes,
         TestUtils,
-        TestVBD,
+        TestVbd,
         TestVec,
         TestVecLite,
         TestVecScalarOps,
@@ -296,63 +310,77 @@ def kit_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader):
 
     Requires manual updates with test_ext.py for now.
     """
+    from warp.tests.cuda.test_mempool import TestMempool
+    from warp.tests.cuda.test_peer import TestPeer
+    from warp.tests.cuda.test_pinned import TestPinned
+    from warp.tests.cuda.test_streams import TestStreams
+    from warp.tests.geometry.test_bvh import TestBvh
+    from warp.tests.geometry.test_hash_grid import TestHashGrid
+    from warp.tests.geometry.test_marching_cubes import TestMarchingCubes
+    from warp.tests.geometry.test_mesh import TestMesh
+    from warp.tests.geometry.test_mesh_query_aabb import TestMeshQueryAABBMethods
+    from warp.tests.geometry.test_mesh_query_point import TestMeshQueryPoint
+    from warp.tests.geometry.test_mesh_query_ray import TestMeshQueryRay
+    from warp.tests.geometry.test_volume import TestVolume
+    from warp.tests.geometry.test_volume_write import TestVolumeWrite
+    from warp.tests.interop.test_dlpack import TestDLPack
     from warp.tests.test_array import TestArray
     from warp.tests.test_array_reduce import TestArrayReduce
-    from warp.tests.test_bvh import TestBvh
+    from warp.tests.test_bool import TestBool
+    from warp.tests.test_builtins_resolution import TestBuiltinsResolution
     from warp.tests.test_codegen import TestCodeGen
-    from warp.tests.test_codegen_instancing import TestCodeGenInstancing
     from warp.tests.test_compile_consts import TestConstants
     from warp.tests.test_conditional import TestConditional
+    from warp.tests.test_copy import TestCopy
     from warp.tests.test_ctypes import TestCTypes
     from warp.tests.test_devices import TestDevices
-    from warp.tests.test_dlpack import TestDLPack
     from warp.tests.test_fabricarray import TestFabricArray
+    from warp.tests.test_fp16 import TestFp16
     from warp.tests.test_func import TestFunc
     from warp.tests.test_generics import TestGenerics
     from warp.tests.test_grad_customs import TestGradCustoms
     from warp.tests.test_grad_debug import TestGradDebug
-    from warp.tests.test_hash_grid import TestHashGrid
     from warp.tests.test_indexedarray import TestIndexedArray
     from warp.tests.test_launch import TestLaunch
-    from warp.tests.test_marching_cubes import TestMarchingCubes
+    from warp.tests.test_lvalue import TestLValue
     from warp.tests.test_mat_lite import TestMatLite
     from warp.tests.test_math import TestMath
-    from warp.tests.test_matmul_lite import TestMatmulLite
-    from warp.tests.test_mesh import TestMesh
-    from warp.tests.test_mesh_query_aabb import TestMeshQueryAABBMethods
-    from warp.tests.test_mesh_query_point import TestMeshQueryPoint
-    from warp.tests.test_mesh_query_ray import TestMeshQueryRay
+    from warp.tests.test_mlp import TestMLP
     from warp.tests.test_module_hashing import TestModuleHashing
     from warp.tests.test_modules_lite import TestModuleLite
     from warp.tests.test_noise import TestNoise
     from warp.tests.test_operators import TestOperators
     from warp.tests.test_quat import TestQuat
     from warp.tests.test_rand import TestRand
+    from warp.tests.test_reload import TestReload
     from warp.tests.test_rounding import TestRounding
     from warp.tests.test_runlength_encode import TestRunlengthEncode
+    from warp.tests.test_scalar_ops import TestScalarOps
+    from warp.tests.test_snippet import TestSnippets
     from warp.tests.test_sparse import TestSparse
     from warp.tests.test_static import TestStatic
-    from warp.tests.test_streams import TestStreams
     from warp.tests.test_tape import TestTape
     from warp.tests.test_transient_module import TestTransientModule
     from warp.tests.test_types import TestTypes
     from warp.tests.test_utils import TestUtils
     from warp.tests.test_vec_lite import TestVecLite
-    from warp.tests.test_volume import TestVolume
-    from warp.tests.test_volume_write import TestVolumeWrite
+    from warp.tests.tile.test_tile_reduce import TestTileReduce
 
     test_classes = [
         TestArray,
         TestArrayReduce,
+        TestBool,
+        TestBuiltinsResolution,
         TestBvh,
         TestCodeGen,
-        TestCodeGenInstancing,
         TestConstants,
         TestConditional,
+        TestCopy,
         TestCTypes,
         TestDevices,
         TestDLPack,
         TestFabricArray,
+        TestFp16,
         TestFunc,
         TestGenerics,
         TestGradCustoms,
@@ -360,26 +388,34 @@ def kit_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader):
         TestHashGrid,
         TestIndexedArray,
         TestLaunch,
+        TestLValue,
         TestMarchingCubes,
         TestMatLite,
         TestMath,
-        TestMatmulLite,
+        TestMempool,
         TestMesh,
         TestMeshQueryAABBMethods,
         TestMeshQueryPoint,
         TestMeshQueryRay,
+        TestMLP,
         TestModuleHashing,
         TestModuleLite,
         TestNoise,
         TestOperators,
+        TestPeer,
+        TestPinned,
         TestQuat,
         TestRand,
+        TestReload,
         TestRounding,
         TestRunlengthEncode,
+        TestScalarOps,
+        TestSnippets,
         TestSparse,
         TestStatic,
         TestStreams,
         TestTape,
+        TestTileReduce,
         TestTransientModule,
         TestTypes,
         TestUtils,

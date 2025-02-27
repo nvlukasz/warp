@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Any, Optional, Set, Union
 
 import warp as wp
 import warp.codegen
@@ -11,6 +11,7 @@ from warp.fem.geometry import (
     GeometryPartition,
     WholeGeometryPartition,
 )
+from warp.fem.operator import Operator
 from warp.fem.types import ElementKind
 
 GeometryOrPartition = Union[Geometry, GeometryPartition]
@@ -94,6 +95,10 @@ class GeometryDomain:
     element_lookup: wp.Function
     """Device function returning the sample point corresponding to a world position"""
 
+    def notify_operator_usage(self, ops: Set[Operator]):
+        """Makes the Domain aware that the operators `ops` will be applied"""
+        pass
+
 
 class Cells(GeometryDomain):
     """A Domain containing all cells of the geometry or geometry partition"""
@@ -160,6 +165,17 @@ class Cells(GeometryDomain):
     def element_lookup(self) -> wp.Function:
         return self.geometry.cell_lookup
 
+    @property
+    def domain_cell_arg(self) -> wp.Function:
+        return Cells._identity_fn
+
+    def cell_domain(self):
+        return self
+
+    @wp.func
+    def _identity_fn(x: Any):
+        return x
+
 
 class Sides(GeometryDomain):
     """A Domain containing all (interior and boundary) sides of the geometry or geometry partition"""
@@ -224,6 +240,33 @@ class Sides(GeometryDomain):
     @property
     def element_normal(self) -> wp.Function:
         return self.geometry.side_normal
+
+    @property
+    def element_inner_cell_index(self) -> wp.Function:
+        return self.geometry.side_inner_cell_index
+
+    @property
+    def element_outer_cell_index(self) -> wp.Function:
+        return self.geometry.side_outer_cell_index
+
+    @property
+    def element_inner_cell_coords(self) -> wp.Function:
+        return self.geometry.side_inner_cell_coords
+
+    @property
+    def element_outer_cell_coords(self) -> wp.Function:
+        return self.geometry.side_outer_cell_coords
+
+    @property
+    def cell_to_element_coords(self) -> wp.Function:
+        return self.geometry.side_from_cell_coords
+
+    @property
+    def domain_cell_arg(self) -> wp.Function:
+        return self.geometry.side_to_cell_arg
+
+    def cell_domain(self):
+        return Cells(self.geometry_partition)
 
 
 class BoundarySides(Sides):

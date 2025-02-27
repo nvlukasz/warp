@@ -48,6 +48,8 @@ from warp.types import matrix as mat
 
 from warp.types import dtype_from_numpy, dtype_to_numpy
 
+from warp.types import from_ipc_handle
+
 from warp.context import init, func, func_grad, func_replay, func_native, kernel, struct, overload
 from warp.context import is_cpu_available, is_cuda_available, is_device_available
 from warp.context import get_devices, get_preferred_device
@@ -66,9 +68,11 @@ from warp.context import (
     copy,
     from_numpy,
     launch,
+    launch_tiled,
     synchronize,
     force_load,
     load_module,
+    event_from_ipc_handle,
 )
 from warp.context import set_module_options, get_module_options, get_module
 from warp.context import capture_begin, capture_end, capture_launch
@@ -77,7 +81,12 @@ from warp.context import Stream, get_stream, set_stream, wait_stream, synchroniz
 from warp.context import Event, record_event, wait_event, synchronize_event, get_event_elapsed_time
 from warp.context import RegisteredGLBuffer
 from warp.context import is_mempool_supported, is_mempool_enabled, set_mempool_enabled
-from warp.context import set_mempool_release_threshold, get_mempool_release_threshold
+from warp.context import (
+    set_mempool_release_threshold,
+    get_mempool_release_threshold,
+    get_mempool_used_mem_current,
+    get_mempool_used_mem_high,
+)
 from warp.context import is_mempool_access_supported, is_mempool_access_enabled, set_mempool_access_enabled
 from warp.context import is_peer_access_supported, is_peer_access_enabled, set_peer_access_enabled
 
@@ -118,6 +127,8 @@ from warp.constants import *
 
 from . import builtins
 from warp.builtins import static
+
+from warp.math import *
 
 import warp.config as config
 
@@ -628,6 +639,18 @@ def matrix(*args: Scalar, shape: Tuple[int, int], dtype: Scalar) -> Matrix[Any, 
 
 
 @over
+def matrix_from_cols(*args: Vector[Any, Scalar]) -> Matrix[Any, Any, Scalar]:
+    """Construct a matrix from column vectors."""
+    ...
+
+
+@over
+def matrix_from_rows(*args: Vector[Any, Scalar]) -> Matrix[Any, Any, Scalar]:
+    """Construct a matrix from row vectors."""
+    ...
+
+
+@over
 def identity(n: int32, dtype: Scalar) -> Matrix[Any, Any, Scalar]:
     """Create an identity matrix with shape=(n,n) with the type given by ``dtype``."""
     ...
@@ -636,6 +659,14 @@ def identity(n: int32, dtype: Scalar) -> Matrix[Any, Any, Scalar]:
 @over
 def svd3(A: Matrix[3, 3, Float], U: Matrix[3, 3, Float], sigma: Vector[3, Float], V: Matrix[3, 3, Scalar]):
     """Compute the SVD of a 3x3 matrix ``A``. The singular values are returned in ``sigma``,
+    while the left and right basis vectors are returned in ``U`` and ``V``.
+    """
+    ...
+
+
+@over
+def svd2(A: Matrix[2, 2, Float], U: Matrix[2, 2, Float], sigma: Vector[2, Float], V: Matrix[2, 2, Scalar]):
+    """Compute the SVD of a 2x2 matrix ``A``. The singular values are returned in ``sigma``,
     while the left and right basis vectors are returned in ``U`` and ``V``.
     """
     ...
@@ -704,6 +735,12 @@ def quat_to_axis_angle(quat: Quaternion[Float], axis: Vector[3, Float], angle: F
 @over
 def quat_from_matrix(mat: Matrix[3, 3, Float]) -> Quaternion[Float]:
     """Construct a quaternion from a 3x3 matrix."""
+    ...
+
+
+@over
+def quat_from_matrix(mat: Matrix[4, 4, Float]) -> Quaternion[Float]:
+    """Construct a quaternion from a 4x4 matrix."""
     ...
 
 
@@ -894,6 +931,425 @@ def spatial_mass(
 
 
 @over
+def tile_zeros(shape: Tuple[int, ...], dtype: Any, storage: str) -> Tile:
+    """Allocate a tile of zero-initialized items.
+
+    :param shape: Shape of the output tile
+    :param dtype: Data type of output tile's elements (default float)
+    :param storage: The storage location for the tile: ``"register"`` for registers
+      (default) or ``"shared"`` for shared memory.
+    :returns: A zero-initialized tile with shape and data type as specified
+    """
+    ...
+
+
+@over
+def tile_ones(shape: Tuple[int, ...], dtype: Any, storage: str) -> Tile:
+    """Allocate a tile of one-initialized items.
+
+    :param shape: Shape of the output tile
+    :param dtype: Data type of output tile's elements
+    :param storage: The storage location for the tile: ``"register"`` for registers
+      (default) or ``"shared"`` for shared memory.
+    :returns: A one-initialized tile with shape and data type as specified
+    """
+    ...
+
+
+@over
+def tile_arange(*args: Scalar, dtype: Any, storage: str) -> Tile:
+    """Generate a tile of linearly spaced elements.
+
+    :param args: Variable-length positional arguments, interpreted as:
+
+        - ``(stop,)``: Generates values from ``0`` to ``stop - 1``
+        - ``(start, stop)``: Generates values from ``start`` to ``stop - 1``
+        - ``(start, stop, step)``: Generates values from ``start`` to ``stop - 1`` with a step size
+
+    :param dtype: Data type of output tile's elements (optional, default: ``float``)
+    :param storage: The storage location for the tile: ``"register"`` for registers
+      (default) or ``"shared"`` for shared memory.
+    :returns: A tile with ``shape=(n)`` with linearly spaced elements of specified data type
+    """
+    ...
+
+
+@over
+def tile_load(a: Array[Any], shape: Tuple[int, ...], offset: Tuple[int, ...], storage: str):
+    """Loads a tile from a global memory array.
+
+    This method will cooperatively load a tile from global memory using all threads in the block.
+
+    :param a: The source array in global memory
+    :param shape: Shape of the tile to load, must have the same number of dimensions as ``a``
+    :param offset: Offset in the source array to begin reading from (optional)
+    :param storage: The storage location for the tile: ``"register"`` for registers
+      (default) or ``"shared"`` for shared memory.
+    :returns: A tile with shape as specified and data type the same as the source array
+    """
+    ...
+
+
+@over
+def tile_store(a: Array[Any], t: Tile, offset: Tuple[int, ...]):
+    """Store a tile to a global memory array.
+
+    This method will cooperatively store a tile to global memory using all threads in the block.
+
+    :param a: The destination array in global memory
+    :param t: The source tile to store data from, must have the same data type and number of dimensions as the destination array
+    :param offset: Offset in the destination array (optional)
+    """
+    ...
+
+
+@over
+def tile_atomic_add(a: Array[Any], t: Tile, offset: Tuple[int, ...]) -> Tile:
+    """Atomically add a 1D tile to the array `a`, each element will be updated atomically.
+
+    :param a: Array in global memory, should have the same ``dtype`` as the input tile
+    :param t: Source tile to add to the destination array
+    :param offset: Offset in the destination array (optional)
+    :returns: A tile with the same dimensions and data type as the source tile, holding the original value of the destination elements
+    """
+    ...
+
+
+@over
+def tile_view(t: Tile, offset: Tuple[int, ...], shape: Tuple[int, ...]) -> Tile:
+    """Return a slice of a given tile [offset, offset+shape], if shape is not specified it will be inferred from the unspecified offset dimensions.
+
+    :param t: Input tile to extract a subrange from
+    :param offset: Offset in the source tile
+    :param shape: Shape of the returned slice
+    :returns: A tile with dimensions given by the specified shape or the remaining source tile dimensions
+    """
+    ...
+
+
+@over
+def tile_assign(dst: Tile, src: Tile, offset: Tuple[int, ...]):
+    """Assign a tile to a subrange of a destination tile.
+
+    :param dst: The destination tile to assign to
+    :param src: The source tile to read values from
+    :param offset: Offset in the destination tile to write to
+    """
+    ...
+
+
+@over
+def tile(x: Any) -> Tile:
+    """Construct a new tile from per-thread kernel values.
+
+    This function converts values computed using scalar kernel code to a tile representation for input into collective operations.
+
+    * If the input value is a scalar, then the resulting tile has ``shape=(1, block_dim)``
+    * If the input value is a vector, then the resulting tile has ``shape=(length(vector), block_dim)``
+
+    :param x: A per-thread local value, e.g. scalar, vector, or matrix.
+    :returns: A tile with first dimension according to the value type length and a second dimension equal to ``block_dim``
+
+    This example shows how to create a linear sequence from thread variables:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def compute():
+            i = wp.tid()
+            t = wp.tile(i * 2)
+            print(t)
+
+
+        wp.launch(compute, dim=16, inputs=[], block_dim=16)
+
+    Prints:
+
+    .. code-block:: text
+
+        [0 2 4 6 8 10 12 14 16 18 20 22 24 26 28 30] = tile(shape=(16), storage=register)
+
+
+    """
+    ...
+
+
+@over
+def untile(a: Tile) -> Scalar:
+    """Convert a tile back to per-thread values.
+
+    This function converts a block-wide tile back to per-thread values.
+
+    * If the input tile is 1D, then the resulting value will be a per-thread scalar
+    * If the input tile is 2D, then the resulting value will be a per-thread vector of length M
+
+    :param a: A tile with dimensions ``shape=(M, block_dim)``
+    :returns: A single value per-thread with the same data type as the tile
+
+    This example shows how to create a linear sequence from thread variables:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def compute():
+            i = wp.tid()
+
+            # create block-wide tile
+            t = wp.tile(i) * 2
+
+            # convert back to per-thread values
+            s = wp.untile(t)
+
+            print(s)
+
+
+        wp.launch(compute, dim=16, inputs=[], block_dim=16)
+
+    Prints:
+
+    .. code-block:: text
+
+        0
+        2
+        4
+        6
+        8
+        ...
+
+    """
+    ...
+
+
+@over
+def tile_transpose(a: Tile) -> Tile:
+    """Transpose a tile.
+
+    For shared memory tiles, this operation will alias the input tile.
+    Register tiles will first be transferred to shared memory before transposition.
+
+    :param a: Tile to transpose with ``shape=(M,N)``
+    :returns: Tile with ``shape=(N,M)``
+    """
+    ...
+
+
+@over
+def tile_broadcast(a: Tile, shape: Tuple[int, ...]) -> Tile:
+    """Broadcast a tile.
+
+    This function will attempt to broadcast the input tile ``a`` to the destination shape (m, n).
+
+    Broadcasting follows NumPy broadcast rules.
+
+    :param a: Tile to broadcast
+    :param shape: The shape to broadcast to
+    :returns: Tile with broadcast ``shape=(m, n)``
+    """
+    ...
+
+
+@over
+def tile_sum(a: Tile) -> Tile:
+    """Cooperatively compute the sum of the tile elements using all threads in the block.
+
+    :param a: The tile to compute the sum of
+    :returns: A single-element tile holding the sum
+
+    Example:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def compute():
+            t = wp.tile_ones(dtype=float, shape=(16, 16))
+            s = wp.tile_sum(t)
+
+            print(s)
+
+
+        wp.launch_tiled(compute, dim=[1], inputs=[], block_dim=64)
+
+    Prints:
+
+    .. code-block:: text
+
+        [256] = tile(shape=(1), storage=register)
+
+
+    """
+    ...
+
+
+@over
+def tile_min(a: Tile) -> Tile:
+    """Cooperatively compute the minimum of the tile elements using all threads in the block.
+
+    :param a: The tile to compute the minimum of
+    :returns: A single-element tile holding the minimum value
+
+    Example:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def compute():
+            t = wp.tile_arange(64, 128)
+            s = wp.tile_min(t)
+
+            print(s)
+
+
+        wp.launch_tiled(compute, dim=[1], inputs=[], block_dim=64)
+
+    Prints:
+
+    .. code-block:: text
+
+        [64] = tile(shape=(1), storage=register)
+
+
+    """
+    ...
+
+
+@over
+def tile_max(a: Tile) -> Tile:
+    """Cooperatively compute the maximum of the tile elements using all threads in the block.
+
+    :param a: The tile to compute the maximum from
+    :returns: A single-element tile holding the maximum value
+
+    Example:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def compute():
+            t = wp.tile_arange(64, 128)
+            s = wp.tile_max(t)
+
+            print(s)
+
+
+        wp.launch_tiled(compute, dim=[1], inputs=[], block_dim=64)
+
+    Prints:
+
+    .. code-block:: text
+
+        [127] = tile(shape=(1), storage=register)
+
+
+    """
+    ...
+
+
+@over
+def tile_reduce(op: Callable, a: Tile) -> Tile:
+    """Apply a custom reduction operator across the tile.
+
+    This function cooperatively performs a reduction using the provided operator across the tile.
+
+    :param op: A callable function that accepts two arguments and returns one argument, may be a user function or builtin
+    :param a: The input tile, the operator (or one of its overloads) must be able to accept the tile's data type
+    :returns: A single-element tile with the same data type as the input tile.
+
+    Example:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def factorial():
+            t = wp.tile_arange(1, 10, dtype=int)
+            s = wp.tile_reduce(wp.mul, t)
+
+            print(s)
+
+
+        wp.launch_tiled(factorial, dim=[1], inputs=[], block_dim=16)
+
+    Prints:
+
+    .. code-block:: text
+
+        [362880] = tile(shape=(1), storage=register)
+
+    """
+    ...
+
+
+@over
+def tile_map(op: Callable, a: Tile) -> Tile:
+    """Apply a unary function onto the tile.
+
+    This function cooperatively applies a unary function to each element of the tile using all threads in the block.
+
+    :param op: A callable function that accepts one argument and returns one argument, may be a user function or builtin
+    :param a: The input tile, the operator (or one of its overloads) must be able to accept the tile's data type
+    :returns: A tile with the same dimensions and data type as the input tile.
+
+    Example:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def compute():
+            t = wp.tile_arange(0.0, 1.0, 0.1, dtype=float)
+            s = wp.tile_map(wp.sin, t)
+
+            print(s)
+
+
+        wp.launch_tiled(compute, dim=[1], inputs=[], block_dim=16)
+
+    Prints:
+
+    .. code-block:: text
+
+        [0 0.0998334 0.198669 0.29552 0.389418 0.479426 0.564642 0.644218 0.717356 0.783327] = tile(shape=(10), storage=register)
+
+    """
+    ...
+
+
+@over
+def tile_map(op: Callable, a: Tile, b: Tile) -> Tile:
+    """Apply a binary function onto the tile.
+
+    This function cooperatively applies a binary function to each element of the tiles using all threads in the block.
+    Both input tiles must have the same dimensions and datatype.
+
+    :param op: A callable function that accepts two arguments and returns one argument, all of the same type, may be a user function or builtin
+    :param a: The first input tile, the operator (or one of its overloads) must be able to accept the tile's dtype
+    :param b: The second input tile, the operator (or one of its overloads) must be able to accept the tile's dtype
+    :returns: A tile with the same dimensions and datatype as the input tiles.
+
+    Example:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def compute():
+            a = wp.tile_arange(0.0, 1.0, 0.1, dtype=float)
+            b = wp.tile_ones(shape=10, dtype=float)
+
+            s = wp.tile_map(wp.add, a, b)
+
+            print(s)
+
+
+        wp.launch_tiled(compute, dim=[1], inputs=[], block_dim=16)
+
+    Prints:
+
+    .. code-block:: text
+
+        [1 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9] = tile(shape=(10), storage=register)
+    """
+    ...
+
+
+@over
 def mlp(
     weights: Array[float32],
     bias: Array[float32],
@@ -903,6 +1359,9 @@ def mlp(
     out: Array[float32],
 ):
     """Evaluate a multi-layer perceptron (MLP) layer in the form: ``out = act(weights*x + bias)``.
+
+    .. deprecated:: 1.6
+        Use :doc:`tile primitives </modules/tiles>` instead.
 
     :param weights: A layer's network weights with dimensions ``(m, n)``.
     :param bias: An array with dimensions ``(n)``.
@@ -1357,13 +1816,25 @@ def rand_init(seed: int32, offset: int32) -> uint32:
 
 @over
 def randi(state: uint32) -> int:
-    """Return a random integer in the range [0, 2^32)."""
+    """Return a random integer in the range [-2^31, 2^31)."""
     ...
 
 
 @over
 def randi(state: uint32, low: int32, high: int32) -> int:
     """Return a random integer between [low, high)."""
+    ...
+
+
+@over
+def randu(state: uint32) -> uint32:
+    """Return a random unsigned integer in the range [0, 2^32)."""
+    ...
+
+
+@over
+def randu(state: uint32, low: uint32, high: uint32) -> uint32:
+    """Return a random unsigned integer between [low, high)."""
     ...
 
 
@@ -1381,7 +1852,7 @@ def randf(state: uint32, low: float32, high: float32) -> float:
 
 @over
 def randn(state: uint32) -> float:
-    """Sample a normal distribution."""
+    """Sample a normal (Gaussian) distribution of mean 0 and variance 1."""
     ...
 
 
@@ -2049,7 +2520,19 @@ def expect_near(a: Float, b: Float, tolerance: Float):
 
 
 @over
-def expect_near(a: vec3f, b: vec3f, tolerance: float32):
+def expect_near(a: Vector[Any, Float], b: Vector[Any, Float], tolerance: Float):
+    """Prints an error to stdout if any element of ``a`` and ``b`` are not closer than tolerance in magnitude"""
+    ...
+
+
+@over
+def expect_near(a: Quaternion[Float], b: Quaternion[Float], tolerance: Float):
+    """Prints an error to stdout if any element of ``a`` and ``b`` are not closer than tolerance in magnitude"""
+    ...
+
+
+@over
+def expect_near(a: Matrix[Any, Any, Float], b: Matrix[Any, Any, Float], tolerance: Float):
     """Prints an error to stdout if any element of ``a`` and ``b`` are not closer than tolerance in magnitude"""
     ...
 
@@ -2097,6 +2580,12 @@ def add(a: Transformation[Scalar], b: Transformation[Scalar]) -> Transformation[
 
 
 @over
+def add(a: Tile, b: Tile) -> Tile:
+    """Add each element of two tiles together"""
+    ...
+
+
+@over
 def sub(a: Scalar, b: Scalar) -> Scalar:
     """ """
     ...
@@ -2123,6 +2612,12 @@ def sub(a: Quaternion[Scalar], b: Quaternion[Scalar]) -> Quaternion[Scalar]:
 @over
 def sub(a: Transformation[Scalar], b: Transformation[Scalar]) -> Transformation[Scalar]:
     """ """
+    ...
+
+
+@over
+def sub(a: Tile, b: Tile) -> Tile:
+    """Subtract each element b from a"""
     ...
 
 
@@ -2247,6 +2742,18 @@ def mul(a: Transformation[Scalar], b: Scalar) -> Transformation[Scalar]:
 
 
 @over
+def mul(x: Tile, y: Scalar) -> Tile:
+    """Multiply each element of a tile by a scalar"""
+    ...
+
+
+@over
+def mul(x: Scalar, y: Tile) -> Tile:
+    """Multiply each element of a tile by a scalar"""
+    ...
+
+
+@over
 def mod(a: Scalar, b: Scalar) -> Scalar:
     """Modulo operation using truncated division."""
     ...
@@ -2355,6 +2862,12 @@ def neg(x: Matrix[Any, Any, Scalar]) -> Matrix[Any, Any, Scalar]:
 
 
 @over
+def neg(x: Tile) -> Tile:
+    """Negate each element of a tile"""
+    ...
+
+
+@over
 def unot(a: bool) -> bool:
     """ """
     ...
@@ -2415,8 +2928,118 @@ def unot(a: Array[Any]) -> bool:
 
 
 @over
+def tile_diag_add(a: Tile, d: Tile) -> Tile:
+    """Add a square matrix and a diagonal matrix 'd' represented as a 1D tile"""
+    ...
+
+
+@over
+def tile_matmul(a: Tile, b: Tile, out: Tile) -> Tile:
+    """Computes the matrix product and accumulates ``out += a*b``.
+
+    Supported datatypes are:
+        * fp16, fp32, fp64 (real)
+        * vec2h, vec2f, vec2d (complex)
+
+    All input and output tiles must have the same datatype. Tile data will be automatically be migrated
+    to shared memory if necessary and will use TensorCore operations when available.
+
+    :param a: A tile with ``shape=(M, K)``
+    :param b: A tile with ``shape=(K, N)``
+    :param out: A tile with ``shape=(M, N)``
+
+    """
+    ...
+
+
+@over
+def tile_matmul(a: Tile, b: Tile) -> Tile:
+    """Computes the matrix product ``out = a*b``.
+
+    Supported datatypes are:
+        * fp16, fp32, fp64 (real)
+        * vec2h, vec2f, vec2d (complex)
+
+    Both input tiles must have the same datatype. Tile data will be automatically be migrated
+    to shared memory if necessary and will use TensorCore operations when available.
+
+    :param a: A tile with ``shape=(M, K)``
+    :param b: A tile with ``shape=(K, N)``
+    :returns: A tile with ``shape=(M, N)``
+
+    """
+    ...
+
+
+@over
+def tile_fft(inout: Tile) -> Tile:
+    """Compute the forward FFT along the second dimension of a 2D tile of data.
+
+    This function cooperatively computes the forward FFT on a tile of data inplace, treating each row individually.
+
+    Note that computing the adjoint is not yet supported.
+
+    Supported datatypes are:
+        * vec2f, vec2d
+
+    :param inout: The input/output tile
+    """
+    ...
+
+
+@over
+def tile_ifft(inout: Tile) -> Tile:
+    """Compute the inverse FFT along the second dimension of a 2D tile of data.
+
+    This function cooperatively computes the inverse FFT on a tile of data inplace, treating each row individually.
+
+    Note that computing the adjoint is not yet supported.
+
+    Supported datatypes are:
+        * vec2f, vec2d
+
+    :param inout: The input/output tile
+    """
+    ...
+
+
+@over
+def tile_cholesky(A: Tile) -> Tile:
+    """Compute the Cholesky factorization L of a matrix A.
+    L is lower triangular and satisfies LL^T = A.
+
+    Note that computing the adjoint is not yet supported.
+
+    Supported datatypes are:
+        * float32
+        * float64
+
+    :param A: A square, symmetric positive-definite, matrix.
+    :returns L: A square, lower triangular, matrix, such that LL^T = A
+    """
+    ...
+
+
+@over
+def tile_cholesky_solve(L: Tile, x: Tile):
+    """With L such that LL^T = A, solve for x in Ax = y
+
+    Note that computing the adjoint is not yet supported.
+
+    Supported datatypes are:
+        * float32
+        * float64
+
+    :param L: A square, lower triangular, matrix, such that LL^T = A
+    :param x: An 1D tile of length M
+    :returns y: An 1D tile of length M such that LL^T y = x
+    """
+    ...
+
+
+@over
 def static(expr: Any) -> Any:
-    """Evaluates a static Python expression and replaces it with its result.
+    """Evaluate a static Python expression and replaces it with its result.
 
     See the :ref:`code generation guide <static_expressions>` for more details.
 
@@ -2424,5 +3047,156 @@ def static(expr: Any) -> Any:
     which includes constant variables and variables captured in the current closure in which the function or kernel is implemented.
     The return type of the expression must be either a Warp function, a string, or a type that is supported inside Warp kernels and functions
     (excluding Warp arrays since they cannot be created in a Warp kernel at the moment).
+    """
+    ...
+
+
+@over
+def len(a: Vector[Any, Scalar]) -> int:
+    """Return the number of elements in a vector."""
+    ...
+
+
+@over
+def len(a: Quaternion[Scalar]) -> int:
+    """Return the number of elements in a quaternion."""
+    ...
+
+
+@over
+def len(a: Matrix[Any, Any, Scalar]) -> int:
+    """Return the number of rows in a matrix."""
+    ...
+
+
+@over
+def len(a: Transformation[Float]) -> int:
+    """Return the number of elements in a transformation."""
+    ...
+
+
+@over
+def len(a: Array[Any]) -> int:
+    """Return the size of the first dimension in an array."""
+    ...
+
+
+@over
+def len(a: Tile) -> int:
+    """Return the number of rows in a tile."""
+    ...
+
+
+@over
+def norm_l1(v: Any):
+    """Computes the L1 norm of a vector v.
+
+    .. math:: \|v\|_1 = \sum_i |v_i|
+
+    Args:
+        v (Vector[Any,Float]): The vector to compute the L1 norm of.
+
+    Returns:
+        float: The L1 norm of the vector.
+    """
+    ...
+
+
+@over
+def norm_l2(v: Any):
+    """Computes the L2 norm of a vector v.
+
+    .. math:: \|v\|_2 = \sqrt{\sum_i v_i^2}
+
+    Args:
+        v (Vector[Any,Float]): The vector to compute the L2 norm of.
+
+    Returns:
+        float: The L2 norm of the vector.
+    """
+    ...
+
+
+@over
+def norm_huber(v: Any, delta: float):
+    """Computes the Huber norm of a vector v with a given delta.
+
+    .. math::
+        H(v) = \begin{cases} \frac{1}{2} \|v\|^2 & \text{if } \|v\| \leq \delta \\ \delta(\|v\| - \frac{1}{2}\delta) & \text{otherwise} \end{cases}
+
+    .. image:: /img/norm_huber.svg
+        :align: center
+
+    Args:
+        v (Vector[Any,Float]): The vector to compute the Huber norm of.
+        delta (float): The threshold value, defaults to 1.0.
+
+    Returns:
+        float: The Huber norm of the vector.
+    """
+    ...
+
+
+@over
+def norm_pseudo_huber(v: Any, delta: float):
+    """Computes the "pseudo" Huber norm of a vector v with a given delta.
+
+    .. math::
+        H^\prime(v) = \delta \sqrt{1 + \frac{\|v\|^2}{\delta^2}}
+
+    .. image:: /img/norm_pseudo_huber.svg
+        :align: center
+
+    Args:
+        v (Vector[Any,Float]): The vector to compute the Huber norm of.
+        delta (float): The threshold value, defaults to 1.0.
+
+    Returns:
+        float: The Huber norm of the vector.
+    """
+    ...
+
+
+@over
+def smooth_normalize(v: Any, delta: float):
+    """Normalizes a vector using the pseudo-Huber norm.
+
+    See :func:`norm_pseudo_huber`.
+
+    .. math::
+        \frac{v}{H^\prime(v)}
+
+    Args:
+        v (Vector[Any,Float]): The vector to normalize.
+        delta (float): The threshold value, defaults to 1.0.
+
+    Returns:
+        Vector[Any,Float]: The normalized vector.
+    """
+    ...
+
+
+@over
+def transform_from_matrix(mat: Matrix[4, 4, float32]) -> Transformation[float32]:
+    """Construct a transformation from a 4x4 matrix.
+
+    Args:
+        mat (Matrix[4, 4, Float]): Matrix to convert.
+
+    Returns:
+        Transformation[Float]: The transformation.
+    """
+    ...
+
+
+@over
+def transform_to_matrix(xform: Transformation[float32]) -> Matrix[4, 4, float32]:
+    """Convert a transformation to a 4x4 matrix.
+
+    Args:
+        xform (Transformation[Float]): Transformation to convert.
+
+    Returns:
+        Matrix[4, 4, Float]: The matrix.
     """
     ...

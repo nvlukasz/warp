@@ -1,3 +1,11 @@
+/** Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
+ * NVIDIA CORPORATION and its licensors retain all intellectual property
+ * and proprietary rights in and to this software, related documentation
+ * and any modifications thereto.  Any use, reproduction, disclosure or
+ * distribution of this software and related documentation without an express
+ * license agreement from NVIDIA CORPORATION is strictly prohibited.
+ */
+
 #pragma once
 
 #include "builtin.h"
@@ -285,6 +293,13 @@ CUDA_CALLABLE inline size_t byte_offset(const array_t<T>& arr, int i)
 template <typename T>
 CUDA_CALLABLE inline size_t byte_offset(const array_t<T>& arr, int i, int j)
 {
+    // if (i < 0 || i >= arr.shape[0])
+    //     printf("i: %d > arr.shape[0]: %d\n", i, arr.shape[0]);
+
+    // if (j < 0 || j >= arr.shape[1])
+    //     printf("j: %d > arr.shape[1]: %d\n", j, arr.shape[1]);
+
+
     assert(i >= 0 && i < arr.shape[0]);
     assert(j >= 0 && j < arr.shape[1]);
     
@@ -1090,6 +1105,18 @@ inline CUDA_CALLABLE void adj_atomic_max(const A1<T>& buf, int i, int j, int k, 
 
     FP_VERIFY_ADJ_4(value, adj_value)
 }
+
+template<template<typename> class A, typename T>
+CUDA_CALLABLE inline int len(const A<T>& a)
+{
+    return a.shape[0];
+}
+
+template<template<typename> class A, typename T>
+CUDA_CALLABLE inline void adj_len(const A<T>& a, A<T>& adj_a, int& adj_ret)
+{
+}
+
 
 } // namespace wp
 

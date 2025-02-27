@@ -12,9 +12,16 @@
 #include "cuda_crt_headers.h"
 #include "error.h"
 
+#include <cstdlib>
+#include <fstream>
 #include <nvrtc.h>
 #include <nvPTXCompiler.h>
+#if WP_ENABLE_MATHDX
+    #include <nvJitLink.h>
+    #include <libmathdx.h>
+#endif
 
+#include <array>
 #include <algorithm>
 #include <iterator>
 #include <list>
@@ -24,8 +31,49 @@
 #include <unordered_set>
 #include <vector>
 
+#define check_any(result) (check_generic(result, __FILE__, __LINE__))
 #define check_nvrtc(code) (check_nvrtc_result(code, __FILE__, __LINE__))
 #define check_nvptx(code) (check_nvptx_result(code, __FILE__, __LINE__))
+#define check_nvjitlink(handle, code) (check_nvjitlink_result(handle, code, __FILE__, __LINE__))
+#define check_cufftdx(code) (check_cufftdx_result(code, __FILE__, __LINE__))
+#define check_cublasdx(code) (check_cublasdx_result(code, __FILE__, __LINE__))
+#define check_cusolver(code) (check_cusolver_result(code, __FILE__, __LINE__))
+#define CHECK_ANY(code) \
+{ \
+    do { \
+        bool out = (check_any(code)); \
+        if(!out) { \
+            return out; \
+        } \
+    } while(0); \
+}
+#define CHECK_CUFFTDX(code) \
+{ \
+    do { \
+        bool out = (check_cufftdx(code)); \
+        if(!out) { \
+            return out; \
+        } \
+    } while(0); \
+}
+#define CHECK_CUBLASDX(code) \
+{ \
+    do { \
+        bool out = (check_cufftdx(code)); \
+        if(!out) { \
+            return out; \
+        } \
+    } while(0); \
+}
+#define CHECK_CUSOLVER(code) \
+{ \
+    do { \
+        bool out = (check_cusolver(code)); \
+        if(!out) { \
+            return out; \
+        } \
+    } while(0); \
+}
 
 bool check_nvrtc_result(nvrtcResult result, const char* file, int line)
 {
@@ -75,6 +123,15 @@ bool check_nvptx_result(nvPTXCompileResult result, const char* file, int line)
     return false;
 }
 
+bool check_generic(int result, const char* file, int line)
+{
+    if (!result) {
+        fprintf(stderr, "Error %d on %s:%d\n", (int)result, file, line);
+        return false;
+    } else {
+        return true;
+    }
+}
 
 struct DeviceInfo
 {
@@ -90,6 +147,8 @@ struct DeviceInfo
     int arch = 0;
     int is_uva = 0;
     int is_mempool_supported = 0;
+    int is_ipc_supported = -1;
+    int max_smem_bytes = 0;
     CUcontext primary_context = NULL;
 };
 
@@ -140,6 +199,13 @@ struct FreeInfo
     bool is_async = false;
 };
 
+// Information used when deferring module unloading.
+struct ModuleInfo
+{
+    void* context = NULL;
+    void* module = NULL;
+};
+
 static std::unordered_map<CUfunction, std::string> g_kernel_names;
 
 // cached info for all devices, indexed by ordinal
@@ -167,6 +233,9 @@ static std::unordered_map<void*, GraphAllocInfo> g_graph_allocs;
 // Call free_deferred_allocs() to release.
 static std::vector<FreeInfo> g_deferred_free_list;
 
+// Modules that cannot be unloaded immediately get queued here.
+// Call unload_deferred_modules() to release.
+static std::vector<ModuleInfo> g_deferred_module_list;
 
 void cuda_set_context_restore_policy(bool always_restore)
 {
@@ -203,6 +272,22 @@ int cuda_init()
                 check_cu(cuDeviceGetAttribute_f(&g_devices[i].pci_device_id, CU_DEVICE_ATTRIBUTE_PCI_DEVICE_ID, device));
                 check_cu(cuDeviceGetAttribute_f(&g_devices[i].is_uva, CU_DEVICE_ATTRIBUTE_UNIFIED_ADDRESSING, device));
                 check_cu(cuDeviceGetAttribute_f(&g_devices[i].is_mempool_supported, CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED, device));
+#ifdef CUDA_VERSION
+#if CUDA_VERSION >= 12000
+                int device_attribute_integrated = 0;
+                check_cu(cuDeviceGetAttribute_f(&device_attribute_integrated, CU_DEVICE_ATTRIBUTE_INTEGRATED, device));
+                if (device_attribute_integrated == 0)
+                {
+                    check_cu(cuDeviceGetAttribute_f(&g_devices[i].is_ipc_supported, CU_DEVICE_ATTRIBUTE_IPC_EVENT_SUPPORTED, device));
+                }
+                else
+                {
+                    // integrated devices do not support CUDA IPC
+                    g_devices[i].is_ipc_supported = 0;
+                }
+#endif
+#endif
+                check_cu(cuDeviceGetAttribute_f(&g_devices[i].max_smem_bytes, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN, device));
                 int major = 0;
                 int minor = 0;
                 check_cu(cuDeviceGetAttribute_f(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, device));
@@ -360,6 +445,31 @@ static int free_deferred_allocs(void* context = NULL)
     }
 
     return num_freed_allocs;
+}
+
+static int unload_deferred_modules(void* context = NULL)
+{
+    if (g_deferred_module_list.empty() || !g_captures.empty())
+        return 0;
+
+    int num_unloaded_modules = 0;
+    for (auto it = g_deferred_module_list.begin(); it != g_deferred_module_list.end(); /*noop*/)
+    {
+        // free the module if it matches the given context or if the context is unspecified
+        const ModuleInfo& module_info = *it;
+        if (module_info.context == context || !context)
+        {
+            cuda_unload_module(module_info.context, module_info.module);
+            ++num_unloaded_modules;
+            it = g_deferred_module_list.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    return num_unloaded_modules;
 }
 
 static void CUDART_CB on_graph_destroy(void* user_data)
@@ -1708,6 +1818,13 @@ int cuda_device_is_mempool_supported(int ordinal)
     return 0;
 }
 
+int cuda_device_is_ipc_supported(int ordinal)
+{
+    if (ordinal >= 0 && ordinal < int(g_devices.size()))
+        return g_devices[ordinal].is_ipc_supported;
+    return 0;
+}
+
 int cuda_device_set_mempool_release_threshold(int ordinal, uint64_t threshold)
 {
     if (ordinal < 0 || ordinal > int(g_devices.size()))
@@ -1761,6 +1878,62 @@ uint64_t cuda_device_get_mempool_release_threshold(int ordinal)
     }
 
     return threshold;
+}
+
+uint64_t cuda_device_get_mempool_used_mem_current(int ordinal)
+{
+    if (ordinal < 0 || ordinal > int(g_devices.size()))
+    {
+        fprintf(stderr, "Invalid device ordinal %d\n", ordinal);
+        return 0;
+    }
+
+    if (!g_devices[ordinal].is_mempool_supported)
+        return 0;
+
+    cudaMemPool_t pool;
+    if (!check_cuda(cudaDeviceGetDefaultMemPool(&pool, ordinal)))
+    {
+        fprintf(stderr, "Warp error: Failed to get memory pool on device %d\n", ordinal);
+        return 0;
+    }
+
+    uint64_t mem_used = 0;
+    if (!check_cuda(cudaMemPoolGetAttribute(pool, cudaMemPoolAttrUsedMemCurrent, &mem_used)))
+    {
+        fprintf(stderr, "Warp error: Failed to get amount of currently used memory from the memory pool on device %d\n", ordinal);
+        return 0;
+    }
+
+    return mem_used;
+}
+
+uint64_t cuda_device_get_mempool_used_mem_high(int ordinal)
+{
+    if (ordinal < 0 || ordinal > int(g_devices.size()))
+    {
+        fprintf(stderr, "Invalid device ordinal %d\n", ordinal);
+        return 0;
+    }
+
+    if (!g_devices[ordinal].is_mempool_supported)
+        return 0;
+
+    cudaMemPool_t pool;
+    if (!check_cuda(cudaDeviceGetDefaultMemPool(&pool, ordinal)))
+    {
+        fprintf(stderr, "Warp error: Failed to get memory pool on device %d\n", ordinal);
+        return 0;
+    }
+
+    uint64_t mem_high_water_mark = 0;
+    if (!check_cuda(cudaMemPoolGetAttribute(pool, cudaMemPoolAttrUsedMemHigh, &mem_high_water_mark)))
+    {
+        fprintf(stderr, "Warp error: Failed to get memory usage high water mark from the memory pool on device %d\n", ordinal);
+        return 0;
+    }
+
+    return mem_high_water_mark;
 }
 
 void cuda_device_get_memory_info(int ordinal, size_t* free_mem, size_t* total_mem)
@@ -1871,6 +2044,8 @@ void cuda_context_synchronize(void* context)
         // ensure deferred asynchronous deallocations complete
         check_cu(cuCtxSynchronize_f());
     }
+
+    unload_deferred_modules(context);
 
     // check_cuda(cudaDeviceGraphMemTrim(cuda_context_get_device_ordinal(context)));
 }
@@ -2173,6 +2348,52 @@ int cuda_set_mempool_access_enabled(int target_ordinal, int peer_ordinal, int en
     return 1;  // success
 }
 
+void cuda_ipc_get_mem_handle(void* ptr, char* out_buffer) {
+    CUipcMemHandle memHandle;
+    check_cu(cuIpcGetMemHandle_f(&memHandle, (CUdeviceptr)ptr));
+    memcpy(out_buffer, memHandle.reserved, CU_IPC_HANDLE_SIZE);
+}
+
+void* cuda_ipc_open_mem_handle(void* context, char* handle) {
+    ContextGuard guard(context);
+
+    CUipcMemHandle memHandle;
+    memcpy(memHandle.reserved, handle, CU_IPC_HANDLE_SIZE);
+
+    CUdeviceptr device_ptr;
+
+    // Strangely, the CU_IPC_MEM_LAZY_ENABLE_PEER_ACCESS flag is required
+    if check_cu(cuIpcOpenMemHandle_f(&device_ptr, memHandle, CU_IPC_MEM_LAZY_ENABLE_PEER_ACCESS))
+        return (void*) device_ptr;
+    else
+        return NULL;
+}
+
+void cuda_ipc_close_mem_handle(void* ptr) {
+    check_cu(cuIpcCloseMemHandle_f((CUdeviceptr) ptr));
+}
+
+void cuda_ipc_get_event_handle(void* context, void* event, char* out_buffer) {
+    ContextGuard guard(context);
+
+    CUipcEventHandle eventHandle;
+    check_cu(cuIpcGetEventHandle_f(&eventHandle, static_cast<CUevent>(event)));
+    memcpy(out_buffer, eventHandle.reserved, CU_IPC_HANDLE_SIZE);
+}
+
+void* cuda_ipc_open_event_handle(void* context, char* handle) {
+    ContextGuard guard(context);
+
+    CUipcEventHandle eventHandle;
+    memcpy(eventHandle.reserved, handle, CU_IPC_HANDLE_SIZE);
+
+    CUevent event;
+
+    if (check_cu(cuIpcOpenEventHandle_f(&event, eventHandle)))
+        return event;
+    else
+        return NULL;
+}
 
 void* cuda_stream_create(void* context, int priority)
 {
@@ -2494,7 +2715,10 @@ bool cuda_graph_end_capture(void* context, void* stream, void** graph_ret)
 
     // process deferred free list if no more captures are ongoing
     if (g_captures.empty())
+    {
         free_deferred_allocs();
+        unload_deferred_modules();
+    }
 
     if (graph_ret)
         *graph_ret = graph_exec;
@@ -2521,11 +2745,57 @@ bool cuda_graph_destroy(void* context, void* graph_exec)
     return check_cuda(cudaGraphExecDestroy((cudaGraphExec_t)graph_exec));
 }
 
-size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_dir, bool debug, bool verbose, bool verify_fp, bool fast_math, const char* output_path)
+bool write_file(const char* data, size_t size, std::string filename, const char* mode)
+{
+    const bool print_debug = (std::getenv("WARP_DEBUG") != nullptr);
+    if (print_debug) 
+    {
+        printf("Writing %zu B to %s (%s)\n", size, filename.c_str(), mode);
+    }
+    FILE* file = fopen(filename.c_str(), mode);
+    if (file)
+    {
+        if (fwrite(data, 1, size, file) != size) {
+            fprintf(stderr, "Warp error: Failed to write to output file '%s'\n", filename.c_str());
+            return false;
+        }
+        fclose(file);
+        return true;
+    }
+    else
+    {
+        fprintf(stderr, "Warp error: Failed to open file '%s'\n", filename.c_str());
+        return false;
+    }
+}
+
+#if WP_ENABLE_MATHDX
+    bool check_nvjitlink_result(nvJitLinkHandle handle, nvJitLinkResult result, const char* file, int line)
+    {
+        if (result != NVJITLINK_SUCCESS) {
+            fprintf(stderr, "nvJitLink error: %d on %s:%d\n", (int)result, file, line);
+            size_t lsize;
+            result = nvJitLinkGetErrorLogSize(handle, &lsize);
+            if (result == NVJITLINK_SUCCESS && lsize > 0) {
+                std::vector<char> log(lsize);
+                result = nvJitLinkGetErrorLog(handle, log.data());
+                if (result == NVJITLINK_SUCCESS) {
+                    fprintf(stderr, "%s\n", log.data());
+                }
+            }
+            return false;
+        } else {
+            return true;
+        }
+    }
+#endif
+
+size_t cuda_compile_program(const char* cuda_src, const char* program_name, int arch, const char* include_dir, int num_cuda_include_dirs, const char** cuda_include_dirs, bool debug, bool verbose, bool verify_fp, bool fast_math, bool fuse_fp, bool lineinfo, const char* output_path, size_t num_ltoirs, char** ltoirs, size_t* ltoir_sizes, int* ltoir_input_types)
 {
     // use file extension to determine whether to output PTX or CUBIN
     const char* output_ext = strrchr(output_path, '.');
     bool use_ptx = output_ext && strcmp(output_ext + 1, "ptx") == 0;
+    const bool print_debug = (std::getenv("WARP_DEBUG") != nullptr);
 
     // parse program name from output path
     const char* last_sep = strrchr(output_path, '/');
@@ -2542,13 +2812,45 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     else
         prog_name = output_filename;
 
+    // check include dir path len (path + option)
+    const int max_path = 4096 + 16;
+    if (strlen(include_dir) > max_path)
+    {
+        fprintf(stderr, "Warp error: Include path too long\n");
+        return size_t(-1);
+    }
+
+    if (print_debug)
+    {
+        // Not available in all nvJitLink versions
+        // unsigned major = 0;
+        // unsigned minor = 0;
+        // nvJitLinkVersion(&major, &minor);
+        // printf("nvJitLink version %d.%d\n", major, minor);
+        int major = 0;
+        int minor = 0;
+        nvrtcVersion(&major, &minor);
+        printf("NVRTC version %d.%d\n", major, minor);
+    }
+
+    char include_opt[max_path];
+    strcpy(include_opt, "--include-path=");
+    strcat(include_opt, include_dir);
+
     const int max_arch = 128;
     char arch_opt[max_arch];
+    char arch_opt_lto[max_arch];
 
     if (use_ptx)
+    {
         snprintf(arch_opt, max_arch, "--gpu-architecture=compute_%d", arch);
+        snprintf(arch_opt_lto, max_arch, "-arch=compute_%d", arch);
+    }
     else
+    {
         snprintf(arch_opt, max_arch, "--gpu-architecture=sm_%d", arch);
+        snprintf(arch_opt_lto, max_arch, "-arch=sm_%d", arch);
+    }
 
     std::vector<const char*> opts;
     opts.push_back(arch_opt);
@@ -2589,11 +2891,17 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     {
         opts.push_back("--define-macro=_DEBUG");
         opts.push_back("--generate-line-info");
+
         // disabling since it causes issues with `Unresolved extern function 'cudaGetParameterBufferV2'
         //opts.push_back("--device-debug");
     }
     else
+    {
         opts.push_back("--define-macro=NDEBUG");
+
+        if (lineinfo)
+            opts.push_back("--generate-line-info");
+    }
 
     if (verify_fp)
         opts.push_back("--define-macro=WP_VERIFY_FP");
@@ -2615,6 +2923,28 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     }
     int num_headers = int(wp::jitsafe_headers_map.size());
 
+    if (fuse_fp)
+        opts.push_back("--fmad=true");
+    else
+        opts.push_back("--fmad=false");
+
+    std::vector<std::string> cuda_include_opt;
+    for(int i = 0; i < num_cuda_include_dirs; i++)
+    {
+        cuda_include_opt.push_back(std::string("--include-path=") + cuda_include_dirs[i]);
+        opts.push_back(cuda_include_opt.back().c_str());
+    }
+
+    opts.push_back("--device-as-default-execution-space");
+    opts.push_back("--extra-device-vectorization");
+    opts.push_back("--restrict");
+
+    if (num_ltoirs > 0)
+    {
+        opts.push_back("-dlto");
+        opts.push_back("--relocatable-device-code=true");
+    }
+
     nvrtcProgram prog;
     nvrtcResult res;
 
@@ -2629,14 +2959,14 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     if (!check_nvrtc(res))
         return size_t(res);
 
-    if (verbose)
+    if (print_debug) 
     {
-        printf("CUDA compilation options for module '%s':", prog_name.c_str());
-        for (const char* opt : opts)
-            printf(" %s", opt);
+        printf("NVRTC options for module '%s':", prog_name.c_str());
+        for(auto o: opts) {
+            printf("%s\n", o);
+        }
         printf("\n");
     }
-
     res = nvrtcCompileProgram(prog, int(opts.size()), opts.data());
 
     if (!check_nvrtc(res) || verbose)
@@ -2666,7 +2996,17 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
     nvrtcResult (*get_output_size)(nvrtcProgram, size_t*);
     nvrtcResult (*get_output_data)(nvrtcProgram, char*);
     const char* output_mode;
-    if (use_ptx)
+    if(num_ltoirs > 0) {
+#if WP_ENABLE_MATHDX
+        get_output_size = nvrtcGetLTOIRSize;
+        get_output_data = nvrtcGetLTOIR;
+        output_mode = "wb";
+#else
+        fprintf(stderr, "Warp error: num_ltoirs > 0 but Warp was not built with MathDx support\n");
+        return size_t(-1);
+#endif
+    }
+    else if (use_ptx)
     {
         get_output_size = nvrtcGetPTXSize;
         get_output_data = nvrtcGetPTX;
@@ -2688,19 +3028,97 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
         res = get_output_data(prog, output.data());
         if (check_nvrtc(res))
         {
-            FILE* file = fopen(output_path, output_mode);
-            if (file)
+
+            // LTOIR case - need an extra step
+            if (num_ltoirs > 0) 
             {
-                if (fwrite(output.data(), 1, output_size, file) != output_size)
+#if WP_ENABLE_MATHDX
+                if(ltoir_input_types == nullptr || ltoirs == nullptr || ltoir_sizes == nullptr) {
+                    fprintf(stderr, "Warp error: num_ltoirs > 0 but ltoir_input_types, ltoirs or ltoir_sizes are NULL\n");
+                    return size_t(-1);
+                }
+                nvJitLinkHandle handle;
+                std::vector<const char *> lopts = {"-dlto", arch_opt_lto};
+                if (use_ptx) {
+                    lopts.push_back("-ptx");
+                }
+                if (print_debug) 
                 {
-                    fprintf(stderr, "Warp error: Failed to write output file '%s'\n", output_path);
+                    printf("nvJitLink options:\n");
+                    for(auto o: lopts) {
+                        printf("%s\n", o);
+                    }
+                }
+                if(!check_nvjitlink(handle, nvJitLinkCreate(&handle, lopts.size(), lopts.data())))
+                {
                     res = nvrtcResult(-1);
                 }
-                fclose(file);
+                // Links
+                if(std::getenv("WARP_DUMP_LTOIR"))
+                {
+                    write_file(output.data(), output.size(), "nvrtc_output.ltoir", "wb");
+                }
+                if(!check_nvjitlink(handle, nvJitLinkAddData(handle, NVJITLINK_INPUT_LTOIR, output.data(), output.size(), "nvrtc_output"))) // NVRTC business
+                {
+                    res = nvrtcResult(-1);
+                }
+                for(size_t ltoidx = 0; ltoidx < num_ltoirs; ltoidx++) 
+                {
+                    nvJitLinkInputType input_type = static_cast<nvJitLinkInputType>(ltoir_input_types[ltoidx]);
+                    const char* ext = ".unknown";
+                    switch(input_type) {
+                        case NVJITLINK_INPUT_CUBIN:
+                            ext = ".cubin";
+                            break;
+                        case NVJITLINK_INPUT_LTOIR:
+                            ext = ".ltoir";
+                            break;
+                        case NVJITLINK_INPUT_FATBIN:
+                            ext = ".fatbin";
+                            break;
+                        default:
+                            break;
+                    }
+                    if(std::getenv("WARP_DUMP_LTOIR"))
+                    {
+                        write_file(ltoirs[ltoidx], ltoir_sizes[ltoidx], std::string("lto_online_") + std::to_string(ltoidx) + ext, "wb");
+                    }
+                    if(!check_nvjitlink(handle, nvJitLinkAddData(handle, input_type, ltoirs[ltoidx], ltoir_sizes[ltoidx], "lto_online"))) // External LTOIR
+                    {
+                        res = nvrtcResult(-1);
+                    }
+                }
+                if(!check_nvjitlink(handle, nvJitLinkComplete(handle)))
+                {
+                    res = nvrtcResult(-1);
+                } 
+                else 
+                {
+                    if(use_ptx) 
+                    {
+                        size_t ptx_size = 0;
+                        check_nvjitlink(handle, nvJitLinkGetLinkedPtxSize(handle, &ptx_size));
+                        std::vector<char> ptx(ptx_size);
+                        check_nvjitlink(handle, nvJitLinkGetLinkedPtx(handle, ptx.data()));
+                        output = ptx;
+                    } 
+                    else
+                    {
+                        size_t cubin_size = 0;
+                        check_nvjitlink(handle, nvJitLinkGetLinkedCubinSize(handle, &cubin_size));
+                        std::vector<char> cubin(cubin_size);
+                        check_nvjitlink(handle, nvJitLinkGetLinkedCubin(handle, cubin.data()));
+                        output = cubin;
+                    }
+                }
+                check_nvjitlink(handle, nvJitLinkDestroy(&handle));
+#else
+                fprintf(stderr, "Warp error: num_ltoirs > 0 but Warp was not built with MathDx support\n");
+                return size_t(-1);
+#endif
             }
-            else
-            {
-                fprintf(stderr, "Warp error: Failed to open output file '%s'\n", output_path);
+
+            if(!write_file(output.data(), output.size(), output_path, output_mode)) {
                 res = nvrtcResult(-1);
             }
         }
@@ -2710,6 +3128,183 @@ size_t cuda_compile_program(const char* cuda_src, int arch, const char* include_
 
     return res;
 }
+
+#if WP_ENABLE_MATHDX
+    bool check_cufftdx_result(commondxStatusType result, const char* file, int line)
+    {
+        if (result != commondxStatusType::COMMONDX_SUCCESS) {
+            fprintf(stderr, "libmathdx cuFFTDx error: %d on %s:%d\n", (int)result, file, line);
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    bool check_cublasdx_result(commondxStatusType result, const char* file, int line)
+    {
+        if (result != commondxStatusType::COMMONDX_SUCCESS) {
+            fprintf(stderr, "libmathdx cuBLASDx error: %d on %s:%d\n", (int)result, file, line);
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    bool check_cusolver_result(commondxStatusType result, const char* file, int line) 
+    {
+        if (result != commondxStatusType::COMMONDX_SUCCESS) {
+            fprintf(stderr, "libmathdx cuSOLVER error: %d on %s:%d\n", (int)result, file, line);
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    bool cuda_compile_fft(const char* ltoir_output_path, const char* symbol_name, int num_include_dirs, const char** include_dirs, const char* mathdx_include_dir, int arch, int size, int elements_per_thread, int direction, int precision, int* shared_memory_size)
+    {
+
+        CHECK_ANY(ltoir_output_path != nullptr);
+        CHECK_ANY(symbol_name != nullptr);
+        CHECK_ANY(shared_memory_size != nullptr);
+        // Includes currently unused
+        CHECK_ANY(include_dirs == nullptr);
+        CHECK_ANY(mathdx_include_dir == nullptr);
+        CHECK_ANY(num_include_dirs == 0);
+
+        bool res = true;
+        cufftdxHandle h;
+        CHECK_CUFFTDX(cufftdxCreate(&h));
+
+        // CUFFTDX_API_BLOCK_LMEM means each thread starts with a subset of the data
+        CHECK_CUFFTDX(cufftdxSetOperatorInt64(h, cufftdxOperatorType::CUFFTDX_OPERATOR_API, cufftdxApi::CUFFTDX_API_BLOCK_LMEM));
+        CHECK_CUFFTDX(cufftdxSetOperatorInt64(h, cufftdxOperatorType::CUFFTDX_OPERATOR_EXECUTION, commondxExecution::COMMONDX_EXECUTION_BLOCK));
+        CHECK_CUFFTDX(cufftdxSetOperatorInt64(h, cufftdxOperatorType::CUFFTDX_OPERATOR_SIZE, (long long)size));
+        CHECK_CUFFTDX(cufftdxSetOperatorInt64(h, cufftdxOperatorType::CUFFTDX_OPERATOR_DIRECTION, (cufftdxDirection)direction));
+        CHECK_CUFFTDX(cufftdxSetOperatorInt64(h, cufftdxOperatorType::CUFFTDX_OPERATOR_PRECISION, (commondxPrecision)precision));
+        CHECK_CUFFTDX(cufftdxSetOperatorInt64(h, cufftdxOperatorType::CUFFTDX_OPERATOR_SM, (long long)(arch * 10)));
+        CHECK_CUFFTDX(cufftdxSetOperatorInt64(h, cufftdxOperatorType::CUFFTDX_OPERATOR_ELEMENTS_PER_THREAD, (long long)(elements_per_thread)));
+        CHECK_CUFFTDX(cufftdxSetOperatorInt64(h, cufftdxOperatorType::CUFFTDX_OPERATOR_FFTS_PER_BLOCK, 1));
+
+        CHECK_CUFFTDX(cufftdxSetOptionStr(h, commondxOption::COMMONDX_OPTION_SYMBOL_NAME, symbol_name));
+
+        size_t lto_size = 0;
+        CHECK_CUFFTDX(cufftdxGetLTOIRSize(h, &lto_size));
+
+        std::vector<char> lto(lto_size);
+        CHECK_CUFFTDX(cufftdxGetLTOIR(h, lto.size(), lto.data()));    
+
+        long long int smem = 0;
+        CHECK_CUFFTDX(cufftdxGetTraitInt64(h, cufftdxTraitType::CUFFTDX_TRAIT_SHARED_MEMORY_SIZE, &smem));
+        *shared_memory_size = (int)smem;
+
+        if(!write_file(lto.data(), lto.size(), ltoir_output_path, "wb")) {
+            res = false;
+        }
+
+        CHECK_CUFFTDX(cufftdxDestroy(h));
+
+        return res;
+    }
+
+    bool cuda_compile_dot(const char* ltoir_output_path, const char* symbol_name, int num_include_dirs, const char** include_dirs, const char* mathdx_include_dir, int arch, int M, int N, int K, int precision_A, int precision_B, int precision_C, int type, int arrangement_A, int arrangement_B, int arrangement_C, int num_threads)
+    {
+
+        CHECK_ANY(ltoir_output_path != nullptr);
+        CHECK_ANY(symbol_name != nullptr);
+        // Includes currently unused
+        CHECK_ANY(include_dirs == nullptr);
+        CHECK_ANY(mathdx_include_dir == nullptr);
+        CHECK_ANY(num_include_dirs == 0);
+
+        bool res = true;
+        cublasdxHandle h;
+        CHECK_CUBLASDX(cublasdxCreate(&h));
+
+        CHECK_CUBLASDX(cublasdxSetOperatorInt64(h, cublasdxOperatorType::CUBLASDX_OPERATOR_FUNCTION, cublasdxFunction::CUBLASDX_FUNCTION_MM));
+        CHECK_CUBLASDX(cublasdxSetOperatorInt64(h, cublasdxOperatorType::CUBLASDX_OPERATOR_EXECUTION, commondxExecution::COMMONDX_EXECUTION_BLOCK));
+        CHECK_CUBLASDX(cublasdxSetOperatorInt64(h, cublasdxOperatorType::CUBLASDX_OPERATOR_API, cublasdxApi::CUBLASDX_API_BLOCK_SMEM));
+        std::array<long long int, 3> precisions = {precision_A, precision_B, precision_C};
+        CHECK_CUBLASDX(cublasdxSetOperatorInt64Array(h, cublasdxOperatorType::CUBLASDX_OPERATOR_PRECISION, 3, precisions.data()));
+        CHECK_CUBLASDX(cublasdxSetOperatorInt64(h, cublasdxOperatorType::CUBLASDX_OPERATOR_SM, (long long)(arch * 10)));
+        CHECK_CUBLASDX(cublasdxSetOperatorInt64(h, cublasdxOperatorType::CUBLASDX_OPERATOR_TYPE, (cublasdxType)type));
+        std::array<long long int, 3> block_dim = {num_threads, 1, 1};
+        CHECK_CUBLASDX(cublasdxSetOperatorInt64Array(h, cublasdxOperatorType::CUBLASDX_OPERATOR_BLOCK_DIM, block_dim.size(), block_dim.data()));
+        std::array<long long int, 3> size = {M, N, K};
+        CHECK_CUBLASDX(cublasdxSetOperatorInt64Array(h, cublasdxOperatorType::CUBLASDX_OPERATOR_SIZE, size.size(), size.data()));
+        std::array<long long int, 3> arrangement = {arrangement_A, arrangement_B, arrangement_C};
+        CHECK_CUBLASDX(cublasdxSetOperatorInt64Array(h, cublasdxOperatorType::CUBLASDX_OPERATOR_ARRANGEMENT, arrangement.size(), arrangement.data()));
+        
+        CHECK_CUBLASDX(cublasdxSetOptionStr(h, commondxOption::COMMONDX_OPTION_SYMBOL_NAME, symbol_name));
+
+        size_t lto_size = 0;
+        CHECK_CUBLASDX(cublasdxGetLTOIRSize(h, &lto_size));
+
+        std::vector<char> lto(lto_size);
+        CHECK_CUBLASDX(cublasdxGetLTOIR(h, lto.size(), lto.data()));    
+
+        if(!write_file(lto.data(), lto.size(), ltoir_output_path, "wb")) {
+            res = false;
+        }
+
+        CHECK_CUBLASDX(cublasdxDestroy(h));
+
+        return res;
+    }
+
+    bool cuda_compile_solver(const char* fatbin_output_path, const char* ltoir_output_path, const char* symbol_name, int num_include_dirs, const char** include_dirs, const char* mathdx_include_dir, int arch, int M, int N, int function, int precision, int fill_mode, int num_threads)
+    {
+
+        CHECK_ANY(ltoir_output_path != nullptr);
+        CHECK_ANY(symbol_name != nullptr);
+        CHECK_ANY(mathdx_include_dir == nullptr);
+        CHECK_ANY(num_include_dirs == 0);
+        CHECK_ANY(include_dirs == nullptr);
+
+        bool res = true;
+
+        cusolverHandle h { 0 };
+        CHECK_CUSOLVER(cusolverCreate(&h));
+        long long int size[2] = {M, N};
+        long long int block_dim[3] = {num_threads, 1, 1};
+        CHECK_CUSOLVER(cusolverSetOperatorInt64Array(h, cusolverOperatorType::CUSOLVER_OPERATOR_SIZE, 2, size));
+        CHECK_CUSOLVER(cusolverSetOperatorInt64Array(h, cusolverOperatorType::CUSOLVER_OPERATOR_BLOCK_DIM, 3, block_dim));
+        CHECK_CUSOLVER(cusolverSetOperatorInt64(h, cusolverOperatorType::CUSOLVER_OPERATOR_TYPE, cusolverType::CUSOLVER_TYPE_REAL));
+        CHECK_CUSOLVER(cusolverSetOperatorInt64(h, cusolverOperatorType::CUSOLVER_OPERATOR_API, cusolverApi::CUSOLVER_API_BLOCK_SMEM));
+        CHECK_CUSOLVER(cusolverSetOperatorInt64(h, cusolverOperatorType::CUSOLVER_OPERATOR_FUNCTION, (cusolverFunction)function));
+        CHECK_CUSOLVER(cusolverSetOperatorInt64(h, cusolverOperatorType::CUSOLVER_OPERATOR_EXECUTION, commondxExecution::COMMONDX_EXECUTION_BLOCK));
+        CHECK_CUSOLVER(cusolverSetOperatorInt64(h, cusolverOperatorType::CUSOLVER_OPERATOR_PRECISION, (commondxPrecision)precision));
+        CHECK_CUSOLVER(cusolverSetOperatorInt64(h, cusolverOperatorType::CUSOLVER_OPERATOR_FILL_MODE, (cusolverFillMode)fill_mode));
+        CHECK_CUSOLVER(cusolverSetOperatorInt64(h, cusolverOperatorType::CUSOLVER_OPERATOR_SM, (long long)(arch * 10)));
+        
+        CHECK_CUSOLVER(cusolverSetOptionStr(h, commondxOption::COMMONDX_OPTION_SYMBOL_NAME, symbol_name));
+
+        size_t lto_size = 0;
+        CHECK_CUSOLVER(cusolverGetLTOIRSize(h, &lto_size));
+
+        std::vector<char> lto(lto_size);
+        CHECK_CUSOLVER(cusolverGetLTOIR(h, lto.size(), lto.data()));   
+
+        // This fatbin is universal, ie it is the same for any instantations of a cusolver device function
+        size_t fatbin_size = 0;
+        CHECK_CUSOLVER(cusolverGetUniversalFATBINSize(h, &fatbin_size));
+
+        std::vector<char> fatbin(fatbin_size);
+        CHECK_CUSOLVER(cusolverGetUniversalFATBIN(h, fatbin.size(), fatbin.data()));     
+
+        if(!write_file(lto.data(), lto.size(), ltoir_output_path, "wb")) {
+            res = false;
+        }
+
+        if(!write_file(fatbin.data(), fatbin.size(), fatbin_output_path, "wb")) {
+            res = false;
+        }
+
+        CHECK_CUSOLVER(cusolverDestroy(h));
+
+        return res;
+    }
+
+#endif
 
 void* cuda_load_module(void* context, const char* path)
 {
@@ -2832,9 +3427,43 @@ void* cuda_load_module(void* context, const char* path)
 
 void cuda_unload_module(void* context, void* module)
 {
-    ContextGuard guard(context);
+    // ensure there are no graph captures in progress
+    if (g_captures.empty())
+    {
+        ContextGuard guard(context);
+        check_cu(cuModuleUnload_f((CUmodule)module));
+    }
+    else
+    {
+        // defer until graph capture completes
+        ModuleInfo module_info;
+        module_info.context = context ? context : get_current_context();
+        module_info.module = module;
+        g_deferred_module_list.push_back(module_info);
+    }
+}
 
-    check_cu(cuModuleUnload_f((CUmodule)module));
+
+int cuda_get_max_shared_memory(void* context)
+{
+    ContextInfo* info = get_context_info(context);
+    if (!info)
+        return -1;
+
+    int max_smem_bytes = info->device_info->max_smem_bytes;
+    return max_smem_bytes;
+}
+
+bool cuda_configure_kernel_shared_memory(void* kernel, int size)
+{
+    int requested_smem_bytes = size;
+
+    // configure shared memory 
+    CUresult res = cuFuncSetAttribute_f((CUfunction)kernel, CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, requested_smem_bytes);
+    if (res != CUDA_SUCCESS)
+        return false;
+
+    return true;
 }
 
 void* cuda_get_kernel(void* context, void* module, const char* name)
@@ -2849,15 +3478,21 @@ void* cuda_get_kernel(void* context, void* module, const char* name)
     }
 
     g_kernel_names[kernel] = name;
-
     return kernel;
 }
 
-size_t cuda_launch_kernel(void* context, void* kernel, size_t dim, int max_blocks, void** args, void* stream)
+size_t cuda_launch_kernel(void* context, void* kernel, size_t dim, int max_blocks, int block_dim, int shared_memory_bytes, void** args, void* stream)
 {
     ContextGuard guard(context);
 
-    const int block_dim = 256;
+    if (block_dim <= 0)
+    {
+#if defined(_DEBUG)
+        fprintf(stderr, "Warp warning: Launch got block_dim %d. Setting to 256.\n", block_dim);
+#endif
+        block_dim = 256;
+    }
+
     // CUDA specs up to compute capability 9.0 says the max x-dim grid is 2**31-1, so
     // grid_dim is fine as an int for the near future
     int grid_dim = (dim + block_dim - 1)/block_dim;
@@ -2888,7 +3523,8 @@ size_t cuda_launch_kernel(void* context, void* kernel, size_t dim, int max_block
         (CUfunction)kernel,
         grid_dim, 1, 1,
         block_dim, 1, 1,
-        0, static_cast<CUstream>(stream),
+        shared_memory_bytes,
+        static_cast<CUstream>(stream),
         args,
         0);
 
@@ -2993,7 +3629,6 @@ void cuda_timing_end(timing_result_t* results, int size)
     g_cuda_timing_state = parent_state;
 }
 
-
 // impl. files
 #include "bvh.cu"
 #include "mesh.cu"
@@ -3006,9 +3641,6 @@ void cuda_timing_end(timing_result_t* results, int size)
 #include "sparse.cu"
 #include "volume.cu"
 #include "volume_builder.cu"
-#if WP_ENABLE_CUTLASS
-    #include "cutlass_gemm.cu"
-#endif
 
 //#include "spline.inl"
 //#include "volume.inl"

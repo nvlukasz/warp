@@ -306,9 +306,9 @@ def main(argv=None):
 
         # Test report
         print(unittest.TextTestResult.separator2, file=sys.stderr)
-        print(f'Ran {tests_run} {"tests" if tests_run > 1 else "test"} in {test_duration:.3f}s', file=sys.stderr)
+        print(f"Ran {tests_run} {'tests' if tests_run > 1 else 'test'} in {test_duration:.3f}s", file=sys.stderr)
         print(file=sys.stderr)
-        print(f'{"OK" if is_success else "FAILED"}{" (" + ", ".join(infos) + ")" if infos else ""}', file=sys.stderr)
+        print(f"{'OK' if is_success else 'FAILED'}{' (' + ', '.join(infos) + ')' if infos else ''}", file=sys.stderr)
 
         if test_records and args.junit_report_xml:
             # NVIDIA modification to report results in Junit XML format
@@ -554,6 +554,9 @@ def initialize_test_process(lock, shared_index, args, temp_dir):
             wp.config.kernel_cache_dir = cache_root_dir
 
             wp.build.clear_kernel_cache()
+        elif "WARP_CACHE_ROOT" in os.environ:
+            # Using a shared cache for all test processes
+            wp.config.kernel_cache_dir = os.path.join(os.getenv("WARP_CACHE_ROOT"), wp.config.version)
 
 
 if __name__ == "__main__":  # pragma: no cover

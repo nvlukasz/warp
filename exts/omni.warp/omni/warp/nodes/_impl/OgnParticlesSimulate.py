@@ -352,7 +352,7 @@ def update_collider(
     db: OgnParticlesSimulateDatabase,
 ) -> None:
     """Updates the collider state."""
-    state = db.internal_state
+    state = db.per_instance_state
 
     points = omni.warp.nodes.mesh_get_points(db.inputs.collider)
     xform = omni.warp.nodes.bundle_get_world_xform(db.inputs.collider)
@@ -398,7 +398,7 @@ def update_particles(
     db: OgnParticlesSimulateDatabase,
 ) -> None:
     """Updates the particles state."""
-    state = db.internal_state
+    state = db.per_instance_state
 
     xform = omni.warp.nodes.bundle_get_world_xform(db.inputs.particles)
 
@@ -406,13 +406,20 @@ def update_particles(
     xform_0 = state.xform
     xform_1 = xform
 
+    try:
+        xform_0_inv = np.linalg.inv(xform_0)
+    except np.linalg.LinAlgError:
+        # On the first run, OG sometimes return an invalid matrix,
+        # so we default it to the identity one.
+        xform_0_inv = np.identity(4)
+
     # Update the internal point positions and velocities.
     wp.launch(
         kernel=update_particles_kernel,
         dim=len(state.state_0.particle_q),
         inputs=[
             state.state_0.particle_q,
-            np.matmul(np.linalg.inv(xform_0), xform_1).T,
+            np.matmul(xform_0_inv, xform_1).T,
         ],
         outputs=[
             state.state_0.particle_q,
@@ -426,7 +433,7 @@ def update_particles(
 
 def step(db: OgnParticlesSimulateDatabase) -> None:
     """Steps through the simulation."""
-    state = db.internal_state
+    state = db.per_instance_state
 
     sim_dt = state.sim_dt / db.inputs.substepCount
 
@@ -448,7 +455,7 @@ def step(db: OgnParticlesSimulateDatabase) -> None:
 
 def simulate(db: OgnParticlesSimulateDatabase) -> None:
     """Simulates the particles at the current time."""
-    state = db.internal_state
+    state = db.per_instance_state
 
     state.model.particle_grid.build(
         state.state_0.particle_q,
@@ -466,7 +473,7 @@ def compute(db: OgnParticlesSimulateDatabase, device: wp.context.Device) -> None
     if not db.inputs.particles.valid or not db.outputs.particles.valid:
         return
 
-    state = db.internal_state
+    state = db.per_instance_state
 
     if not db.inputs.enabled:
         # Pass through the data.
@@ -511,6 +518,13 @@ def compute(db: OgnParticlesSimulateDatabase, device: wp.context.Device) -> None
             # Retrieve some data from the particles points.
             xform = omni.warp.nodes.bundle_get_world_xform(db.inputs.particles)
 
+            try:
+                xform_inv = np.linalg.inv(xform)
+            except np.linalg.LinAlgError:
+                # On the first run, OG sometimes return an invalid matrix,
+                # so we default it to the identity one.
+                xform_inv = np.identity(4)
+
             # Transform the particles point positions back into local space
             # and store them into the bundle.
             out_points = omni.warp.nodes.points_get_points(db.outputs.particles)
@@ -519,7 +533,7 @@ def compute(db: OgnParticlesSimulateDatabase, device: wp.context.Device) -> None
                 dim=len(out_points),
                 inputs=[
                     state.state_0.particle_q,
-                    np.linalg.inv(xform).T,
+                    xform_inv.T,
                 ],
                 outputs=[
                     out_points,
@@ -556,10 +570,10 @@ class OgnParticlesSimulate:
                 compute(db, device)
         except Exception:
             db.log_error(traceback.format_exc())
-            db.internal_state.is_valid = False
+            db.per_instance_state.is_valid = False
             return
 
-        db.internal_state.is_valid = True
+        db.per_instance_state.is_valid = True
 
         # Fire the execution for the downstream nodes.
         db.outputs.execOut = og.ExecutionAttributeState.ENABLED

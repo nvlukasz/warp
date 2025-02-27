@@ -6,17 +6,24 @@ import warp as wp
 from warp.fem import cache
 from warp.fem.geometry import Geometry
 from warp.fem.quadrature import Quadrature
-from warp.fem.types import NULL_ELEMENT_INDEX, Coords, ElementIndex, make_free_sample
+from warp.fem.types import (
+    NULL_ELEMENT_INDEX,
+    NULL_QP_INDEX,
+    Coords,
+    ElementIndex,
+    QuadraturePointIndex,
+    make_free_sample,
+)
 
 from .shape import ShapeFunction
 from .topology import RegularDiscontinuousSpaceTopology, SpaceTopology
 
 
 class BasisSpace:
-    """Interface class for defining a scalar-valued basis over a geometry.
+    """Interface class for defining a shape function space over a geometry.
 
     A basis space makes it easy to define multiple function spaces sharing the same basis (and thus nodes) but with different valuation functions;
-    however, it is not a required ingredient of a function space.
+    however, it is not a required component of a function space.
 
     See also: :func:`make_polynomial_basis_space`, :func:`make_collocated_function_space`
     """
@@ -39,6 +46,11 @@ class BasisSpace:
     def geometry(self) -> Geometry:
         """Underlying geometry of the basis space"""
         return self._topology.geometry
+
+    @property
+    def value(self) -> ShapeFunction.Value:
+        """Value type for the underlying shape functions"""
+        raise NotImplementedError()
 
     def basis_arg_value(self, device) -> "BasisArg":
         """Value for the argument structure to be passed to device functions"""
@@ -122,6 +134,20 @@ class BasisSpace:
     def trace(self) -> "TraceBasisSpace":
         return TraceBasisSpace(self)
 
+    @property
+    def weight_type(self):
+        if self.value is ShapeFunction.Value.Scalar:
+            return float
+
+        return cache.cached_vec_type(length=self.geometry.cell_dimension, dtype=float)
+
+    @property
+    def weight_gradient_type(self):
+        if self.value is ShapeFunction.Value.Scalar:
+            return wp.vec(length=self.geometry.cell_dimension, dtype=float)
+
+        return cache.cached_mat_type(shape=(self.geometry.cell_dimension, self.geometry.cell_dimension), dtype=float)
+
 
 class ShapeBasisSpace(BasisSpace):
     """Base class for defining shape-function-based basis spaces."""
@@ -129,6 +155,10 @@ class ShapeBasisSpace(BasisSpace):
     def __init__(self, topology: SpaceTopology, shape: ShapeFunction):
         super().__init__(topology)
         self._shape = shape
+
+        if self.value is not ShapeFunction.Value.Scalar:
+            self.BasisArg = self.topology.TopologyArg
+            self.basis_arg_value = self.topology.topo_arg_value
 
         self.ORDER = self._shape.ORDER
 
@@ -147,6 +177,10 @@ class ShapeBasisSpace(BasisSpace):
     def shape(self) -> ShapeFunction:
         """Shape functions used for defining individual element basis"""
         return self._shape
+
+    @property
+    def value(self) -> ShapeFunction.Value:
+        return self.shape.value
 
     @property
     def name(self):
@@ -169,6 +203,9 @@ class ShapeBasisSpace(BasisSpace):
     def make_node_quadrature_weight(self):
         shape_node_quadrature_weight = self._shape.make_node_quadrature_weight()
 
+        if shape_node_quadrature_weight is None:
+            return None
+
         @cache.dynamic_func(suffix=self.name)
         def node_quadrature_weight(
             elt_arg: self.geometry.CellArg,
@@ -190,8 +227,13 @@ class ShapeBasisSpace(BasisSpace):
             element_index: ElementIndex,
             coords: Coords,
             node_index_in_elt: int,
+            qp_index: QuadraturePointIndex,
         ):
-            return shape_element_inner_weight(coords, node_index_in_elt)
+            if wp.static(self.value == ShapeFunction.Value.Scalar):
+                return shape_element_inner_weight(coords, node_index_in_elt)
+            else:
+                sign = self.topology.element_node_sign(elt_arg, basis_arg, element_index, node_index_in_elt)
+                return sign * shape_element_inner_weight(coords, node_index_in_elt)
 
         return element_inner_weight
 
@@ -205,13 +247,21 @@ class ShapeBasisSpace(BasisSpace):
             element_index: ElementIndex,
             coords: Coords,
             node_index_in_elt: int,
+            qp_index: QuadraturePointIndex,
         ):
-            return shape_element_inner_weight_gradient(coords, node_index_in_elt)
+            if wp.static(self.value == ShapeFunction.Value.Scalar):
+                return shape_element_inner_weight_gradient(coords, node_index_in_elt)
+            else:
+                sign = self.topology.element_node_sign(elt_arg, basis_arg, element_index, node_index_in_elt)
+                return sign * shape_element_inner_weight_gradient(coords, node_index_in_elt)
 
         return element_inner_weight_gradient
 
     def make_trace_node_quadrature_weight(self, trace_basis):
         shape_trace_node_quadrature_weight = self._shape.make_trace_node_quadrature_weight()
+
+        if shape_trace_node_quadrature_weight is None:
+            return None
 
         @cache.dynamic_func(suffix=self.name)
         def trace_node_quadrature_weight(
@@ -275,6 +325,10 @@ class TraceBasisSpace(BasisSpace):
     def name(self):
         return f"{self._basis.name}_Trace"
 
+    @property
+    def value(self) -> ShapeFunction.Value:
+        return self._basis.value
+
     def make_node_coords_in_element(self):
         node_coords_in_cell = self._basis.make_node_coords_in_element()
 
@@ -313,21 +367,16 @@ class TraceBasisSpace(BasisSpace):
             element_index: ElementIndex,
             coords: Coords,
             node_index_in_elt: int,
+            qp_index: QuadraturePointIndex,
         ):
             cell_index, index_in_cell = self.topology.inner_cell_index(geo_side_arg, element_index, node_index_in_elt)
             if cell_index == NULL_ELEMENT_INDEX:
-                return 0.0
+                return self.weight_type(0.0)
 
             cell_coords = self.geometry.side_inner_cell_coords(geo_side_arg, element_index, coords)
 
             geo_cell_arg = self.geometry.side_to_cell_arg(geo_side_arg)
-            return cell_inner_weight(
-                geo_cell_arg,
-                basis_arg,
-                cell_index,
-                cell_coords,
-                index_in_cell,
-            )
+            return cell_inner_weight(geo_cell_arg, basis_arg, cell_index, cell_coords, index_in_cell, NULL_QP_INDEX)
 
         return trace_element_inner_weight
 
@@ -341,27 +390,21 @@ class TraceBasisSpace(BasisSpace):
             element_index: ElementIndex,
             coords: Coords,
             node_index_in_elt: int,
+            qp_index: QuadraturePointIndex,
         ):
             cell_index, index_in_cell = self.topology.outer_cell_index(geo_side_arg, element_index, node_index_in_elt)
             if cell_index == NULL_ELEMENT_INDEX:
-                return 0.0
+                return self.weight_type(0.0)
 
             cell_coords = self.geometry.side_outer_cell_coords(geo_side_arg, element_index, coords)
 
             geo_cell_arg = self.geometry.side_to_cell_arg(geo_side_arg)
-            return cell_outer_weight(
-                geo_cell_arg,
-                basis_arg,
-                cell_index,
-                cell_coords,
-                index_in_cell,
-            )
+            return cell_outer_weight(geo_cell_arg, basis_arg, cell_index, cell_coords, index_in_cell, NULL_QP_INDEX)
 
         return trace_element_outer_weight
 
     def make_element_inner_weight_gradient(self):
         cell_inner_weight_gradient = self._basis.make_element_inner_weight_gradient()
-        grad_vec_type = wp.vec(length=self.geometry.dimension, dtype=float)
 
         @cache.dynamic_func(suffix=self._basis.name)
         def trace_element_inner_weight_gradient(
@@ -370,20 +413,22 @@ class TraceBasisSpace(BasisSpace):
             element_index: ElementIndex,
             coords: Coords,
             node_index_in_elt: int,
+            qp_index: QuadraturePointIndex,
         ):
             cell_index, index_in_cell = self.topology.inner_cell_index(geo_side_arg, element_index, node_index_in_elt)
             if cell_index == NULL_ELEMENT_INDEX:
-                return grad_vec_type(0.0)
+                return self.weight_gradient_type(0.0)
 
             cell_coords = self.geometry.side_inner_cell_coords(geo_side_arg, element_index, coords)
             geo_cell_arg = self.geometry.side_to_cell_arg(geo_side_arg)
-            return cell_inner_weight_gradient(geo_cell_arg, basis_arg, cell_index, cell_coords, index_in_cell)
+            return cell_inner_weight_gradient(
+                geo_cell_arg, basis_arg, cell_index, cell_coords, index_in_cell, NULL_QP_INDEX
+            )
 
         return trace_element_inner_weight_gradient
 
     def make_element_outer_weight_gradient(self):
         cell_outer_weight_gradient = self._basis.make_element_outer_weight_gradient()
-        grad_vec_type = wp.vec(length=self.geometry.dimension, dtype=float)
 
         @cache.dynamic_func(suffix=self._basis.name)
         def trace_element_outer_weight_gradient(
@@ -392,14 +437,17 @@ class TraceBasisSpace(BasisSpace):
             element_index: ElementIndex,
             coords: Coords,
             node_index_in_elt: int,
+            qp_index: QuadraturePointIndex,
         ):
             cell_index, index_in_cell = self.topology.outer_cell_index(geo_side_arg, element_index, node_index_in_elt)
             if cell_index == NULL_ELEMENT_INDEX:
-                return grad_vec_type(0.0)
+                return self.weight_gradient_type(0.0)
 
             cell_coords = self.geometry.side_outer_cell_coords(geo_side_arg, element_index, coords)
             geo_cell_arg = self.geometry.side_to_cell_arg(geo_side_arg)
-            return cell_outer_weight_gradient(geo_cell_arg, basis_arg, cell_index, cell_coords, index_in_cell)
+            return cell_outer_weight_gradient(
+                geo_cell_arg, basis_arg, cell_index, cell_coords, index_in_cell, NULL_QP_INDEX
+            )
 
         return trace_element_outer_weight_gradient
 
@@ -528,6 +576,10 @@ class PointBasisSpace(BasisSpace):
     def name(self):
         return f"{self._quadrature.name}_Point"
 
+    @property
+    def value(self) -> ShapeFunction.Value:
+        return ShapeFunction.Value.Scalar
+
     def make_node_coords_in_element(self):
         @cache.dynamic_func(suffix=self.name)
         def node_coords_in_element(
@@ -562,6 +614,7 @@ class PointBasisSpace(BasisSpace):
             element_index: ElementIndex,
             coords: Coords,
             node_index_in_elt: int,
+            qp_index: QuadraturePointIndex,
         ):
             qp_coord = self._quadrature.point_coords(
                 elt_arg, basis_arg, element_index, element_index, node_index_in_elt
@@ -571,7 +624,7 @@ class PointBasisSpace(BasisSpace):
         return element_inner_weight
 
     def make_element_inner_weight_gradient(self):
-        gradient_vec = cache.cached_vec_type(length=self.geometry.dimension, dtype=float)
+        gradient_vec = cache.cached_vec_type(length=self.geometry.cell_dimension, dtype=float)
 
         @cache.dynamic_func(suffix=self.name)
         def element_inner_weight_gradient(
@@ -580,6 +633,7 @@ class PointBasisSpace(BasisSpace):
             element_index: ElementIndex,
             coords: Coords,
             node_index_in_elt: int,
+            qp_index: QuadraturePointIndex,
         ):
             return gradient_vec(0.0)
 

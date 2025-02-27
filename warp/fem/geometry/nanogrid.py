@@ -4,6 +4,7 @@ import numpy as np
 
 import warp as wp
 from warp.fem import cache, utils
+from warp.fem.linalg import basis_element
 from warp.fem.types import NULL_ELEMENT_INDEX, OUTSIDE, Coords, ElementIndex, Sample, make_free_sample
 
 from .element import Cube, Square
@@ -16,8 +17,6 @@ GRID_AXIS_FLAG = wp.constant(wp.int32(1 << 20))
 FACE_AXIS_MASK = wp.constant(wp.uint8((1 << 2) - 1))
 FACE_INNER_OFFSET_BIT = wp.constant(wp.uint8(2))
 FACE_OUTER_OFFSET_BIT = wp.constant(wp.uint8(3))
-
-_mat32 = wp.mat(shape=(3, 2), dtype=float)
 
 
 @wp.func
@@ -300,8 +299,8 @@ class Nanogrid(Geometry):
 
     @wp.func
     def _face_tangent_vecs(cell_grid: wp.uint64, axis: int, flip: int):
-        u_axis = utils.unit_element(wp.vec3(), (axis + 1 + flip) % 3)
-        v_axis = utils.unit_element(wp.vec3(), (axis + 2 - flip) % 3)
+        u_axis = basis_element(wp.vec3(), (axis + 1 + flip) % 3)
+        v_axis = basis_element(wp.vec3(), (axis + 2 - flip) % 3)
 
         return wp.volume_index_to_world_dir(cell_grid, u_axis), wp.volume_index_to_world_dir(cell_grid, v_axis)
 
@@ -311,7 +310,7 @@ class Nanogrid(Geometry):
         axis = Nanogrid._get_face_axis(flags)
         flip = Nanogrid._get_face_inner_offset(flags)
         v1, v2 = Nanogrid._face_tangent_vecs(args.cell_arg.cell_grid, axis, flip)
-        return _mat32(v1, v2)
+        return wp.matrix_from_cols(v1, v2)
 
     @wp.func
     def side_inner_inverse_deformation_gradient(args: SideArg, s: Sample):

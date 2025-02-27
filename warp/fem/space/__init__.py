@@ -8,20 +8,20 @@ import warp.fem.geometry as _geometry
 import warp.fem.polynomial as _polynomial
 
 from .function_space import FunctionSpace
+from .basis_function_space import CollocatedFunctionSpace, ContravariantFunctionSpace, CovariantFunctionSpace
 from .topology import SpaceTopology
 from .basis_space import BasisSpace, PointBasisSpace, ShapeBasisSpace, make_discontinuous_basis_space
-from .collocated_function_space import CollocatedFunctionSpace
-from .shape import ElementBasis, get_shape_function
+from .shape import ElementBasis, get_shape_function, ShapeFunction
 
 from .grid_2d_function_space import make_grid_2d_space_topology
 
 from .grid_3d_function_space import make_grid_3d_space_topology
 
-from .trimesh_2d_function_space import make_trimesh_2d_space_topology
+from .trimesh_function_space import make_trimesh_space_topology
 
 from .tetmesh_function_space import make_tetmesh_space_topology
 
-from .quadmesh_2d_function_space import make_quadmesh_2d_space_topology
+from .quadmesh_function_space import make_quadmesh_space_topology
 
 from .hexmesh_function_space import make_hexmesh_space_topology
 
@@ -97,7 +97,7 @@ def make_polynomial_basis_space(
         the constructed basis space
     """
 
-    base_geo = geo.base if isinstance(geo, _geometry.DeformedGeometry) else geo
+    base_geo = geo.base
 
     if element_basis is None:
         element_basis = ElementBasis.LAGRANGE
@@ -115,12 +115,12 @@ def make_polynomial_basis_space(
         topology = make_grid_2d_space_topology(geo, shape)
     elif isinstance(base_geo, _geometry.Grid3D):
         topology = make_grid_3d_space_topology(geo, shape)
-    elif isinstance(base_geo, _geometry.Trimesh2D):
-        topology = make_trimesh_2d_space_topology(geo, shape)
+    elif isinstance(base_geo, _geometry.Trimesh):
+        topology = make_trimesh_space_topology(geo, shape)
     elif isinstance(base_geo, _geometry.Tetmesh):
         topology = make_tetmesh_space_topology(geo, shape)
-    elif isinstance(base_geo, _geometry.Quadmesh2D):
-        topology = make_quadmesh_2d_space_topology(geo, shape)
+    elif isinstance(base_geo, _geometry.Quadmesh):
+        topology = make_quadmesh_space_topology(geo, shape)
     elif isinstance(base_geo, _geometry.Hexmesh):
         topology = make_hexmesh_space_topology(geo, shape)
     elif isinstance(base_geo, _geometry.Nanogrid) or isinstance(base_geo, _geometry.AdaptiveNanogrid):
@@ -136,7 +136,7 @@ def make_collocated_function_space(
     basis_space: BasisSpace, dtype: type = float, dof_mapper: Optional[DofMapper] = None
 ) -> CollocatedFunctionSpace:
     """
-    Constructs a function space from a basis space and a value type, such that all degrees of freedom of the value type are stored at each of the basis nodes.
+    Constructs a function space from a scalar-valued basis space and a value type, such that all degrees of freedom of the value type are stored at each of the basis nodes.
 
     Args:
         geo: the Geometry on which to build the space
@@ -146,7 +146,35 @@ def make_collocated_function_space(
     Returns:
         the constructed function space
     """
+
+    if basis_space.value != ShapeFunction.Value.Scalar:
+        raise ValueError("Collocated function spaces may only be constructed from scalar-valued basis")
+
     return CollocatedFunctionSpace(basis_space, dtype=dtype, dof_mapper=dof_mapper)
+
+
+def make_covariant_function_space(
+    basis_space: BasisSpace,
+) -> CovariantFunctionSpace:
+    """
+    Constructs a covariant function space from a vector-valued basis space
+    """
+
+    if basis_space.value != ShapeFunction.Value.CovariantVector:
+        raise ValueError("Covariant function spaces may only be constructed from covariant vector-valued basis")
+    return CovariantFunctionSpace(basis_space)
+
+
+def make_contravariant_function_space(
+    basis_space: BasisSpace,
+) -> ContravariantFunctionSpace:
+    """
+    Constructs a contravariant function space from a vector-valued basis space
+    """
+
+    if basis_space.value != ShapeFunction.Value.ContravariantVector:
+        raise ValueError("Contravariant function spaces may only be constructed from contravariant vector-valued basis")
+    return ContravariantFunctionSpace(basis_space)
 
 
 def make_polynomial_space(
@@ -160,7 +188,7 @@ def make_polynomial_space(
 ) -> CollocatedFunctionSpace:
     """
     Equips a geometry with a collocated, polynomial function space.
-    Equivalent to successive calls to :func:`make_polynomial_basis_space` and `make_collocated_function_space`.
+    Equivalent to successive calls to :func:`make_polynomial_basis_space` then `make_collocated_function_space`, `make_covariant_function_space` or `make_contravariant_function_space`.
 
     Args:
         geo: the Geometry on which to build the space
@@ -176,4 +204,10 @@ def make_polynomial_space(
     """
 
     basis_space = make_polynomial_basis_space(geo, degree, element_basis, discontinuous, family)
-    return CollocatedFunctionSpace(basis_space, dtype=dtype, dof_mapper=dof_mapper)
+
+    if basis_space.value == ShapeFunction.Value.CovariantVector:
+        return make_covariant_function_space(basis_space)
+    if basis_space.value == ShapeFunction.Value.ContravariantVector:
+        return make_contravariant_function_space(basis_space)
+
+    return make_collocated_function_space(basis_space, dtype=dtype, dof_mapper=dof_mapper)

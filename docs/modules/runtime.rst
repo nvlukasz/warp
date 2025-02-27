@@ -38,6 +38,8 @@ The location of the kernel cache is printed when Warp is initialized.
 generated compilation artifacts as Warp does not automatically try to keep the cache below a certain size.
 
 .. autofunction:: launch
+.. autofunction:: launch_tiled
+    
 .. autofunction:: clear_kernel_cache
 
 .. _Runtime Kernel Creation:
@@ -45,21 +47,47 @@ generated compilation artifacts as Warp does not automatically try to keep the c
 Runtime Kernel Creation
 #######################
 
-Warp allows generating kernels on-the-fly with various customizations, including closure support.  Refer to the :ref:`Code Generation<code_generation>` section for the latest features.
+Warp allows generating kernels on-the-fly with various customizations, including closure support.
+Refer to the :ref:`Code Generation<code_generation>` section for the latest features.
+
+Launch Objects
+##############
+
+:class:`Launch` objects are one way to reduce the overhead of launching a kernel multiple times.
+:class:`Launch` objects are returned from calling :func:`wp.launch() <launch>` with ``record_cmd=True``.
+This stores the results of various overhead operations that are needed to launch a kernel
+but defers the actual kernel launch until the :func:`Launch.launch() <Launch.launch>` method is called.
+
+In contrast to :ref:`graphs`, :class:`Launch` objects only record the launch of a single kernel
+and do not reduce the driver overhead of preparing the kernel for execution on a GPU.
+On the other hand, :class:`Launch` objects do not have the storage and initialization
+overheads of CUDA graphs and also allow for the modification of launch
+dimensions with :func:`Launch.set_dim() <Launch.set_dim>` and
+kernel parameters with functions such as :func:`Launch.set_params() <Launch.set_params>` and
+:func:`Launch.set_param_by_name() <Launch.set_param_by_name>`.
+Additionally, :class:`Launch` objects can also be used to reduce the overhead of launching kernels running on the CPU.
+
+.. note::
+    Kernels launched via :class:`Launch` objects currently do not get recorded onto the :class:`Tape`.
+
+.. autoclass:: Launch
+    :members:
+    :undoc-members:
+    :exclude-members: __init__
 
 .. _Arrays:
 
 Arrays
 ------
 
-Arrays are the fundamental memory abstraction in Warp; they are created through the following global constructors: ::
+Arrays are the fundamental memory abstraction in Warp. They can be created through the following global constructor::
 
     wp.empty(shape=1024, dtype=wp.vec3, device="cpu")
     wp.zeros(shape=1024, dtype=float, device="cuda")
     wp.full(shape=1024, value=10, dtype=int, device="cuda")
 
 
-Arrays can also be constructed directly from ``numpy`` ndarrays as follows: ::
+Arrays can also be constructed directly from NumPy ``ndarrays`` as follows::
 
     r = np.random.rand(1024)
 
@@ -72,7 +100,7 @@ Arrays can also be constructed directly from ``numpy`` ndarrays as follows: ::
     # return a Warp copy of the array data on the GPU
     a = wp.array(r, dtype=float, device="cuda")
 
-Note that for multi-dimensional data the ``dtype`` parameter must be specified explicitly, e.g.: ::
+Note that for multi-dimensional data, the ``dtype`` parameter must be specified explicitly, e.g.::
 
     r = np.random.rand((1024, 3))
 
@@ -81,7 +109,7 @@ Note that for multi-dimensional data the ``dtype`` parameter must be specified e
 
 If the shapes are incompatible, an error will be raised.
 
-Warp arrays can also be constructed from objects that define the ``__cuda_array_interface__`` attribute. For example: ::
+Warp arrays can also be constructed from objects that define the ``__cuda_array_interface__`` attribute. For example::
 
     import cupy
     import warp as wp
@@ -93,14 +121,14 @@ Warp arrays can also be constructed from objects that define the ``__cuda_array_
     # return a Warp array wrapper around the cupy data (zero-copy)
     a = wp.array(r, device=device)
 
-Arrays can be moved between devices using the ``array.to()`` method: ::
+Arrays can be moved between devices using :meth:`array.to`::
 
     host_array = wp.array(a, dtype=float, device="cpu")
 
     # allocate and copy to GPU
     device_array = host_array.to("cuda")
 
-Additionally, arrays can be copied directly between memory spaces: ::
+Additionally, data can be copied between arrays in different memory spaces using :func:`wp.copy() <warp.copy()>`::
 
     src_array = wp.array(a, dtype=float, device="cpu")
     dest_array = wp.empty_like(host_array)
@@ -113,36 +141,34 @@ Additionally, arrays can be copied directly between memory spaces: ::
     :undoc-members:
     :exclude-members: vars
 
-
 Multi-dimensional Arrays
 ########################
 
-Multi-dimensional arrays can be constructed by passing a tuple of sizes for each dimension, e.g.: the following constructs a 2d array of size 1024x16::
+Multi-dimensional arrays up to four dimensions can be constructed by passing a tuple of sizes for each dimension.
+
+The following constructs a 2D array of size 1024 x 16::
 
     wp.zeros(shape=(1024, 16), dtype=float, device="cuda")
 
 When passing multi-dimensional arrays to kernels users must specify the expected array dimension inside the kernel signature,
-e.g. to pass a 2d array to a kernel the number of dims is specified using the ``ndim=2`` parameter::
+e.g. to pass a 2D array to a kernel the number of dims is specified using the ``ndim=2`` parameter::
 
     @wp.kernel
     def test(input: wp.array(dtype=float, ndim=2)):
 
-Type-hint helpers are provided for common array sizes, e.g.: ``array2d()``, ``array3d()``, which are equivalent to calling ``array(..., ndim=2)```, etc. To index a multi-dimensional array use a the following kernel syntax::
+Type-hint helpers are provided for common array sizes, e.g.: ``array2d()``, ``array3d()``, which are equivalent to calling ``array(..., ndim=2)```, etc.
+To index a multi-dimensional array, use the following kernel syntax::
 
     # returns a float from the 2d array
     value = input[i,j]
 
-To create an array slice use the following syntax, where the number of indices is less than the array dimensions::
+To create an array slice, use the following syntax, where the number of indices is less than the array dimensions::
 
     # returns an 1d array slice representing a row of the 2d array
     row = input[i]
 
 Slice operators can be concatenated, e.g.: ``s = array[i][j][k]``. Slices can be passed to ``wp.func`` user functions provided
-the function also declares the expected array dimension. Currently only single-index slicing is supported.
-
-.. note::
-    Currently Warp limits arrays to 4 dimensions maximum. This is in addition to the contained datatype, which may be 1-2 dimensional for vector and matrix types such as ``vec3``, and ``mat33``.
-
+the function also declares the expected array dimension. Currently, only single-index slicing is supported.
 
 The following construction methods are provided for allocating zero-initialized and empty (non-initialized) arrays:
 
@@ -157,29 +183,7 @@ The following construction methods are provided for allocating zero-initialized 
 .. autofunction:: copy
 .. autofunction:: clone
 
-Matrix Multiplication
-#####################
-
-Warp 2D array multiplication is built on NVIDIA's `CUTLASS <https://github.com/NVIDIA/cutlass>`_ library,
-which enables fast matrix multiplication of large arrays on the GPU.
-
-If no GPU is detected, matrix multiplication falls back to Numpy's implementation on the CPU.
-
-Matrix multiplication is fully differentiable, and can be recorded on the tape like so::
-
-    tape = wp.Tape()
-    with tape:
-        wp.matmul(A, B, C, D)
-        wp.launch(loss_kernel, dim=(m, n), inputs=[D, loss])
-
-    tape.backward(loss=loss)
-    A_grad = A.grad.numpy()
-
-Using the ``@`` operator (``D = A @ B``) will default to the same CUTLASS algorithm used in ``wp.matmul``.
-
-.. autofunction:: matmul
-
-.. autofunction:: batched_matmul
+.. _Data_Types:
 
 Data Types
 ----------
@@ -565,10 +569,12 @@ An array of structs can also be initialized from a list of struct objects::
 Example: Using a struct in gradient computation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. code:: python
+.. testcode::
 
     import numpy as np
+
     import warp as wp
+
 
     @wp.struct
     class TestStruct:
@@ -576,11 +582,13 @@ Example: Using a struct in gradient computation
         a: wp.array(dtype=wp.vec3)
         b: wp.array(dtype=wp.vec3)
 
+
     @wp.kernel
     def test_kernel(s: TestStruct):
         tid = wp.tid()
 
         s.b[tid] = s.a[tid] + s.x
+
 
     @wp.kernel
     def loss_kernel(s: TestStruct, loss: wp.array(dtype=float)):
@@ -588,6 +596,7 @@ Example: Using a struct in gradient computation
 
         v = s.b[tid]
         wp.atomic_add(loss, 0, float(tid + 1) * (v[0] + 2.0 * v[1] + 3.0 * v[2]))
+
 
     # create struct
     ts = TestStruct()
@@ -609,6 +618,52 @@ Example: Using a struct in gradient computation
     print(loss)
     print(ts.a)
 
+.. testoutput::
+
+    [120.]
+    [[1. 2. 3.]
+     [4. 5. 6.]]
+
+Example: Defining Operator Overloads
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code:: python
+
+    @wp.struct
+    class Complex:
+        real: float
+        imag: float
+
+    @wp.func
+    def add(
+        a: Complex,
+        b: Complex,
+    ) -> Complex:
+        return Complex(a.real + b.real, a.imag + b.imag)
+
+    @wp.func
+    def mul(
+        a: Complex,
+        b: Complex,
+    ) -> Complex:
+        return Complex(
+            a.real * b.real - a.imag * b.imag,
+            a.real * b.imag + a.imag * b.real,
+        )
+
+    @wp.kernel
+    def kernel():
+        a = Complex(1.0, 2.0)
+        b = Complex(3.0, 4.0)
+
+        c = a + b
+        wp.printf("%.0f %+.0fi\n", c.real, c.imag)
+
+        d = a * b
+        wp.printf("%.0f %+.0fi\n", d.real, d.imag)
+
+    wp.launch(kernel, dim=(1,))
+    wp.synchronize()
 
 Type Conversions
 ################
@@ -617,13 +672,19 @@ Warp is particularly strict regarding type conversions and does not perform *any
 The user is responsible for ensuring types for most arithmetic operators match, e.g.: ``x = float(0.0) + int(4)`` will result in an error.
 This can be surprising for users that are accustomed to C-style conversions but avoids a class of common bugs that result from implicit conversions.
 
-.. note::
-    Warp does not currently perform implicit type conversions between numeric types.
-    Users should explicitly cast variables to compatible types using constructors like
-    ``int()``, ``float()``, ``wp.float16()``, ``wp.uint8()``, etc.
+Users should explicitly cast variables to compatible types using constructors like
+``int()``, ``float()``, ``wp.float16()``, ``wp.uint8()``, etc.
 
 .. note::
-    For performance reasons, Warp relies on native compilers to perform numeric conversions (e.g., LLVM for CPU and NVRTC for CUDA).  This is generally not a problem, but in some cases the results may vary on different devices.  For example, the conversion ``wp.uint8(-1.0)`` results in undefined behavior, since the floating point value -1.0 is out of range for unsigned integer types.  C++ compilers are free to handle such cases as they see fit.  Numeric conversions are only guaranteed to produce correct results when the value being converted is in the range supported by the target data type.
+
+    For performance reasons, Warp relies on native compilers to perform numeric conversions (e.g., LLVM for CPU and NVRTC for CUDA).
+    This is generally not a problem, but in some cases the results may vary on different devices.
+    For example, the conversion ``wp.uint8(-1.0)`` results in undefined behavior, since the floating point value -1.0
+    is out of range for unsigned integer types.
+
+    C++ compilers are free to handle such cases as they see fit.
+    Numeric conversions are only guaranteed to produce correct results when the value being converted is in the range
+    supported by the target data type.
 
 Constants
 ---------
@@ -743,6 +804,8 @@ Arithmetic Operators
 +-----------+--------------------------+
 |  a * b    | Multiplication           |
 +-----------+--------------------------+
+|  a @ b    | Matrix multiplication    |
++-----------+--------------------------+
 |  a / b    | Floating point division  |
 +-----------+--------------------------+
 |  a // b   | Floored division         |
@@ -752,11 +815,13 @@ Arithmetic Operators
 |  a % b    | Modulus                  |
 +-----------+--------------------------+
 
-.. note::
-    Since implicit conversions are not performed arguments types to operators should match.
-    Users should use type constructors, e.g.: ``float()``, ``int()``, ``wp.int64()``, etc. to cast variables
-    to the correct type. Also note that the multiplication expression ``a * b`` is used to represent scalar
-    multiplication and matrix multiplication. The ``@`` operator is not currently supported.
+
+Since Warp does not perform implicit type conversions, operands should have compatible data types.
+Users should use type constructors such as ``float()``, ``int()``, ``wp.int64()``, etc. to cast variables
+to the correct type.
+
+The multiplication expression ``a * b`` can also be used to perform matrix multiplication
+between `matrix types <Matrices>`_.
 
 Streams
 -------
@@ -793,6 +858,8 @@ information on how to use events for measuring GPU performance.
 .. autofunction:: wait_event
 .. autofunction:: synchronize_event
 .. autofunction:: get_event_elapsed_time
+
+.. _graphs:
 
 Graphs
 -----------
@@ -837,8 +904,9 @@ ensure that :func:`wp.capture_end <capture_end>` is called regardless of excepti
 
     wp.capture_launch(capture.graph)
 
-Note that only launch calls are recorded in the graph, any Python executed outside of the kernel code will not be recorded.
-Typically it is only beneficial to use CUDA graphs when the graph will be reused or launched multiple times.
+Note that only launch calls are recorded in the graph; any Python executed outside of the kernel code will not be recorded.
+Typically it is only beneficial to use CUDA graphs when the graph will be reused or launched multiple times, as
+there is a graph-creation overhead.
 
 .. autofunction:: capture_begin
 .. autofunction:: capture_end
@@ -850,15 +918,15 @@ Typically it is only beneficial to use CUDA graphs when the graph will be reused
 Meshes
 ------
 
-Warp provides a ``wp.Mesh`` class to manage triangle mesh data. To create a mesh users provide a points, indices and optionally a velocity array::
+Warp provides a :class:`wp.Mesh <Mesh>` class to manage triangle mesh data. To create a mesh, users provide a points, indices and optionally a velocity array::
 
     mesh = wp.Mesh(points, indices, velocities)
 
 .. note::
     Mesh objects maintain references to their input geometry buffers. All buffers should live on the same device.
 
-Meshes can be passed to kernels using their ``id`` attribute which uniquely identifies the mesh by a unique ``uint64`` value.
-Once inside a kernel you can perform geometric queries against the mesh such as ray-casts or closest point lookups::
+Meshes can be passed to kernels using their ``id`` attribute, which is ``uint64`` value that uniquely identifies the mesh.
+Once inside a kernel, you can perform geometric queries against the mesh such as ray-casts or closest-point lookups::
 
     @wp.kernel
     def raycast(mesh: wp.uint64,
@@ -887,7 +955,8 @@ Once inside a kernel you can perform geometric queries against the mesh such as 
 
 
 Users may update mesh vertex positions at runtime simply by modifying the points buffer.
-After modifying point locations users should call ``Mesh.refit()`` to rebuild the bounding volume hierarchy (BVH) structure and ensure that queries work correctly.
+After modifying point locations users should call :meth:`Mesh.refit()` to rebuild the bounding volume hierarchy (BVH)
+structure and ensure that queries work correctly.
 
 .. note::
     Updating Mesh topology (indices) at runtime is not currently supported. Users should instead recreate a new Mesh object.
@@ -1030,7 +1099,7 @@ to values in arbitrarily shaped arrays::
         f = wp.volume_sample_index(volume, q, wp.Volume.LINEAR, voxel_values, background_value)
 
 The coordinates of all indexable voxels can be recovered using :func:`get_voxels() <warp.Volume.get_voxels>`.
-NanoVDB grids may also contains embedded *blind* data arrays; those can be accessed with the 
+NanoVDB grids may also contain embedded *blind* data arrays; those can be accessed with the 
 :func:`feature_array() <warp.Volume.feature_array>` function.
 
 .. autoclass:: Volume
@@ -1175,3 +1244,45 @@ See :doc:`../profiling` documentation for more information.
 
 .. autoclass:: warp.ScopedTimer
     :noindex:
+
+Interprocess Communication (IPC)
+--------------------------------
+
+Interprocess communication can be used to share Warp arrays and events across
+processes without creating copies of the underlying data.
+
+Some basic requirements for using IPC include:
+
+* Linux operating system (note however that integrated devices like NVIDIA
+  Jetson do not support CUDA IPC)
+* The array must be allocated on a GPU device using the default memory allocator (see :doc:`allocators`)
+
+  The ``wp.ScopedMempool`` context manager is useful for temporarily disabling
+  memory pools for the purpose of allocating arrays that can be shared using IPC.
+
+Support for IPC on a device is indicated by the :attr:`is_ipc_supported <warp.context.Device.is_ipc_supported>`
+attribute of the :class:`Device <warp.context.Device>`. If the Warp library has
+been compiled with CUDA 11, this device attribute will be ``None`` to indicate
+that IPC support could not be determined using the CUDA API.
+
+To share a Warp array between processes, use :meth:`array.ipc_handle` in the
+originating process to obtain an IPC handle for the array's memory allocation.
+The handle is a ``bytes`` object with a length of 64.
+The IPC handle along with information about the array (data type, shape, and
+optionally strides) should be shared with another process, e.g. via shared
+memory or files.
+Another process can use this information to import the original array by
+calling :func:`from_ipc_handle`.
+
+Events can be shared in a similar manner, but they must be constructed with
+``interprocess=True``. Additionally, events cannot be created with both
+``interprocess=True`` and ``enable_timing=True``. Use :meth:`Event.ipc_handle`
+in the originating process to obtain an IPC handle for the event. Another
+process can use this information to import the original event by calling
+:func:`event_from_ipc_handle`.
+
+
+
+.. autofunction:: from_ipc_handle
+
+.. autofunction:: event_from_ipc_handle

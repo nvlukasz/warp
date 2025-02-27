@@ -11,6 +11,28 @@ The easiest way to install Warp is from `PyPI <https://pypi.org/project/warp-lan
 
 .. _GitHub Installation:
 
+Nightly Builds
+--------------
+
+Nightly builds of Warp from the ``main`` branch are available on the `NVIDIA Package Index <https://pypi.nvidia.com/warp-lang/>`_.
+
+To install the latest nightly build, use the following command:
+
+.. code-block:: sh
+
+    $ pip install -U --pre warp-lang --extra-index-url=https://pypi.nvidia.com/
+
+Note that the nightly builds are built with the CUDA 12 runtime and are not published for macOS.
+
+If you plan to install nightly builds regularly, you can simplify future installations by adding NVIDIA's package
+repository as an extra index via the ``PIP_EXTRA_INDEX_URL`` environment variable. For example:
+
+.. code-block:: text
+
+    export PIP_EXTRA_INDEX_URL="https://pypi.nvidia.com"
+
+This ensures the index is automatically used for ``pip`` commands, avoiding the need to specify it explicitly.
+
 Installing from GitHub Releases
 -------------------------------
 
@@ -25,11 +47,11 @@ the ``pip install`` command, e.g.
    * - Platform
      - Install Command
    * - Linux aarch64
-     - ``pip install https://github.com/NVIDIA/warp/releases/download/v1.4.1/warp_lang-1.4.1+cu11-py3-none-manylinux2014_aarch64.whl``
+     - ``pip install https://github.com/NVIDIA/warp/releases/download/v1.6.0/warp_lang-1.6.0+cu11-py3-none-manylinux2014_aarch64.whl``
    * - Linux x86-64
-     - ``pip install https://github.com/NVIDIA/warp/releases/download/v1.4.1/warp_lang-1.4.1+cu11-py3-none-manylinux2014_x86_64.whl``
+     - ``pip install https://github.com/NVIDIA/warp/releases/download/v1.6.0/warp_lang-1.6.0+cu11-py3-none-manylinux2014_x86_64.whl``
    * - Windows x86-64
-     - ``pip install https://github.com/NVIDIA/warp/releases/download/v1.4.1/warp_lang-1.4.1+cu11-py3-none-win_amd64.whl``
+     - ``pip install https://github.com/NVIDIA/warp/releases/download/v1.6.0/warp_lang-1.6.0+cu11-py3-none-win_amd64.whl``
 
 The ``--force-reinstall`` option may need to be used to overwrite a previous installation.
 
@@ -67,7 +89,7 @@ To remedy the situation there are a few options:
 Dependencies
 ------------
 
-Warp supports Python versions 3.7 onwards, with 3.9 or newer recommended for full functionality. Note that :ref:`some optional dependencies may not support the latest version of Python<conda>`.
+Warp supports Python versions 3.8 onwards, with 3.9 or newer recommended for full functionality. Note that :ref:`some optional dependencies may not support the latest version of Python<conda>`.
 
 `NumPy <https://numpy.org>`_ must be installed.
 
@@ -78,12 +100,6 @@ The following optional dependencies are required to support certain features:
 * `PyTorch <https://pytorch.org/get-started/locally/>`_: Required for PyTorch interoperability (see :ref:`pytorch-interop`).
 * `Paddle <https://github.com/PaddlePaddle/Paddle>`_: Required for Paddle interoperability (see :ref:`paddle-interop`).
 * `NVTX for Python <https://github.com/NVIDIA/NVTX#python>`_: Required to use :class:`wp.ScopedTimer(use_nvtx=True) <warp.ScopedTimer>`.
-
-Building the Warp documentation requires:
-
-* `Sphinx <https://www.sphinx-doc.org>`_
-* `Furo <https://github.com/pradyunsg/furo>`_
-* `Sphinx-copybutton <https://sphinx-copybutton.readthedocs.io/en/latest/index.html>`_
 
 Building from Source
 --------------------

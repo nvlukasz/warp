@@ -24,14 +24,17 @@ from .geometry import (
     LinearGeometryPartition,
     Nanogrid,
     Quadmesh2D,
+    Quadmesh3D,
     Tetmesh,
     Trimesh2D,
+    Trimesh3D,
 )
 from .integrate import integrate, interpolate
 from .operator import (
     D,
     at_node,
     average,
+    cells,
     curl,
     deformation_gradient,
     degree,
@@ -50,6 +53,9 @@ from .operator import (
     normal,
     outer,
     position,
+    to_cell_side,
+    to_inner_cell,
+    to_outer_cell,
 )
 from .polynomial import Polynomial
 from .quadrature import ExplicitQuadrature, NodalQuadrature, PicQuadrature, Quadrature, RegularQuadrature
@@ -65,9 +71,21 @@ from .space import (
     SpaceTopology,
     SymmetricTensorMapper,
     make_collocated_function_space,
+    make_contravariant_function_space,
+    make_covariant_function_space,
     make_polynomial_basis_space,
     make_polynomial_space,
     make_space_partition,
     make_space_restriction,
 )
-from .types import NULL_ELEMENT_INDEX, Coords, Domain, ElementIndex, Field, Sample, make_free_sample
+from .types import (
+    NULL_ELEMENT_INDEX,
+    NULL_QP_INDEX,
+    Coords,
+    Domain,
+    ElementIndex,
+    Field,
+    QuadraturePointIndex,
+    Sample,
+    make_free_sample,
+)
