@@ -2867,7 +2867,6 @@ size_t cuda_compile_program(const char* cuda_src, const char* program_name, int 
             return size_t(1);
         }
     }
-     opts.push_back("-default-device");
 
     opts.push_back("-I");
     opts.push_back(include_dir);
