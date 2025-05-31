@@ -708,10 +708,6 @@ class Var:
                     return Var.type_to_ctype(t.value_type) + "*"
             else:
                 return Var.type_to_ctype(t.value_type)
-        # elif hasattr(t, "_wp_generic_type_str_"):
-        #     return compute_type_str(f"wp::{t._wp_generic_type_str_}", t._wp_type_params_)
-        # elif t.__name__ in ("bool", "int", "float"):
-        #     return t.__name__
         # !!!
         elif warp.types.type_is_external(t):
             type_info = warp.types._custom_types[t]
