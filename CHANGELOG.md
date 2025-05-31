@@ -4,54 +4,265 @@
 
 ### Added
 
-- Added support for vec4f grid construction in `wp.Volume.allocate_by_tiles()`
+- Add support for dynamic control flow in CUDA graphs, see `wp.capture_if()` and `wp.capture_while()`
+  ([GH-597](https://github.com/NVIDIA/warp/issues/597)).
+- Add the `Device.sm_count` property to get the number of streaming multiprocessors on a CUDA device
+  ([GH-584](https://github.com/NVIDIA/warp/issues/584)).
+- Add support for profiling GPU runtime module compilation using the global `wp.config.compile_time_trace`
+  setting or the module-level `"compile_time_trace"` option. When used, JSON files in the Trace Event
+  format will be written in the kernel cache, which can be opened in a viewer like `chrome://tracing/`
+  ([GH-609](https://github.com/NVIDIA/warp/issues/609)).
+- Add `wp.tile_squeeze()` ([GH-662](https://github.com/NVIDIA/warp/issues/662)).
+- Add `wp.tile_reshape()` ([GH-663](https://github.com/NVIDIA/warp/issues/663)).
+- Support in-place tile add and subtract operations ([GH-518](https://github.com/NVIDIA/warp/issues/518)).
+- Support in-place tile-component addition and subtraction ([GH-659](https://github.com/NVIDIA/warp/issues/659)).
+- Add adjoint method for tile `assign` operations ([GH-680](https://github.com/NVIDIA/warp/issues/680)).
+- Add support for returning multiple values from native functions like `wp.svd3()` and `wp.quat_to_axis_angle()`
+  ([GH-503](https://github.com/NVIDIA/warp/issues/503)).
+- Support attribute indexing for quaternions on the right-hand side of expressions
+  ([GH-625](https://github.com/NVIDIA/warp/issues/625))
+- Add `transform_compose` and `transform_decompose` math functions for converting between transforms and 4x4 matrices
+  with 3D scale information ([GH-576](https://github.com/NVIDIA/warp/issues/576)).
+- Add a parameter `as_spheres` to `UsdRenderer.render_points()` in order to choose whether to render
+- Add `wp.block_dim()` which allows to query the block dim in kernel code ([GH-695](https://github.com/NVIDIA/warp/issues/695))
+  the points as USD spheres using a point instancer or as simple USD points.
+- Support passing tiles to user `wp.func` functions ([GH-682](https://github.com/NVIDIA/warp/issues/682)).
+- Add support for animating visibility of objects in the USD renderer
+  ([GH-598](https://github.com/NVIDIA/warp/issues/598)).
+- Add `wp.sim.VBDIntegrator.rebuild_bvh()`, which rebuilds the BVH used for detecting self contacts.
+- Improved consistency of `warp.fem.lookup()` operator across geometries ([GH-618](https://github.com/NVIDIA/warp/pull/618)), added filtering parameters.
+- Add `wp.tile_astype()` to return a new tile with the same data but different data type. ([GH-683](https://github.com/NVIDIA/warp/issues/683)).
+- Add a [publications list](https://github.com/NVIDIA/warp/blob/main/PUBLICATIONS.md) of academic and research projects
+  leveraging Warp ([GH-686](https://github.com/NVIDIA/warp/issues/686)).
+- Add `wp.map()` function to map a function over arrays, add math operators for Warp arrays ([GH-694](https://github.com/NVIDIA/warp/issues/694)).
+- Add various `wp.transform` syntax operations for loading and storing ([GH-710](https://github.com/NVIDIA/warp/issues/710)).
+
+### Removed
+
+- Remove `wp.mlp()` (deprecated in v1.6.0). Use tile primitives instead.
+- Remove `wp.autograd.plot_kernel_jacobians()` (deprecated in v1.4.0). Use `wp.autograd.jacobian_plot()` instead.
+- Document the fact that `+=` and `-=` invoke `wp.atomic_add()` and `wp.atomic_sub()`, respectively ([GH-505](https://github.com/NVIDIA/warp/issues/505)).
+
+### Changed
+
+- Deprecate the `wp.matrix(pos, quat, scale)` built-in function. Use `wp.transform_compose()` instead
+  ([GH-576](https://github.com/NVIDIA/warp/issues/576)).
+- Change rigid-body-contact handling in `wp.sim.VBDIntegrator` to use only the shape's friction coefficient instead of
+  averaging the shape's and the cloth's coefficients.
+- Add damping terms for collisions in `wp.sim.VBDIntegrator`, whose strength is controlled by `Model.soft_contact_kd`.
+- Exposed new `warp.fem` operators: `node_count`, `node_index`, `element_coordinates`, `element_closest_point`.
+- Inform about class inheritance not being supported for `wp.struct`
+  ([GH-656](https://github.com/NVIDIA/warp/issues/656)).
+- Warn when an incompatible data type conversion is detected when constructing an array using the
+  `__cuda_array_interface__` ([GH-624](https://github.com/NVIDIA/warp/issues/624),
+  [GH-670](https://github.com/NVIDIA/warp/issues/670)).
+- Improve support for tuples in kernels
+  ([GH-506](https://github.com/NVIDIA/warp/issues/506)).
+- Return a constant value from `len()` where possible.
+- Rename the internal function `wp.types.type_length()` to `type_size()`.
+- Lift the exact version requirement in `omni.warp` towards `omni.warp.core`
+  ([GH-702](https://github.com/NVIDIA/warp/issues/702)).
+- Rename the “Kernel Reference” documentation page to “Built-Ins Reference”, with each built-in now having
+  annotations to denote whether they are accessible only from the kernel scope or also from the Python runtime scope
+  ([GH-532](https://github.com/NVIDIA/warp/issues/532)).
+- Re-name `wp.tile_cholesky_solve` input parameters to align with docstring.
+  ([GH-726](https://github.com/NVIDIA/warp/issues/726)).
+- Remove `length` and `owner` keywords from `wp.array()` constructor (deprecated in v1.6.0). Use the `deleter` and
+  `shape` keywords instead.
+- Remove `length` and `owner` keyword arguments from `wp.array()` constructor (deprecated in v1.6.0).
+  Use the `deleter` and `shape` keywords instead.
+- Remove `kernel` keyword argument from `wp.autograd.jacobian()` and `wp.autograd.jacobian_fd()` (deprecated in v1.6.0).
+  Use the `function` keyword argument instead.
+- Remove `outputs` keyword argument from `wp.autograd.jacobian_plot()` (deprecated in v1.6.0).
+- Skip adjoint compilation for `wp.tile_matmul()` if `enable_backward` is disabled
+  ([GH-644](https://github.com/NVIDIA/warp/issues/644)).
+- `warp.sparse.bsr_[set_]from_triplets` is now differentiable with respect to the input triplet values ([GH-760](https://github.com/NVIDIA/warp/issues/760)).
+
+### Fixed
+
+- Fix preserving base class of nested struct attributes ([GH-574](https://github.com/NVIDIA/warp/issues/574)).
+- Allow recovering from out-of-memory errors during Volume allocation ([GH-611](https://github.com/NVIDIA/warp/issues/611)).
+- Address `wp.tile_atomic_add()` compiler errors ([GH-681](https://github.com/NVIDIA/warp/issues/681)).
+- Fix the `Formal parameter space overflowed` error when compiling the `wp.sim.VBDIntegrator` kernels for the backward
+  pass in CUDA 11 Warp builds. This is done by decoupling the collision evaluation and elasticity evaluations to
+  separate kernels, which also increases the parallelism of the collision handling and speeds up the solver
+  ([GH-442](https://github.com/NVIDIA/warp/issues/442)).
+- Fix `UsdRenderer.render_points()` not supporting multiple colors
+  ([GH-634](https://github.com/NVIDIA/warp/issues/634)).
+- Fix assembly of rigid body inertia in `ModelBuilder.collapse_fixed_joints()`
+  ([GH-631](https://github.com/NVIDIA/warp/issues/631)).
+- Fix `OpenGLRenderer.update_shape_instance()` not having color buffers created for the shape instances.
+- Fix 2D tile load when source array and tile have incompatible strides
+  ([GH-688](https://github.com/NVIDIA/warp/issues/688)).
+- Fixed inconsistency in orientation of 2D geometry side normals ([GH-629](https://github.com/NVIDIA/warp/issues/629)).
+- Fixed `wp.svd2()` with duplicate singular values and improved accuracy ([GH-679](https://github.com/NVIDIA/warp/issues/679)).
+- Fix text rendering in OpenGLRenderer ([GH-704](https://github.com/NVIDIA/warp/issues/629)).
+- Fixed tile type tool tips ([GH-714](https://github.com/NVIDIA/warp/issues/714))
+- Fix an issue with graph coloring on an empty graph ([GH-509](https://github.com/NVIDIA/warp/issues/509)).
+- Fix an integer overflow bug in the native graph coloring module ([GH-718](https://github.com/NVIDIA/warp/issues/718)).
+- Fix missing documentation for geometric structs ([GH-674](https://github.com/NVIDIA/warp/issues/674)).
+- Fix an issue where arrays stored in structs could be garbage collected without updating the struct ctype ([GH-720](https://github.com/NVIDIA/warp/issues/720)).
+- Fix `UsdRenderer.render_points()` erroring out when passed 4 points or less
+  ([GH-708](https://github.com/NVIDIA/warp/issues/708)).
+- Fix incorrect stride initialization in tiles returned from functions taking transposed tiles as input ([GH-722](https://github.com/NVIDIA/warp/issues/722)).
+- Fix garbage collection issues with JAX FFI callbacks ([GH-711](https://github.com/NVIDIA/warp/pull/711)).
+- Fix `wp.atomic_*()` built-ins not working with some types
+  ([GH-733](https://github.com/NVIDIA/warp/issues/733)).
+- Fix a performance regression related to kernel launches
+  ([GH-765](https://github.com/NVIDIA/warp/issues/765)).
+
+## [1.7.1] - 2025-04-30
+
+### Added
+
+- Add example of a distributed Jacobi solver using `mpi4py` in `warp/examples/distributed/example_jacobi_mpi.py`
+  ([GH-475](https://github.com/NVIDIA/warp/issues/475)).
+
+### Changed
+
+- Improve `repr()` for Warp types, including adding `repr()` for `wp.array`.
+- Change the USD renderer to use `framesPerSecond` for time sampling instead of `timeCodesPerSecond`
+  to avoid playback speed issues in some viewers ([GH-617](https://github.com/NVIDIA/warp/issues/617)).
+- `Model.rigid_contact_tids` are now -1 at non-active contact indices which allows to retrieve the vertex index of a
+  mesh collision, see `test_collision.py` ([GH-623](https://github.com/NVIDIA/warp/issues/623)).
+- Improve handling of deprecated JAX features ([GH-613](https://github.com/NVIDIA/warp/pull/613)).
+
+### Fixed
+
+- Fix a code generation bug involving return statements in Warp kernels, which could result in some threads in Warp
+  being skipped when processed on the GPU ([GH-594](https://github.com/NVIDIA/warp/issues/594)).
+- Fix constructing `DeformedGeometry` from `wp.fem.Trimesh3D` geometries
+  ([GH-614](https://github.com/NVIDIA/warp/issues/614)).
+- Fix `lookup` operator for `wp.fem.Trimesh3D` ([GH-618](https://github.com/NVIDIA/warp/issues/618)).
+- Include the block dimension in the LTO file hash for the Cholesky solver
+  ([GH-639](https://github.com/NVIDIA/warp/issues/639)).
+- Fix tile loads for small tiles with aligned source memory ([GH-622](https://github.com/NVIDIA/warp/issues/622)).
+- Fix length/shape matching for vectors and matrices from the Python scope.
+- Fix the `dtype` parameter missing for `wp.quaternion()`.
+- Fix invalid `dtype` comparison when using the `wp.matrix()`/`wp.vector()`/`wp.quaternion()` constructors
+  with literal values and an explicit `dtype` argument ([GH-651](https://github.com/NVIDIA/warp/issues/651)).
+- Fix incorrect thread index lookup for the backward pass of `wp.sim.collide()`
+  ([GH-459](https://github.com/NVIDIA/warp/issues/459)).
+- Fix a bug where `wp.sim.ModelBuilder` adds springs with -1 as vertex indices
+  ([GH-621](https://github.com/NVIDIA/warp/issues/621)).
+- Fix center of mass, inertia computation for mesh shapes ([GH-251](https://github.com/NVIDIA/warp/issues/251)).
+- Fix computation of body center of mass to account for shape orientation
+  ([GH-648](https://github.com/NVIDIA/warp/issues/648)).
+- Fix `show_joints` not working with `wp.sim.render.SimRenderer` set to render to USD
+  ([GH-510](https://github.com/NVIDIA/warp/issues/510)).
+- Fix the jitter for the `OgnParticlesFromMesh` node not being computed correctly.
+- Fix documentation of `atol` and `rtol` arguments to `wp.autograd.gradcheck()` and `wp.autograd.gradcheck_tape()`
+  ([GH-508](https://github.com/NVIDIA/warp/issues/508)).
+- Fix an issue where the position of a fixed particle is not copied to the output state ([GH-627](https://github.com/NVIDIA/warp/issues/627)).
+
+## [1.7.0] - 2025-03-30
+
+### Added
+
+- Support JAX foreign function interface (FFI)
+  ([docs](https://nvidia.github.io/warp/modules/interoperability.html#jax-foreign-function-interface-ffi),
+  [GH-511](https://github.com/NVIDIA/warp/issues/511)).
+- Support Python/SASS correlation in Nsight Compute reports by emitting `#line` directives in CUDA-C code.
+  This setting is controlled by `wp.config.line_directives` and is `True` by default.
+  ([docs](https://nvidia.github.io/warp/profiling.html#nsight-compute-profiling),
+   [GH-437](https://github.com/NVIDIA/warp/issues/437))
+- Support `vec4f` grid construction in `wp.Volume.allocate_by_tiles()`.
+- Add 2D SVD `wp.svd2()` ([GH-436](https://github.com/NVIDIA/warp/issues/436)).
+- Add `wp.randu()` for random `uint32` generation.
+- Add matrix construction functions `wp.matrix_from_cols()` and `wp.matrix_from_rows()`
+  ([GH-278](https://github.com/NVIDIA/warp/issues/278)).
+- Add `wp.transform_from_matrix()` to obtain a transform from a 4x4 matrix
+  ([GH-211](https://github.com/NVIDIA/warp/issues/211)).
+- Add `wp.where()` to select between two arguments conditionally using a
+  more intuitive argument order (`cond`, `value_if_true`, `value_if_false`)
+  ([GH-469](https://github.com/NVIDIA/warp/issues/469)).
 - Add `wp.get_mempool_used_mem_current()` and `wp.get_mempool_used_mem_high()` to
   query the respective current and high-water mark memory pool allocator usage.
   ([GH-446](https://github.com/NVIDIA/warp/issues/446)).
-- Add 2D SVD `svd2` to support 2d simulations ([GH-436](https://github.com/NVIDIA/warp/issues/436)).
-- Add JAX FFI support ([GH-511](https://github.com/NVIDIA/warp/issues/511)).
-- Add `Launch` object support for to storing and replaying adjoint kernel launches
-  ([GH-449](https://github.com/NVIDIA/warp/issues/449)).
-- Add [documentation](https://nvidia.github.io/warp/modules/runtime.html#launch-objects) for `Launch` objects
-  ([GH-428](https://github.com/NVIDIA/warp/issues/428)).
-- Add Array Overwrites section to Differentiability documentation ([docs](https://nvidia.github.io/warp/modules/differentiability.html#array-overwrites)).
-- Add `wp.randu()` for random uint32 generation.
-- Add `wp.matrix_from_cols()` and `wp.matrix_from_rows()` ([GH-728](https://github.com/NVIDIA/warp/issues/278)).
-- Add a `wp.transform_from_matrix()` built-in ([GH-211](https://github.com/NVIDIA/warp/issues/211)).
+- Add `Stream.is_complete` and `Event.is_complete` properties to query completion status
+  ([GH-435](https://github.com/NVIDIA/warp/issues/435)).
+- Support timing events inside of CUDA graphs ([GH-556](https://github.com/NVIDIA/warp/issues/556)).
+- Add LTO cache to speed up compilation times for kernels using MathDx-based tile functions.
+  Use `wp.clear_lto_cache()` to clear the LTO cache ([GH-507](https://github.com/NVIDIA/warp/issues/507)).
+- Add example demonstrating gradient checkpointing for fluid optimization in
+  `warp/examples/optim/example_fluid_checkpoint.py`.
+- Add a hinge-angle-based bending force to `wp.sim.VBDIntegrator`.
+- Add an example to show mesh sampling using a CDF
+  ([GH-476](https://github.com/NVIDIA/warp/issues/476)).
 
 ### Changed
 
 - **Breaking:** Remove CUTLASS dependency and `wp.matmul()` functionality (including batched version).
-- `warp.fem.integrate()` and `warp.fem.integrate()` may now perform parallel evaluation of quadrature points within elements
-- `warp.fem.interpolate()` can now build Jacobian sparse matrices of interpolated functions with respect to a trial field
-- Vector/matrix/quaternion component assignment operations compile and run faster in the backward pass. Assignment should only happen once per component.
-- Multiple warp.sparse routines (`bsr_set_from_triplets`, `bsr_assign`, `bsr_axpy`, `bsr_mm`) now accept a `masked` flag to discard any non-zero not already present in the destination matrix
-- `warp.sparse.bsr_assign()` no longer requires source and destination block shapes to evenly divide each other
-- `warp.sim.Control` no longer has a `model` attribute ([GH-487](https://github.com/NVIDIA/warp/issues/487))..
-- `warp.sim.Control.reset()` now zeros-out the controls and is deprecated. Use `warp.sim.Control.clear()` instead.
-- `warp.sparse.bsr_assign()` now longer requires source and destination block shapes to evenly divide each other
+  Users should use tile primitives for matrix multiplication operations instead.
 - Deprecate constructing a matrix from vectors using `wp.matrix()`.
+- Deprecate `wp.select()` in favor of `wp.where()`. Users should update their code to use
+  `wp.where(cond, value_if_true, value_if_false)` instead of `wp.select(cond, value_if_false, value_if_true)`.
+- `wp.sim.Control` no longer has a `model` attribute ([GH-487](https://github.com/NVIDIA/warp/issues/487)).
+- `wp.sim.Control.reset()` is deprecated and now only zeros-out the controls (previously restored controls
+  to initial `model` state). Use `wp.sim.Control.clear()` instead.
+- Vector/matrix/quaternion component assignment operations (e.g., `v[0] = x`) now compile and run faster in the
+  backward pass. Note: For correct gradient computation, each component should only be assigned once.
+- `@wp.kernel` has now an optional `module` argument that allows passing a `wp.context.Module` to the kernel,
+  or, if set to `"unique"` let Warp create a new unique module just for this kernel.
+  The default behavior to use the current module is unchanged.
+- Default PTX architecture is now automatically determined by the devices present in the system,
+  ensuring optimal compatibility and performance ([GH-537](https://github.com/NVIDIA/warp/issues/537)).
+- Structs now have a trivial default constructor, allowing for `wp.tile_reduce()` on tiles with struct data types.
+- Extend `wp.tile_broadcast()` to support broadcasting to 1D, 3D, and 4D shapes (in addition to existing 2D support).
+- `wp.fem.integrate()` and `wp.fem.interpolate()` may now perform parallel evaluation of quadrature points within elements.
+- `wp.fem.interpolate()` can now build Jacobian sparse matrices of interpolated functions with respect to a trial field.
+- Multiple `wp.sparse` routines (`bsr_set_from_triplets`, `bsr_assign`, `bsr_axpy`, `bsr_mm`) now accept a `masked`
+  flag to discard any non-zero not already present in the destination matrix.
+- `wp.sparse.bsr_assign()` no longer requires source and destination block shapes to evenly divide each other.
 - Extend `wp.expect_near()` to support all vectors and quaternions.
 - Extend `wp.quat_from_matrix()` to support 4x4 matrices.
+- Update the `OgnClothSimulate` node to use the VBD integrator ([GH-512](https://github.com/NVIDIA/warp/issues/512)).
+- Remove the `globalScale` parameter from the `OgnClothSimulate` node.
 
 ### Fixed
 
+- Fix an out-of-bounds access bug caused by an unbalanced BVH tree ([GH-536](https://github.com/NVIDIA/warp/issues/536)).
+- Fix an error of incorrectly adding the offset to -1 elements in `edge_indices` when adding a ModelBuilder to another
+  ([GH-557](https://github.com/NVIDIA/warp/issues/557)).
+
+## [1.6.2] - 2025-03-07
+
+### Changed
+
+- Update project license from *NVIDIA Software License* to *Apache License, Version 2.0* (see `LICENSE.md`).
+
+## [1.6.1] - 2025-03-03
+
+### Added
+
+- Document `wp.Launch` objects ([docs](https://nvidia.github.io/warp/modules/runtime.html#launch-objects),
+  [GH-428](https://github.com/NVIDIA/warp/issues/428)).
+- Document how overwriting previously computed results can lead to incorrect gradients
+  ([docs](https://nvidia.github.io/warp/modules/differentiability.html#array-overwrites),
+  [GH-525](https://github.com/NVIDIA/warp/issues/525)).
+
+### Fixed
+
+- Fix unaligned loads with offset 2D tiles in `wp.tile_load()`.
+- Fix FP64 accuracy of thread-level matrix-matrix multiplications ([GH-489](https://github.com/NVIDIA/warp/issues/489)).
+- Fix `wp.array()` not initializing from arrays defining a CUDA array interface when the target device is CPU
+  ([GH-523](https://github.com/NVIDIA/warp/issues/523)).
+- Fix `wp.Launch` objects not storing and replaying adjoint kernel launches
+  ([GH-449](https://github.com/NVIDIA/warp/issues/449)).
+- Fix `wp.config.verify_autograd_array_access` failing to detect overwrites in generic Warp functions
+  ([GH-493](https://github.com/NVIDIA/warp/issues/493)).
 - Fix an error on Windows when closing an `OpenGLRenderer` app ([GH-488](https://github.com/NVIDIA/warp/issues/488)).
-- Fix per-vertex colors not being correctly written out to USD meshes when a constant color is being passed.
-- Fix rendering of arrows with different `up_axis`, `color` in `OpenGLRenderer` ([GH-448](https://github.com/NVIDIA/warp/issues/448)).
-- Fix fp64 accuracy of thread-level matrix-matrix multiplications ([GH-489](https://github.com/NVIDIA/warp/issues/489))
-- Fix an error causing `verify_autograd_array_access` config setting to fail to detect overwrites in generic Warp functions.
-- Fix an error in capturing the VBDIntegrator with CUDA graphs when `handle_self_contact` is enabled ([GH-441](https://github.com/NVIDIA/warp/issues/441)).
-- Fix `wp.randi()` documentation to show correct output range of `[-2^31, 2^31)`.
-- Fix `wp.array()` not initializing from arrays defining a CUDA array interface when the target device is CPU.
-- Fix for unaligned loads with offset 2D tiles in `wp.tile_load()`
-- 
+- Fix per-vertex colors not being correctly written out to USD meshes when a constant color is being passed
+  ([GH-480](https://github.com/NVIDIA/warp/issues/480)).
+- Fix an error in capturing the `wp.sim.VBDIntegrator` with CUDA graphs when `handle_self_contact` is enabled
+  ([GH-441](https://github.com/NVIDIA/warp/issues/441)).
 - Fix an error of AABB computation in `wp.collide.TriMeshCollisionDetector`.
 - Fix URDF-imported planar joints not being set with the intended `target_ke`, `target_kd`, and `mode` parameters
   ([GH-454](https://github.com/NVIDIA/warp/issues/454)).
-- Fix `ModelBuilder.add_builder()` to use correct offsets for `ModelBuilder.joint_parent` and `ModelBuilder.joint_child` ([GH-432](https://github.com/NVIDIA/warp/issues/432))
-- Fix incorrect contact point allocation resulting from `count_contact_points()` for box-sphere and box-capsule collisions.
-- Fix capsule error when using DLPack interop after `jax_kernel()` ([GH-547](https://github.com/NVIDIA/warp/issues/547)).
+- Fix `ModelBuilder.add_builder()` to use correct offsets for `ModelBuilder.joint_parent` and `ModelBuilder.joint_child`
+  ([GH-432](https://github.com/NVIDIA/warp/issues/432))
+- Fix underallocation of contact points for box–sphere and box–capsule collisions.
+- Fix `wp.randi()` documentation to show correct output range of `[-2^31, 2^31)`.
 
 ## [1.6.0] - 2025-02-03
 
@@ -62,7 +273,7 @@
 - Support for loading tiles from arrays whose shapes are not multiples of the tile dimensions.
   Out-of-bounds reads will be zero-filled and out-of-bounds writes will be skipped.
 - Support for higher-dimensional (up to 4D) tile shapes and memory operations.
-- Add intersection-free self-contact support in `wp.sim.VDBIntegrator` by passing `handle_self_contact=True`.
+- Add intersection-free self-contact support in `wp.sim.VBDIntegrator` by passing `handle_self_contact=True`.
   See `warp/examples/sim/example_cloth_self_contact.py` for a usage example.
 - Add functions `wp.norm_l1()`, `wp.norm_l2()`, `wp.norm_huber()`, `wp.norm_pseudo_huber()`, and `wp.smooth_normalize()`
   for vector types to a new `wp.math` module.
@@ -141,6 +352,7 @@
   `wp.sim.FeatherstoneIntegrator` ([GH-349](https://github.com/NVIDIA/warp/issues/349)).
 - Fix overload resolution of generic Warp functions with default arguments.
 - Fix rendering of arrows with different `up_axis`, `color` in `OpenGLRenderer` ([GH-448](https://github.com/NVIDIA/warp/issues/448)).
+- Fix bugs when converting `__cuda_array_interface__` arrays to Warp ([GH-763](https://github.com/NVIDIA/warp/issues/763)).
 
 ## [1.5.1] - 2025-01-02
 
@@ -1385,7 +1597,11 @@
 
 - Initial publish for alpha testing
 
-[Unreleased]: https://github.com/NVIDIA/warp/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/NVIDIA/warp/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/NVIDIA/warp/releases/tag/v1.7.1
+[1.7.0]: https://github.com/NVIDIA/warp/releases/tag/v1.7.0
+[1.6.2]: https://github.com/NVIDIA/warp/releases/tag/v1.6.2
+[1.6.1]: https://github.com/NVIDIA/warp/releases/tag/v1.6.1
 [1.6.0]: https://github.com/NVIDIA/warp/releases/tag/v1.6.0
 [1.5.1]: https://github.com/NVIDIA/warp/releases/tag/v1.5.1
 [1.5.0]: https://github.com/NVIDIA/warp/releases/tag/v1.5.0

@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from typing import Any, Optional
 
 import warp as wp
@@ -33,6 +48,9 @@ class SpacePartition:
         """Return the global function space indices for nodes in this partition"""
 
     def partition_arg_value(self, device):
+        pass
+
+    def fill_partition_arg(self, arg, device):
         pass
 
     @staticmethod
@@ -78,12 +96,15 @@ class WholeSpacePartition(SpacePartition):
     def partition_arg_value(self, device):
         return WholeSpacePartition.PartitionArg()
 
+    def fill_partition_arg(self, arg, device):
+        pass
+
     @wp.func
     def partition_node_index(args: Any, space_node_index: int):
         return space_node_index
 
     def __eq__(self, other: SpacePartition) -> bool:
-        return isinstance(other, SpacePartition) and self.space_topology == other.space_topology
+        return isinstance(other, WholeSpacePartition) and self.space_topology == other.space_topology
 
     @property
     def name(self) -> str:
@@ -145,8 +166,11 @@ class NodePartition(SpacePartition):
     @cache.cached_arg_value
     def partition_arg_value(self, device):
         arg = NodePartition.PartitionArg()
-        arg.space_to_partition = self._space_to_partition.array.to(device)
+        self.fill_partition_arg(arg, device)
         return arg
+
+    def fill_partition_arg(self, arg, device):
+        arg.space_to_partition = self._space_to_partition.array.to(device)
 
     @wp.func
     def partition_node_index(args: PartitionArg, space_node_index: int):

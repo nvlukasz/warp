@@ -1,9 +1,17 @@
-# Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import unittest
 
@@ -122,6 +130,54 @@ def test_bsr_from_triplets(test, device):
     )
     test.assertEqual(bsr.nnz, 0)
 
+    # test passing indices with wrong data ty[e]
+    rows = wp.array(rows.numpy().astype(float), dtype=float, device=device)
+    cols = wp.array(cols.numpy().astype(float), dtype=float, device=device)
+    with test.assertRaisesRegex(
+        TypeError,
+        r"Rows and columns arrays must be of type int32$",
+    ):
+        bsr_set_from_triplets(bsr, rows, cols, vals)
+
+
+def test_bsr_from_triplets_gradient(test, device):
+    rng = np.random.default_rng(123)
+
+    block_shape = (3, 3)
+    nrow = 2
+    ncol = 2
+
+    n = 4
+    rows = wp.array([1, 0, 0, 1], dtype=int, device=device)
+    cols = wp.array([0, 1, 0, 0], dtype=int, device=device)
+
+    vals = wp.array(
+        rng.random(size=(n, block_shape[0], block_shape[1])), dtype=wp.mat33, device=device, requires_grad=True
+    )
+
+    with wp.Tape() as tape:
+        mat = bsr_from_triplets(nrow, ncol, rows, cols, vals)
+
+    assert mat.nnz_sync() == 3
+
+    zero_block = np.zeros((3, 3))
+    ones_block = np.ones((3, 3))
+
+    mat.values.grad[0:1].fill_(1.0)
+    tape.backward()
+    assert_np_equal(vals.grad.numpy(), np.stack((zero_block, zero_block, ones_block, zero_block)))
+    tape.zero()
+
+    mat.values.grad[1:2].fill_(1.0)
+    tape.backward()
+    assert_np_equal(vals.grad.numpy(), np.stack((zero_block, ones_block, zero_block, zero_block)))
+    tape.zero()
+
+    mat.values.grad[2:3].fill_(1.0)
+    tape.backward()
+    assert_np_equal(vals.grad.numpy(), np.stack((ones_block, zero_block, zero_block, ones_block)))
+    tape.zero()
+
 
 def test_bsr_get_set_diag(test, device):
     rng = np.random.default_rng(123)
@@ -183,7 +239,7 @@ def test_bsr_get_set_diag(test, device):
     assert_np_equal(diag_bsr.values.numpy(), np.broadcast_to(np.eye(4), shape=(nrow, 4, 4)), tol=0.000001)
 
     diag_csr = bsr_identity(nrow, block_type=wp.float64, device=device)
-    assert np.all(diag_csr.values.numpy() == np.ones(nrow, dtype=float))
+    np.testing.assert_array_equal(diag_csr.values.numpy(), np.ones(nrow, dtype=float))
 
 
 def test_bsr_split_merge(test, device):
@@ -231,7 +287,7 @@ def test_bsr_split_merge(test, device):
 
     with test.assertRaisesRegex(
         ValueError,
-        "The requested block shape does not evenly divide the source matrix",
+        r"The requested block shape \(32, 32\) does not evenly divide the source matrix of total size \(16, 16\)",
     ):
         bsr_copy(bsr, block_shape=(32, 32))
 
@@ -551,6 +607,7 @@ add_function_test(TestSparse, "test_bsr_from_triplets", test_bsr_from_triplets, 
 add_function_test(TestSparse, "test_bsr_get_diag", test_bsr_get_set_diag, devices=devices)
 add_function_test(TestSparse, "test_bsr_split_merge", test_bsr_split_merge, devices=devices)
 add_function_test(TestSparse, "test_bsr_assign_masked", test_bsr_assign_masked, devices=devices)
+add_function_test(TestSparse, "test_bsr_from_triplets_gradient", test_bsr_from_triplets_gradient, devices=devices)
 
 add_function_test(TestSparse, "test_csr_transpose", make_test_bsr_transpose((1, 1), wp.float32), devices=devices)
 add_function_test(TestSparse, "test_bsr_transpose_1_3", make_test_bsr_transpose((1, 3), wp.float32), devices=devices)

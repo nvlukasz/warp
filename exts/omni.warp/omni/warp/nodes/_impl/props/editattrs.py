@@ -1,9 +1,17 @@
-# Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Property to edit the node attributes based on the kernel's parameters."""
 
@@ -71,14 +79,14 @@ def _remove_user_attribute_desc(
 def _get_attribute_creation_handler(state: _State) -> Callable:
     def fn(attr_desc: UserAttributeDesc):
         if any(attr_get_name(x) == attr_desc.name for x in state.layout.node.get_attributes()):
-            raise RuntimeError("The attribute '{}' already exists on the node.".format(attr_desc.name))
+            raise RuntimeError(f"The attribute '{attr_desc.name}' already exists on the node.")
 
         if attr_desc.array_format == ArrayAttributeFormat.RAW:
             attr_type = attr_desc.type
         elif attr_desc.array_format == ArrayAttributeFormat.BUNDLE:
             attr_type = ATTR_BUNDLE_TYPE
         else:
-            raise AssertionError("Unexpected array attribute format '{}'.".format(attr_desc.array_format))
+            raise AssertionError(f"Unexpected array attribute format '{attr_desc.array_format}'.")
 
         attr = og.Controller.create_attribute(
             state.layout.node,
@@ -87,7 +95,7 @@ def _get_attribute_creation_handler(state: _State) -> Callable:
             attr_desc.port_type,
         )
         if attr is None:
-            raise RuntimeError("Failed to create the attribute '{}'.".format(attr_desc.name))
+            raise RuntimeError(f"Failed to create the attribute '{attr_desc.name}'.")
 
         attr.is_optional_for_compute = attr_desc.optional
 

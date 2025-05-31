@@ -1,9 +1,18 @@
-/** Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
- * NVIDIA CORPORATION and its licensors retain all intellectual property
- * and proprietary rights in and to this software, related documentation
- * and any modifications thereto.  Any use, reproduction, disclosure or
- * distribution of this software and related documentation without an express
- * license agreement from NVIDIA CORPORATION is strictly prohibited.
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #pragma once
@@ -265,8 +274,32 @@ inline CUDA_CALLABLE quat_t<Type> add(const quat_t<Type>& a, const quat_t<Type>&
 template<typename Type>
 inline CUDA_CALLABLE quat_t<Type> sub(const quat_t<Type>& a, const quat_t<Type>& b)
 {
-    return quat_t<Type>(a.x-b.x, a.y-b.y, a.z-b.z, a.w-b.w);}
+    return quat_t<Type>(a.x-b.x, a.y-b.y, a.z-b.z, a.w-b.w);
+}
 
+template<typename Type>
+inline CUDA_CALLABLE quat_t<Type> operator - (const quat_t<Type>& q)
+{
+    return quat_t<Type>(-q.x, -q.y, -q.z, -q.w);
+}
+
+template<typename Type>
+CUDA_CALLABLE inline quat_t<Type> pos(const quat_t<Type>& q)
+{
+    return q;
+}
+
+template<typename Type>
+CUDA_CALLABLE inline quat_t<Type> neg(const quat_t<Type>& q)
+{
+    return -q;
+}
+
+template<typename Type>
+CUDA_CALLABLE inline void adj_neg(const quat_t<Type>& q, quat_t<Type>& adj_q, const quat_t<Type>& adj_ret)
+{
+    adj_q -= adj_ret;
+}
 
 template<typename Type>
 inline CUDA_CALLABLE quat_t<Type> mul(const quat_t<Type>& a, const quat_t<Type>& b)
@@ -289,7 +322,6 @@ inline CUDA_CALLABLE quat_t<Type> mul(Type s, const quat_t<Type>& a)
     return mul(a, s);
 }
 
-// division
 template<typename Type>
 inline CUDA_CALLABLE quat_t<Type> div(quat_t<Type> q, Type s)
 {
@@ -372,7 +404,7 @@ inline CUDA_CALLABLE mat_t<3,3,Type> quat_to_matrix(const quat_t<Type>& q)
 template<unsigned Rows, unsigned Cols, typename Type>
 inline CUDA_CALLABLE quat_t<Type> quat_from_matrix(const mat_t<Rows,Cols,Type>& m)
 {
-    static_assert((Rows == 3 && Cols == 3) || (Rows == 4 && Cols == 4));
+    static_assert((Rows == 3 && Cols == 3) || (Rows == 4 && Cols == 4), "Non-square matrix");
 
     const Type tr = m.data[0][0] + m.data[1][1] + m.data[2][2];
     Type x, y, z, w, h = Type(0);
@@ -1106,7 +1138,7 @@ inline CUDA_CALLABLE void adj_quat_to_matrix(const quat_t<Type>& q, quat_t<Type>
 template<unsigned Rows, unsigned Cols, typename Type>
 inline CUDA_CALLABLE void adj_quat_from_matrix(const mat_t<Rows,Cols,Type>& m, mat_t<Rows,Cols,Type>& adj_m, const quat_t<Type>& adj_ret)
 {
-    static_assert((Rows == 3 && Cols == 3) || (Rows == 4 && Cols == 4));
+    static_assert((Rows == 3 && Cols == 3) || (Rows == 4 && Cols == 4), "Non-square matrix");
 
     const Type tr = m.data[0][0] + m.data[1][1] + m.data[2][2];
     Type x, y, z, w, h = Type(0);
@@ -1348,8 +1380,9 @@ inline CUDA_CALLABLE void expect_near(const quat_t<Type>& actual, const quat_t<T
     if (diff > tolerance)
     {
         printf("Error, expect_near() failed with tolerance "); print(tolerance);
-        printf("\t Expected: "); print(expected);
-        printf("\t Actual: "); print(actual);
+        printf("    Expected: "); print(expected);
+        printf("    Actual: "); print(actual);
+        printf("    Max absolute difference: "); print(diff);
     }
 }
 

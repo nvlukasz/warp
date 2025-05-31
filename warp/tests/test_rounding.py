@@ -1,9 +1,17 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import unittest
 
@@ -39,41 +47,13 @@ def test_kernel(
 
 
 def test_rounding(test, device):
-    nx = np.array(
-        [
-            4.9,
-            4.5,
-            4.1,
-            3.9,
-            3.5,
-            3.1,
-            2.9,
-            2.5,
-            2.1,
-            1.9,
-            1.5,
-            1.1,
-            0.9,
-            0.5,
-            0.1,
-            -0.1,
-            -0.5,
-            -0.9,
-            -1.1,
-            -1.5,
-            -1.9,
-            -2.1,
-            -2.5,
-            -2.9,
-            -3.1,
-            -3.5,
-            -3.9,
-            -4.1,
-            -4.5,
-            -4.9,
-        ],
-        dtype=np.float32,
-    )
+    # fmt: off
+    nx = np.array([
+        4.9,  4.5,  4.1,  3.9,  3.5,  3.1,  2.9,  2.5,  2.1,  1.9,
+        1.5,  1.1,  0.9,  0.5,  0.1, -0.1, -0.5, -0.9, -1.1, -1.5,
+       -1.9, -2.1, -2.5, -2.9, -3.1, -3.5, -3.9, -4.1, -4.5, -4.9
+    ], dtype=np.float32)
+    # fmt: on
 
     x = wp.array(nx, device=device)
     N = len(x)
@@ -141,10 +121,10 @@ def test_rounding(test, device):
     assert_np_equal(tab, golden, tol=1e-6)
 
     if print_results:
-        np.set_printoptions(formatter={"float": lambda x: "{:6.1f}".format(x).replace(".0", ".")})
+        np.set_printoptions(formatter={"float": lambda x: f"{x:6.1f}".replace(".0", ".")})
 
         print("----------------------------------------------")
-        print("   %5s %5s %5s %5s %5s %5s %5s" % ("x ", "round", "rint", "trunc", "cast", "floor", "ceil"))
+        print(f"   {'x ':>5s} {'round':>5s} {'rint':>5s} {'trunc':>5s} {'cast':>5s} {'floor':>5s} {'ceil':>5s}")
         print(tab)
         print("----------------------------------------------")
 
@@ -158,7 +138,7 @@ def test_rounding(test, device):
         nx_frac = np.modf(nx)[0]
 
         tab = np.stack([nx, nx_round, nx_rint, nx_trunc, nx_fix, nx_floor, nx_ceil, nx_frac], axis=1)
-        print("   %5s %5s %5s %5s %5s %5s %5s" % ("x ", "round", "rint", "trunc", "fix", "floor", "ceil"))
+        print(f"   {'x ':>5s} {'round':>5s} {'rint':>5s} {'trunc':>5s} {'fix':>5s} {'floor':>5s} {'ceil':>5s}")
         print(tab)
         print("----------------------------------------------")
 

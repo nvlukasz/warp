@@ -1,12 +1,22 @@
-# Copyright (c) 2025 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import ctypes
+import threading
 import traceback
+from typing import Callable
 
 import jax
 
@@ -16,61 +26,6 @@ from warp.jax import get_jax_device
 from warp.types import array_t, launch_bounds_t, strides_from_shape, type_to_warp
 
 from .xla_ffi import *
-
-
-def jax_kernel(kernel, num_outputs=1, vmap_method="broadcast_all", launch_dims=None, output_dims=None):
-    """Create a JAX callback from a Warp kernel.
-
-    NOTE: This is an experimental feature under development.
-
-    Args:
-        kernel: The Warp kernel to launch.
-        num_outputs: Optional. Specify the number of output arguments if greater than 1.
-        vmap_method: Optional. String specifying how the callback transforms under ``vmap()``.
-                     This argument can also be specified for individual calls.
-        launch_dims: Optional. Specify the default kernel launch dimensions. If None, launch
-                     dimensions are inferred from the shape of the first array argument.
-                     This argument can also be specified for individual calls.
-        output_dims: Optional. Specify the default dimensions of output arrays.  If None, output
-                     dimensions are inferred from the launch dimensions.
-                     This argument can also be specified for individual calls.
-
-    Limitations:
-        - All kernel arguments must be contiguous arrays or scalars.
-        - Scalars must be static arguments in JAX.
-        - Input arguments are followed by output arguments in the Warp kernel definition.
-        - There must be at least one output argument.
-        - Only the CUDA backend is supported.
-    """
-
-    return FfiKernel(kernel, num_outputs, vmap_method, launch_dims, output_dims)
-
-
-def jax_callable(func, num_outputs=1, graph_compatible=True, vmap_method="broadcast_all", output_dims=None):
-    """Create a JAX callback from an annotated Python function.
-    The Python function arguments must have type annotations like Warp kernels.
-
-    NOTE: This is an experimental feature under development.
-
-    Args:
-        func: The Python function to call.
-        num_outputs: Optional. Specify the number of output arguments if greater than 1.
-        graph_compatible: Optional. Whether the function can be called during CUDA graph capture.
-        vmap_method: Optional. String specifying how the callback transforms under ``vmap()``.
-                     This argument can also be specified for individual calls.
-        output_dims: Optional. Specify the default dimensions of output arrays.  If None, output
-                     dimensions are inferred from the launch dimensions.
-                     This argument can also be specified for individual calls.
-
-    Limitations:
-        - All kernel arguments must be contiguous arrays or scalars.
-        - Scalars must be static arguments in JAX.
-        - Input arguments are followed by output arguments in the Warp kernel definition.
-        - There must be at least one output argument.
-        - Only the CUDA backend is supported.
-    """
-
-    return FfiCallable(func, num_outputs, graph_compatible, vmap_method, output_dims)
 
 
 class FfiArg:
@@ -544,7 +499,11 @@ class FfiCallable:
 
             # call the Python function with reconstructed arguments
             with wp.ScopedStream(stream, sync_enter=False):
-                self.func(*arg_list)
+                if stream.is_capturing:
+                    with wp.ScopedCapture(stream=stream, external=True):
+                        self.func(*arg_list)
+                else:
+                    self.func(*arg_list)
 
         except Exception as e:
             print(traceback.format_exc())
@@ -555,6 +514,98 @@ class FfiCallable:
         return None
 
 
+# Holders for the custom callbacks to keep them alive.
+_FFI_CALLABLE_REGISTRY: dict[str, FfiCallable] = {}
+_FFI_KERNEL_REGISTRY: dict[str, FfiKernel] = {}
+_FFI_REGISTRY_LOCK = threading.Lock()
+
+
+def jax_kernel(kernel, num_outputs=1, vmap_method="broadcast_all", launch_dims=None, output_dims=None):
+    """Create a JAX callback from a Warp kernel.
+
+    NOTE: This is an experimental feature under development.
+
+    Args:
+        kernel: The Warp kernel to launch.
+        num_outputs: Optional. Specify the number of output arguments if greater than 1.
+        vmap_method: Optional. String specifying how the callback transforms under ``vmap()``.
+                     This argument can also be specified for individual calls.
+        launch_dims: Optional. Specify the default kernel launch dimensions. If None, launch
+                     dimensions are inferred from the shape of the first array argument.
+                     This argument can also be specified for individual calls.
+        output_dims: Optional. Specify the default dimensions of output arrays.  If None, output
+                     dimensions are inferred from the launch dimensions.
+                     This argument can also be specified for individual calls.
+
+    Limitations:
+        - All kernel arguments must be contiguous arrays or scalars.
+        - Scalars must be static arguments in JAX.
+        - Input arguments are followed by output arguments in the Warp kernel definition.
+        - There must be at least one output argument.
+        - Only the CUDA backend is supported.
+    """
+    key = (
+        kernel.func,
+        num_outputs,
+        vmap_method,
+        tuple(launch_dims) if launch_dims else launch_dims,
+        tuple(sorted(output_dims.items())) if output_dims else output_dims,
+    )
+
+    with _FFI_REGISTRY_LOCK:
+        if key not in _FFI_KERNEL_REGISTRY:
+            new_kernel = FfiKernel(kernel, num_outputs, vmap_method, launch_dims, output_dims)
+            _FFI_KERNEL_REGISTRY[key] = new_kernel
+
+    return _FFI_KERNEL_REGISTRY[key]
+
+
+def jax_callable(
+    func: Callable,
+    num_outputs: int = 1,
+    graph_compatible: bool = True,
+    vmap_method: str = "broadcast_all",
+    output_dims=None,
+):
+    """Create a JAX callback from an annotated Python function.
+
+    The Python function arguments must have type annotations like Warp kernels.
+
+    NOTE: This is an experimental feature under development.
+
+    Args:
+        func: The Python function to call.
+        num_outputs: Optional. Specify the number of output arguments if greater than 1.
+        graph_compatible: Optional. Whether the function can be called during CUDA graph capture.
+        vmap_method: Optional. String specifying how the callback transforms under ``vmap()``.
+            This argument can also be specified for individual calls.
+        output_dims: Optional. Specify the default dimensions of output arrays.
+            If ``None``, output dimensions are inferred from the launch dimensions.
+            This argument can also be specified for individual calls.
+
+    Limitations:
+        - All kernel arguments must be contiguous arrays or scalars.
+        - Scalars must be static arguments in JAX.
+        - Input arguments are followed by output arguments in the Warp kernel definition.
+        - There must be at least one output argument.
+        - Only the CUDA backend is supported.
+    """
+    key = (
+        func,
+        num_outputs,
+        graph_compatible,
+        vmap_method,
+        tuple(sorted(output_dims.items())) if output_dims else output_dims,
+    )
+
+    with _FFI_REGISTRY_LOCK:
+        if key not in _FFI_CALLABLE_REGISTRY:
+            new_callable = FfiCallable(func, num_outputs, graph_compatible, vmap_method, output_dims)
+            _FFI_CALLABLE_REGISTRY[key] = new_callable
+
+    return _FFI_CALLABLE_REGISTRY[key]
+
+
 ###############################################################################
 #
 # Generic FFI callbacks for Python functions of the form
@@ -562,13 +613,11 @@ class FfiCallable:
 #
 ###############################################################################
 
-# Holder for the custom callbacks to keep them alive.
-ffi_callbacks = {}
 
-
-def register_ffi_callback(name, func, graph_compatible=True):
+def register_ffi_callback(name: str, func: Callable, graph_compatible: bool = True) -> None:
     """Create a JAX callback from a Python function.
-    The Python function must have the form func(inputs, outputs, attrs, ctx).
+
+    The Python function must have the form ``func(inputs, outputs, attrs, ctx)``.
 
     NOTE: This is an experimental feature under development.
 
@@ -623,7 +672,8 @@ def register_ffi_callback(name, func, graph_compatible=True):
 
     FFI_CCALLFUNC = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.POINTER(XLA_FFI_CallFrame))
     callback_func = FFI_CCALLFUNC(ffi_callback)
-    ffi_callbacks[name] = callback_func
+    with _FFI_REGISTRY_LOCK:
+        _FFI_CALLABLE_REGISTRY[name] = callback_func
     ffi_ccall_address = ctypes.cast(callback_func, ctypes.c_void_p)
     ffi_capsule = jax.ffi.pycapsule(ffi_ccall_address.value)
     jax.ffi.register_ffi_target(name, ffi_capsule, platform="CUDA")

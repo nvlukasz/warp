@@ -1,4 +1,19 @@
-from typing import List, Tuple
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
 
 import numpy as np
 
@@ -296,13 +311,16 @@ def vec_abs(a: wp.vec3):
     return wp.vec3(wp.abs(a[0]), wp.abs(a[1]), wp.abs(a[2]))
 
 
-def load_mesh(filename: str, method: str = None):
-    """
-    Loads a 3D triangular surface mesh from a file.
+def load_mesh(filename: str, method: str | None = None):
+    """Load a 3D triangular surface mesh from a file.
 
     Args:
-        filename (str): The path to the 3D model file (obj, and other formats supported by the different methods) to load.
-        method (str): The method to use for loading the mesh (default None). Can be either `"trimesh"`, `"meshio"`, `"pcu"`, or `"openmesh"`. If None, every method is tried and the first successful mesh import where the number of vertices is greater than 0 is returned.
+        filename (str): The path to the 3D model file (obj, and other formats
+          supported by the different methods) to load.
+        method (str): The method to use for loading the mesh (default ``None``).
+          Can be either ``"trimesh"``, ``"meshio"``, ``"pcu"``, or ``"openmesh"``.
+          If ``None``, every method is tried and the first successful mesh import
+          where the number of vertices is greater than 0 is returned.
 
     Returns:
         Tuple of (mesh_points, mesh_indices), where mesh_points is a Nx3 numpy array of vertex positions (float32),
@@ -372,7 +390,7 @@ def load_mesh(filename: str, method: str = None):
 
 
 def visualize_meshes(
-    meshes: List[Tuple[list, list]], num_cols=0, num_rows=0, titles=None, scale_axes=True, show_plot=True
+    meshes: list[tuple[list, list]], num_cols=0, num_rows=0, titles=None, scale_axes=True, show_plot=True
 ):
     # render meshes in a grid with matplotlib
     import matplotlib.pyplot as plt

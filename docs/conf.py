@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Configuration file for the Sphinx documentation builder.
 #
 # This file only contains a selection of the most common options. For a full
@@ -16,7 +31,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import warp as wp  # noqa: E402
+import warp as wp
 
 # -- Project information -----------------------------------------------------
 
@@ -57,6 +72,9 @@ autodoc_default_options = {
     "undoc-members": False,
     "exclude-members": "__weakref__",
 }
+
+# Mock imports for modules that are not installed by default
+autodoc_mock_imports = ["jax", "torch", "paddle", "pxr"]
 
 # autodoc_typehints_format
 # add_module_names = False
@@ -135,6 +153,10 @@ copybutton_prompt_is_regexp = True
 html_theme = "nvidia_sphinx_theme"
 html_title = f"Warp {version}"
 html_show_sphinx = False
+html_static_path = ["_static"]
+html_css_files = [
+    "custom.css",
+]
 html_theme_options = {
     "copyright_override": {"start": 2022},
     "pygments_light_style": "tango",

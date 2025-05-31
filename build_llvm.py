@@ -1,3 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Functions to build Clang/LLVM from source and to build the CPU-only Warp library."""
+
 import os
 import subprocess
 import sys
@@ -49,7 +66,15 @@ def fetch_prebuilt_libraries(arch):
         raise e
 
 
-def build_from_source_for_arch(args, arch, llvm_source):
+def build_llvm_clang_from_source_for_arch(args, arch: str, llvm_source: str) -> None:
+    """Build Clang/LLVM from source for a given architecture.
+
+    Args:
+        args: Command line arguments
+        arch: Architecture to build for ("aarch64" or "x86_64")
+        llvm_source: Path to the LLVM source code
+    """
+
     # Check out the LLVM project Git repository, unless it already exists
     if not os.path.exists(llvm_source):
         # Install dependencies
@@ -293,7 +318,9 @@ def build_from_source_for_arch(args, arch, llvm_source):
     subprocess.check_call(cmake_install, stderr=subprocess.STDOUT)
 
 
-def build_from_source(args):
+def build_llvm_clang_from_source(args) -> None:
+    """Build Clang/LLVM from source."""
+
     print("Building Clang/LLVM from source...")
 
     if args.llvm_source_path is not None:
@@ -302,18 +329,18 @@ def build_from_source(args):
         llvm_source = llvm_project_path
 
     # build for the machine's architecture
-    build_from_source_for_arch(args, machine_architecture(), llvm_source)
+    build_llvm_clang_from_source_for_arch(args, machine_architecture(), llvm_source)
 
     # for Apple systems also cross-compile for building a universal binary
     if sys.platform == "darwin":
         if machine_architecture() == "x86_64":
-            build_from_source_for_arch(args, "aarch64", llvm_source)
+            build_llvm_clang_from_source_for_arch(args, "aarch64", llvm_source)
         else:
-            build_from_source_for_arch(args, "x86_64", llvm_source)
+            build_llvm_clang_from_source_for_arch(args, "x86_64", llvm_source)
 
 
 # build warp-clang.dll
-def build_warp_clang_for_arch(args, lib_name, arch):
+def build_warp_clang_for_arch(args, lib_name: str, arch: str) -> None:
     try:
         cpp_sources = [
             "native/clang/clang.cpp",
@@ -360,8 +387,8 @@ def build_warp_clang_for_arch(args, lib_name, arch):
             dll_path=clang_dll_path,
             cpp_paths=clang_cpp_paths,
             cu_path=None,
-            libs=libs,
             arch=arch,
+            libs=libs,
             mode=args.mode if args.build_llvm else "release",
         )
 
@@ -373,7 +400,9 @@ def build_warp_clang_for_arch(args, lib_name, arch):
         sys.exit(1)
 
 
-def build_warp_clang(args, lib_name):
+def build_warp_clang(args, lib_name: str) -> None:
+    """Build the CPU-only Warp library using Clang/LLVM."""
+
     if sys.platform == "darwin":
         # create a universal binary by combining x86-64 and AArch64 builds
         build_warp_clang_for_arch(args, lib_name + "-x86_64", "x86_64")

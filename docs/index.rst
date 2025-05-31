@@ -123,17 +123,18 @@ warp/examples/core
       - nvdb
       - raycast
       - raymarch
-    * - .. image:: ./img/examples/core_sph.png
+    * - .. image:: ./img/examples/core_sample_mesh.png
+           :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/core/example_sample_mesh.py
+      - .. image:: ./img/examples/core_sph.png
            :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/core/example_sph.py
       - .. image:: ./img/examples/core_torch.png
            :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/core/example_torch.py
       - .. image:: ./img/examples/core_wave.png
            :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/core/example_wave.py
-      -
-    * - sph
+    * - sample_mesh
+      - sph
       - torch
       - wave
-      -
 
 warp/examples/fem
 ^^^^^^^^^^^^^^^^^
@@ -196,6 +197,15 @@ warp/examples/optim
       - spring cage
       - trajectory
       - soft body properties
+    * - .. image:: ./img/examples/optim_fluid_checkpoint.png
+           :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/optim/example_fluid_checkpoint.py
+      -
+      -
+      -
+    * - fluid checkpoint
+      -
+      -
+      -
 
 warp/examples/sim
 ^^^^^^^^^^^^^^^^^
@@ -312,7 +322,7 @@ projects at NVIDIA including the following publications:
    Visuomotor Control - Murthy, J. Krishna, Miles Macklin, Florian
    Golemo, Vikram Voleti, Linda Petrini, Martin Weiss, Breandan
    Considine et
-   al. `(2021) <https://gradsim.github.io>`__
+   al. `(2021) <https://gradsim.github.io>`__
 
 Support
 -------
@@ -322,6 +332,8 @@ Problems, questions, and feature requests can be opened on
 
 The Warp team also monitors the **#warp** forum on the public
 `Omniverse Discord <https://discord.com/invite/nvidiaomniverse>`_ server, come chat with us!
+
+For inquiries not suited for GitHub Issues or Discord, please email warp-python@nvidia.com.
 
 Versioning
 ----------
@@ -339,30 +351,37 @@ Note that prior to 0.11.0, this schema was not strictly adhered to.
 License
 -------
 
-Warp is provided under the NVIDIA Software License, please see
+Warp is provided under the Apache License, Version 2.0. Please see
 `LICENSE.md <https://github.com/NVIDIA/warp/blob/main/LICENSE.md>`__ for the full license text.
 
 Contributing
 ------------
 
-Contributions and pull requests from the community are welcome and are taken under the
-terms described in the **Feedback** section of `LICENSE.md <https://github.com/NVIDIA/warp/blob/main/LICENSE.md#9-feedback>`__.
+Contributions and pull requests from the community are welcome.
 Please see the :doc:`modules/contribution_guide` for more information on contributing to the development of Warp.
 
-Citing
-------
+Publications & Citation
+-----------------------
+
+Research Using Warp
+^^^^^^^^^^^^^^^^^^^
+:doc:`/publications` lists academic and research publications that leverage the capabilities of Warp.
+We encourage you to add your own published work using Warp to this list.
+
+Citing Warp
+^^^^^^^^^^^
 
 If you use Warp in your research, please use the following citation:
 
 .. code:: bibtex
 
     @misc{warp2022,
-        title= {Warp: A High-performance Python Framework for GPU Simulation and Graphics},
-        author = {Miles Macklin},
-        month = {March},
-        year = {2022},
-        note= {NVIDIA GPU Technology Conference (GTC)},
-        howpublished = {\url{https://github.com/nvidia/warp}}
+      title        = {Warp: A High-performance Python Framework for GPU Simulation and Graphics},
+      author       = {Miles Macklin},
+      month        = {March},
+      year         = {2022},
+      note         = {NVIDIA GPU Technology Conference (GTC)},
+      howpublished = {\url{https://github.com/nvidia/warp}}
     }
 
 Full Table of Contents
@@ -383,6 +402,7 @@ Full Table of Contents
     debugging
     limitations
     modules/contribution_guide
+    publications
     faq
     changelog
 

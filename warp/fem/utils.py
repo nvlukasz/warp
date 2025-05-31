@@ -1,9 +1,25 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from typing import Tuple, Union
 
 import numpy as np
 
 import warp as wp
 import warp.fem.cache as cache
+import warp.types
 from warp.fem.linalg import (  # noqa: F401 (for backward compatibility, not part of public API but used in examples)
     array_axpy,
     inverse_qr,
@@ -11,6 +27,57 @@ from warp.fem.linalg import (  # noqa: F401 (for backward compatibility, not par
 )
 from warp.fem.types import NULL_NODE_INDEX
 from warp.utils import array_scan, radix_sort_pairs, runlength_encode
+
+
+def type_zero_element(dtype):
+    suffix = warp.types.get_type_code(dtype)
+
+    if dtype in warp.types.scalar_types:
+
+        @cache.dynamic_func(suffix=suffix)
+        def zero_element():
+            return dtype(0.0)
+
+        return zero_element
+
+    @cache.dynamic_func(suffix=suffix)
+    def zero_element():
+        return dtype()
+
+    return zero_element
+
+
+def type_basis_element(dtype):
+    suffix = warp.types.get_type_code(dtype)
+
+    if dtype in warp.types.scalar_types:
+
+        @cache.dynamic_func(suffix=suffix)
+        def basis_element(coord: int):
+            return dtype(1.0)
+
+        return basis_element
+
+    if warp.types.type_is_matrix(dtype):
+        cols = dtype._shape_[1]
+
+        @cache.dynamic_func(suffix=suffix)
+        def basis_element(coord: int):
+            v = dtype()
+            i = coord // cols
+            j = coord - i * cols
+            v[i, j] = v.dtype(1.0)
+            return v
+
+        return basis_element
+
+    @cache.dynamic_func(suffix=suffix)
+    def basis_element(coord: int):
+        v = dtype()
+        v[coord] = v.dtype(1.0)
+        return v
+
+    return basis_element
 
 
 def compress_node_indices(
@@ -111,14 +178,7 @@ def host_read_at_index(array: wp.array, index: int = -1, temporary_store: cache.
 
     if index < 0:
         index += array.shape[0]
-
-    if array.device.is_cuda:
-        temp = cache.borrow_temporary(temporary_store, shape=1, dtype=int, pinned=True, device="cpu")
-        wp.copy(dest=temp.array, src=array, src_offset=index, count=1)
-        wp.synchronize_stream(wp.get_stream(array.device))
-        return temp.array.numpy()[0]
-
-    return array.numpy()[index]
+    return array[index : index + 1].numpy()[0]
 
 
 def masked_indices(
@@ -160,7 +220,7 @@ def _prepare_node_sort_kernel(
 ):
     i = wp.tid()
     node = node_indices[i]
-    sort_keys[i] = wp.select(node < 0, node, NULL_NODE_INDEX)
+    sort_keys[i] = wp.where(node >= 0, node, NULL_NODE_INDEX)
     sort_values[i] = i // divisor
 
 

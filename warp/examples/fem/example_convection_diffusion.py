@@ -1,9 +1,17 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 ###########################################################################
 # Example Convection Diffusion
@@ -74,7 +82,7 @@ def diffusion_and_inertia_form(s: fem.Sample, phi: fem.Field, psi: fem.Field, dt
 
 
 class Example:
-    def __init__(self, quiet=False, degree=2, resolution=50, tri_mesh=False, viscosity=0.001, ang_vel=1.0):
+    def __init__(self, quiet=False, degree=2, resolution=50, mesh: str = "grid", viscosity=0.001, ang_vel=1.0):
         self._quiet = quiet
 
         self._ang_vel = ang_vel
@@ -83,11 +91,14 @@ class Example:
         self.sim_dt = 1.0 / (ang_vel * res)
         self.current_frame = 0
 
-        if tri_mesh:
-            positions, tri_vidx = fem_example_utils.gen_trimesh(res=wp.vec2i(res))
+        if mesh == "tri":
+            positions, tri_vidx = fem_example_utils.gen_trimesh(res=wp.vec2i(resolution))
             geo = fem.Trimesh2D(tri_vertex_indices=tri_vidx, positions=positions, build_bvh=True)
+        elif mesh == "quad":
+            positions, quad_vidx = fem_example_utils.gen_quadmesh(res=wp.vec2i(resolution))
+            geo = fem.Quadmesh2D(quad_vertex_indices=quad_vidx, positions=positions, build_bvh=True)
         else:
-            geo = fem.Grid2D(res=wp.vec2i(res))
+            geo = fem.Grid2D(res=wp.vec2i(resolution))
 
         domain = fem.Cells(geometry=geo)
         scalar_space = fem.make_polynomial_space(geo, degree=degree)
@@ -141,7 +152,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_frames", type=int, default=250, help="Total number of frames.")
     parser.add_argument("--viscosity", type=float, default=0.001, help="Fluid viscosity parameter.")
     parser.add_argument("--ang_vel", type=float, default=1.0, help="Angular velocity.")
-    parser.add_argument("--tri_mesh", action="store_true", help="Use a triangular mesh.")
+    parser.add_argument("--mesh", choices=("grid", "tri", "quad"), default="grid", help="Mesh type.")
     parser.add_argument(
         "--headless",
         action="store_true",
@@ -156,7 +167,7 @@ if __name__ == "__main__":
             quiet=args.quiet,
             degree=args.degree,
             resolution=args.resolution,
-            tri_mesh=args.tri_mesh,
+            mesh=args.mesh,
             viscosity=args.viscosity,
             ang_vel=args.ang_vel,
         )

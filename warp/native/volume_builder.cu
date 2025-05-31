@@ -1,9 +1,18 @@
-/** Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
- * NVIDIA CORPORATION and its licensors retain all intellectual property
- * and proprietary rights in and to this software, related documentation
- * and any modifications thereto.  Any use, reproduction, disclosure or
- * distribution of this software and related documentation without an express
- * license agreement from NVIDIA CORPORATION is strictly prohibited.
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #include "volume_builder.h"
@@ -34,6 +43,7 @@ struct Allocator
     {
         // in PointsToGrid stream argument always coincide with current stream, ignore
         *d_ptr = alloc_device(WP_CURRENT_CONTEXT, bytes);
+        cudaCheckError();
         return cudaSuccess;
     }
 
@@ -151,6 +161,7 @@ class DeviceBuffer
         {
             mGpuData = alloc_device(WP_CURRENT_CONTEXT, size);
         }
+        cudaCheckError();
         mSize = size;
         mManaged = true;
     }
@@ -258,11 +269,21 @@ __device__ std::enable_if_t<nanovdb::BuildTraits<typename Node::BuildType>::is_i
 {
 }
 
+template <typename T>
+struct alignas(alignof(T)) AlignedProxy
+{
+    char data[sizeof(T)];
+};
+
 template <typename Tree, typename NodeT>
 __global__ void setInternalBBoxAndBackgroundValue(Tree *tree, const typename Tree::BuildType background_value)
 {
     using BBox = nanovdb::math::BBox<typename NodeT::CoordT>;
-    __shared__ BBox bbox;
+    using BBoxProxy = AlignedProxy<BBox>;
+
+    __shared__ BBoxProxy bbox_mem;
+
+    BBox& bbox = reinterpret_cast<BBox&>(bbox_mem);
 
     const unsigned node_count = tree->mNodeCount[NodeT::LEVEL];
     const unsigned node_id = blockIdx.x;
@@ -272,7 +293,7 @@ __global__ void setInternalBBoxAndBackgroundValue(Tree *tree, const typename Tre
 
         if (threadIdx.x == 0)
         {
-            bbox = BBox();
+            new(&bbox) BBox();
         }
 
         __syncthreads();
@@ -304,14 +325,17 @@ __global__ void setRootBBoxAndBackgroundValue(nanovdb::Grid<Tree> *grid,
                                               const typename Tree::BuildType background_value)
 {
     using BBox = typename Tree::RootNodeType::BBoxType;
-    __shared__ BBox bbox;
+    using BBoxProxy = AlignedProxy<BBox>;
+    __shared__ BBoxProxy bbox_mem;
+
+    BBox& bbox = reinterpret_cast<BBox&>(bbox_mem);
 
     Tree &tree = grid->tree();
     const unsigned upper_count = tree.mNodeCount[2];
 
     if (threadIdx.x == 0)
     {
-        bbox = BBox();
+        new(&bbox) BBox();
     }
 
     __syncthreads();
@@ -410,35 +434,44 @@ void build_grid_from_points(nanovdb::Grid<nanovdb::NanoTree<BuildT>> *&out_grid,
     out_grid = nullptr;
     out_grid_size = 0;
 
-    cudaStream_t stream = static_cast<cudaStream_t>(cuda_stream_get_current());
-    nanovdb::tools::cuda::PointsToGrid<BuildT, Allocator> p2g(params.map, stream);
-
-    // p2g.setVerbose(2);
-    p2g.setGridName(params.name);
-    p2g.setChecksum(nanovdb::CheckMode::Disable);
-
-    // Only compute bbox for OnIndex grids. Otherwise bbox will be computed after activating all leaf voxels
-    p2g.includeBBox(nanovdb::BuildTraits<BuildT>::is_onindex);
-
-    nanovdb::GridHandle<DeviceBuffer> grid_handle;
-
-    if (points_in_world_space)
+    try
     {
-        grid_handle = p2g.getHandle(WorldSpacePointsPtr{static_cast<const nanovdb::Vec3f *>(points), params.map}, num_points,
-                                    DeviceBuffer());
+
+        cudaStream_t stream = static_cast<cudaStream_t>(cuda_stream_get_current());
+        nanovdb::tools::cuda::PointsToGrid<BuildT, Allocator> p2g(params.map, stream);
+
+        // p2g.setVerbose(2);
+        p2g.setGridName(params.name);
+        p2g.setChecksum(nanovdb::CheckMode::Disable);
+
+        // Only compute bbox for OnIndex grids. Otherwise bbox will be computed after activating all leaf voxels
+        p2g.includeBBox(nanovdb::BuildTraits<BuildT>::is_onindex);
+
+        nanovdb::GridHandle<DeviceBuffer> grid_handle;
+
+        if (points_in_world_space)
+        {
+            grid_handle = p2g.getHandle(WorldSpacePointsPtr{static_cast<const nanovdb::Vec3f*>(points), params.map},
+                                        num_points, DeviceBuffer());
+        }
+        else
+        {
+            grid_handle = p2g.getHandle(static_cast<const nanovdb::Coord*>(points), num_points, DeviceBuffer());
+        }
+
+        out_grid = grid_handle.deviceGrid<BuildT>();
+        out_grid_size = grid_handle.gridSize();
+
+        finalize_grid(*out_grid, params);
+
+        // So that buffer is not destroyed when handles goes out of scope
+        grid_handle.buffer().detachDeviceData();
     }
-    else
+    catch (const std::runtime_error& exc)
     {
-        grid_handle = p2g.getHandle(static_cast<const nanovdb::Coord *>(points), num_points, DeviceBuffer());
+        out_grid = nullptr;
+        out_grid_size = 0;
     }
-
-    out_grid = grid_handle.deviceGrid<BuildT>();
-    out_grid_size = grid_handle.gridSize();
-
-    finalize_grid(*out_grid, params);
-
-    // So that buffer is not destroyed when handles goes out of scope
-    grid_handle.buffer().detachDeviceData();
 }
 
 

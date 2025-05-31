@@ -1,9 +1,17 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 ###########################################################################
 # Example Mixed Elasticity
@@ -184,11 +192,11 @@ class Example:
             vertical_displacement_form,
             fields={"v": u_bd_test},
             values={"displacement": self._displacement},
-            nodal=True,
+            assembly="nodal",
             output_dtype=wp.vec2d,
         )
         u_bd_matrix = fem.integrate(
-            vertical_boundary_projector_form, fields={"u": u_bd_trial, "v": u_bd_test}, nodal=True
+            vertical_boundary_projector_form, fields={"u": u_bd_trial, "v": u_bd_test}, assembly="nodal"
         )
 
         # Stress/velocity coupling
@@ -199,7 +207,9 @@ class Example:
         gradient_matrix = fem.integrate(displacement_gradient_form, fields={"u": u_trial, "tau": tau_test}).transpose()
 
         # Compute inverse of the (block-diagonal) tau mass matrix
-        tau_inv_mass_matrix = fem.integrate(tensor_mass_form, fields={"sig": tau_trial, "tau": tau_test}, nodal=True)
+        tau_inv_mass_matrix = fem.integrate(
+            tensor_mass_form, fields={"sig": tau_trial, "tau": tau_test}, assembly="nodal"
+        )
         fem_example_utils.invert_diagonal_bsr_matrix(tau_inv_mass_matrix)
 
         # Newton iterations (without line-search for simplicity)

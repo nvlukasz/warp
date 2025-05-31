@@ -1,9 +1,17 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import unittest
 
@@ -533,25 +541,6 @@ def test_scalar_array_types(test, device, load, store):
         )
 
 
-@wp.kernel
-def test_transform_matrix():
-    r = wp.quat_from_axis_angle(wp.vec3(1.0, 0.0, 0.0), 0.5)
-    t = wp.vec3(0.25, 0.5, -0.75)
-    s = wp.vec3(2.0, 0.5, 0.75)
-
-    m = wp.mat44(t, r, s)
-
-    p = wp.vec3(1.0, 2.0, 3.0)
-
-    r_0 = wp.quat_rotate(r, wp.cw_mul(s, p)) + t
-    r_1 = wp.transform_point(m, p)
-
-    r_2 = wp.transform_vector(m, p)
-
-    wp.expect_near(r_0, r_1, 1.0e-4)
-    wp.expect_near(r_2, r_0 - t, 1.0e-4)
-
-
 devices = get_test_devices()
 
 
@@ -620,7 +609,6 @@ add_function_test(TestCTypes, "test_vec2_transform", test_vec2_transform, device
 add_function_test(TestCTypes, "test_vec3_arg", test_vec3_arg, devices=devices, n=8)
 add_function_test(TestCTypes, "test_vec3_transform", test_vec3_transform, devices=devices, n=8)
 add_function_test(TestCTypes, "test_transform_multiply", test_transform_multiply, devices=devices, n=8)
-add_kernel_test(TestCTypes, name="test_transform_matrix", kernel=test_transform_matrix, dim=1, devices=devices)
 add_function_test(TestCTypes, "test_scalar_array", test_scalar_array, devices=devices)
 add_function_test(TestCTypes, "test_vector_array", test_vector_array, devices=devices)
 

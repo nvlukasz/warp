@@ -1,9 +1,17 @@
-# Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Tests for the `from_omni_graph()` API."""
 
@@ -86,7 +94,7 @@ class MakeDataNode:
             with wp.ScopedDevice(device):
                 attr = bundle_create_attr(
                     db.outputs.bundleAttr,
-                    "{}FloatArray".format(variant),
+                    f"{variant}FloatArray",
                     og.Type(
                         og.BaseDataType.FLOAT,
                         tuple_count=1,
@@ -103,7 +111,7 @@ class MakeDataNode:
 
                 attr = bundle_create_attr(
                     db.outputs.bundleAttr,
-                    "{}Vec3Array".format(variant),
+                    f"{variant}Vec3Array",
                     og.Type(
                         og.BaseDataType.FLOAT,
                         tuple_count=3,
@@ -120,7 +128,7 @@ class MakeDataNode:
 
                 attr = bundle_create_attr(
                     db.outputs.bundleAttr,
-                    "{}Mat4Array".format(variant),
+                    f"{variant}Mat4Array",
                     og.Type(
                         og.BaseDataType.DOUBLE,
                         tuple_count=16,
@@ -233,9 +241,9 @@ def compute(db: og.Database) -> None:
 
     for variant in variants:
         if variant in ("cpuBundle", "gpuBundle"):
-            data = bundle_get_attr(db.inputs.bundleAttr, "{}FloatArray".format(variant))
+            data = bundle_get_attr(db.inputs.bundleAttr, f"{variant}FloatArray")
         else:
-            data = getattr(db.inputs, "{}FloatArrayAttr".format(variant))
+            data = getattr(db.inputs, f"{variant}FloatArrayAttr")
 
         result = omni.warp.from_omni_graph(data)
         expected = wp.array((1.0, 2.0, 3.0), dtype=wp.float32, shape=(3,))
@@ -251,9 +259,9 @@ def compute(db: og.Database) -> None:
 
     for variant in variants:
         if variant in ("cpuBundle", "gpuBundle"):
-            data = bundle_get_attr(db.inputs.bundleAttr, "{}Vec3Array".format(variant))
+            data = bundle_get_attr(db.inputs.bundleAttr, f"{variant}Vec3Array")
         else:
-            data = getattr(db.inputs, "{}Vec3ArrayAttr".format(variant))
+            data = getattr(db.inputs, f"{variant}Vec3ArrayAttr")
 
         result = omni.warp.from_omni_graph(data)
         expected = wp.array(((1.0, 2.0, 3.0), (4.0, 5.0, 6.0)), dtype=wp.vec3, shape=(2,))
@@ -274,9 +282,9 @@ def compute(db: og.Database) -> None:
 
     for variant in variants:
         if variant in ("cpuBundle", "gpuBundle"):
-            data = bundle_get_attr(db.inputs.bundleAttr, "{}Mat4Array".format(variant))
+            data = bundle_get_attr(db.inputs.bundleAttr, f"{variant}Mat4Array")
         else:
-            data = getattr(db.inputs, "{}Mat4ArrayAttr".format(variant))
+            data = getattr(db.inputs, f"{variant}Mat4ArrayAttr")
 
         # Due to OmniGraph only supporting 1-D arrays with elements that might
         # be represented as tuples, we can at best reconstruct 2-D arrays,

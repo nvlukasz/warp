@@ -1,9 +1,17 @@
-# Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Node simulating cloth."""
 
@@ -51,7 +59,7 @@ def update_collider_kernel(
     point_0 = wp.transform_point(xform_0, points_0[tid])
     point_1 = wp.transform_point(xform_1, points_1[tid])
 
-    out_points[tid] = point_0
+    out_points[tid] = point_1
     out_velocities[tid] = (point_1 - point_0) / sim_dt
 
 
@@ -123,7 +131,6 @@ class InternalState:
             (
                 "substepCount",
                 "gravity",
-                "globalScale",
                 "contactElasticStiffness",
                 "contactFrictionStiffness",
                 "contactFrictionCoeff",
@@ -201,13 +208,13 @@ class InternalState:
             vertices=world_points.numpy(),
             indices=face_vertex_indices.numpy(),
             density=db.inputs.clothDensity,
-            tri_ke=db.inputs.clothTriElasticStiffness * db.inputs.globalScale,
-            tri_ka=db.inputs.clothTriAreaStiffness * db.inputs.globalScale,
-            tri_kd=db.inputs.clothTriDampingStiffness * db.inputs.globalScale,
-            tri_drag=db.inputs.clothTriDrag * db.inputs.globalScale,
-            tri_lift=db.inputs.clothTriLift * db.inputs.globalScale,
-            edge_ke=db.inputs.clothEdgeBendingStiffness * db.inputs.globalScale,
-            edge_kd=db.inputs.clothEdgeDampingStiffness * db.inputs.globalScale,
+            tri_ke=db.inputs.clothTriElasticStiffness,
+            tri_ka=db.inputs.clothTriAreaStiffness,
+            tri_kd=db.inputs.clothTriDampingStiffness,
+            tri_drag=db.inputs.clothTriDrag,
+            tri_lift=db.inputs.clothTriLift,
+            edge_ke=db.inputs.clothEdgeBendingStiffness,
+            edge_kd=db.inputs.clothEdgeDampingStiffness,
         )
 
         # Set a uniform mass to avoid large discrepancies.
@@ -291,12 +298,15 @@ class InternalState:
 
         # Register the ground.
         builder.set_ground_plane(
-            offset=-db.inputs.groundAltitude + db.inputs.colliderContactDistance,
-            ke=db.inputs.contactElasticStiffness * db.inputs.globalScale,
-            kd=db.inputs.contactDampingStiffness * db.inputs.globalScale,
-            kf=db.inputs.contactFrictionStiffness * db.inputs.globalScale,
-            mu=db.inputs.contactFrictionCoeff,
+            offset=-db.inputs.groundAltitude + db.inputs.colliderContactDistance * 0.99,
+            ke=0.0,
+            kd=0.0,
+            kf=0.0,
+            mu=0.0,
         )
+
+        # Create the coloring required by the VBD integrator.
+        builder.color()
 
         # Build the simulation model.
         model = builder.finalize()
@@ -305,15 +315,15 @@ class InternalState:
         model.allocate_soft_contacts(model.particle_count)
 
         # Initialize the integrator.
-        integrator = wp.sim.SemiImplicitIntegrator()
+        integrator = wp.sim.VBDIntegrator(model, iterations=1)
 
         # Set the model properties.
         model.ground = db.inputs.groundEnabled
         model.gravity = db.inputs.gravity
-        model.soft_contact_ke = db.inputs.contactElasticStiffness * db.inputs.globalScale
-        model.soft_contact_kf = db.inputs.contactFrictionStiffness * db.inputs.globalScale
+        model.soft_contact_ke = db.inputs.contactElasticStiffness
+        model.soft_contact_kf = db.inputs.contactFrictionStiffness
         model.soft_contact_mu = db.inputs.contactFrictionCoeff
-        model.soft_contact_kd = db.inputs.contactDampingStiffness * db.inputs.globalScale
+        model.soft_contact_kd = db.inputs.contactDampingStiffness
         model.soft_contact_margin = db.inputs.colliderContactDistance * db.inputs.colliderContactQueryRange
         model.particle_radius.fill_(db.inputs.colliderContactDistance)
 
@@ -331,6 +341,7 @@ class InternalState:
             # modules to avoid the capture to load all the modules that are
             # registered and possibly not relevant.
             wp.load_module(device=device)
+            wp.set_module_options({"block_dim": 256}, warp.sim.integrator_vbd)
             wp.load_module(module=warp.sim, device=device, recursive=True)
             wp.capture_begin(force_module_load=False)
             try:
@@ -356,12 +367,6 @@ def update_collider(
     points = omni.warp.nodes.mesh_get_points(db.inputs.collider)
     xform = omni.warp.nodes.bundle_get_world_xform(db.inputs.collider)
 
-    # Swap the previous and current collider point positions.
-    (state.collider_points_0, state.collider_points_1) = (
-        state.collider_points_1,
-        state.collider_points_0,
-    )
-
     # Store the current point positions.
     wp.copy(state.collider_points_1, points)
 
@@ -384,6 +389,12 @@ def update_collider(
             state.collider_mesh.mesh.points,
             state.collider_mesh.mesh.velocities,
         ],
+    )
+
+    # Swap the previous and current collider point positions.
+    (state.collider_points_0, state.collider_points_1) = (
+        state.collider_points_1,
+        state.collider_points_0,
     )
 
     # Refit the BVH.

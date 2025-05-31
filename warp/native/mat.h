@@ -1,9 +1,18 @@
-/** Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
- * NVIDIA CORPORATION and its licensors retain all intellectual property
- * and proprietary rights in and to this software, related documentation
- * and any modifications thereto.  Any use, reproduction, disclosure or
- * distribution of this software and related documentation without an express
- * license agreement from NVIDIA CORPORATION is strictly prohibited.
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #pragma once
@@ -380,22 +389,16 @@ inline CUDA_CALLABLE bool operator==(const mat_t<Rows,Cols,Type>& a, const mat_t
     return true;
 }
 
-
-// negation:
 template<unsigned Rows, unsigned Cols, typename Type>
-inline CUDA_CALLABLE mat_t<Rows,Cols,Type> operator - (mat_t<Rows,Cols,Type> a)
+inline CUDA_CALLABLE mat_t<Rows,Cols,Type> operator - (const mat_t<Rows,Cols,Type>& x)
 {
-    // NB: this constructor will initialize all ret's components to 0, which is
-    // unnecessary... 
     mat_t<Rows,Cols,Type> ret;
     for (unsigned i=0; i < Rows; ++i)
         for (unsigned j=0; j < Cols; ++j)
-            ret.data[i][j] = -a.data[i][j];
+            ret.data[i][j] = -x.data[i][j];
 
-    // Wonder if this does a load of copying when it returns... hopefully not as it's inlined?
     return ret;
 }
-
 
 template<unsigned Rows, unsigned Cols, typename Type>
 CUDA_CALLABLE inline mat_t<Rows,Cols,Type> pos(const mat_t<Rows,Cols,Type>& x)
@@ -1058,7 +1061,7 @@ inline CUDA_CALLABLE mat_t<Rows,ColsOut,Type> mul(const mat_t<Rows,Cols,Type>& a
     mat_t<Rows,ColsOut,Type> t(0);
     for (unsigned i=0; i < Rows; ++i)
     {        
-        for (unsigned j=0; j < ColsOut; ++j)     
+        for (unsigned j=0; j < ColsOut; ++j)
         {
             Type sum(0.0);
 
@@ -2197,8 +2200,9 @@ inline CUDA_CALLABLE void expect_near(const mat_t<Rows,Cols,Type>& actual, const
     if (diff > tolerance)
     {
         printf("Error, expect_near() failed with tolerance "); print(tolerance);
-        printf("\t Expected: "); print(expected);
-        printf("\t Actual: "); print(actual);
+        printf("    Expected: "); print(expected);
+        printf("    Actual: "); print(actual);
+        printf("    Max absolute difference: "); print(diff);
     }
 }
 

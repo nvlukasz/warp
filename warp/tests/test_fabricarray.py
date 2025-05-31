@@ -1,9 +1,19 @@
-# Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
 
 import math
 import unittest
@@ -62,7 +72,7 @@ def _warp_type_to_fabric(dtype, is_array=False):
 
 
 # returns a fabric array interface constructed from a regular array
-def _create_fabric_array_interface(data: wp.array, attrib: str, bucket_sizes: list = None, copy=False):
+def _create_fabric_array_interface(data: wp.array, attrib: str, bucket_sizes: list[int] | None = None, copy=False):
     assert isinstance(data, wp.array)
     assert data.ndim == 1
 
@@ -130,7 +140,7 @@ def _create_fabric_array_interface(data: wp.array, attrib: str, bucket_sizes: li
 
 
 # returns a fabric array array interface constructed from a list of regular arrays
-def _create_fabric_array_array_interface(data: list, attrib: str, bucket_sizes: list = None):
+def _create_fabric_array_array_interface(data: list, attrib: str, bucket_sizes: list[int] | None = None):
     # data should be a list of arrays
     assert isinstance(data, list)
 

@@ -70,7 +70,7 @@ Here, we have used the new :func:`warp.launch_tiled` function which assigns ``TI
 Tile Properties
 ---------------
 
-In Warp, tile objects are 2D arrays of data where the tile elements may be scalars, vectors, matrices, or user-defined structures. We can load 2D tiles directly from 2D global memory arrays as follows:
+In Warp, tile objects are arrays of data where the tile elements may be scalars, vectors, matrices, or user-defined structures. Tiles can have up to four dimensions. We can load 2D tiles directly from 2D global memory arrays as follows:
 
 .. code:: python
     
@@ -202,6 +202,9 @@ Construction
 * :func:`untile`
 * :func:`tile_view`
 * :func:`tile_broadcast`
+* :func:`tile_reshape`
+* :func:`tile_squeeze`
+* :func:`tile_astype`
 
 Load/Store
 ^^^^^^^^^^
@@ -346,6 +349,8 @@ Automatic Differentiation
 Warp can automatically generate the backward version of tile-based programs.
 In general, tile programs must obey the same rules for auto-diff as regular Warp programs, e.g. avoiding in-place operations, etc.
 Please see the :ref:`differentiability` section for more details.
+
+.. _mathdx:
 
 Building with MathDx
 --------------------

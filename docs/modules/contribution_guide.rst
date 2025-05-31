@@ -10,15 +10,60 @@ Some ways to contribute to the development of Warp include:
 * Adding new examples to the Warp repository.
 * Documentation improvements.
 * Contributing bug fixes or new features.
+* Adding your work to the :doc:`publications list </publications>`.
 
 Code Contributions
 ------------------
 
-Code contributions from the community are welcome and are taken under the
-terms described in the **Feedback** section of `LICENSE.md <https://github.com/NVIDIA/warp/blob/main/LICENSE.md#9-feedback>`__.
+Code contributions from the community are welcome.
+Rather than requiring a formal Contributor License Agreement (CLA), we use the
+`Developer Certificate of Origin <https://developercertificate.org/>`__ to
+ensure contributors have the right to submit their contributions to this project.
+Please ensure that all commits have a
+`sign-off <https://git-scm.com/docs/git-commit#Documentation/git-commit.txt--s>`__ 
+added with an email address that matches the commit author
+to agree to the DCO terms for each particular contribution.
 
-Contributors are encouraged to first open an issue on GitHub to discuss proposed feature contributions and gauge
-potential interest.
+The full text of the DCO is as follows:
+
+.. code-block:: text
+
+    Version 1.1
+
+    Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
+
+    Everyone is permitted to copy and distribute verbatim copies of this
+    license document, but changing it is not allowed.
+
+
+    Developer's Certificate of Origin 1.1
+
+    By making a contribution to this project, I certify that:
+
+    (a) The contribution was created in whole or in part by me and I
+        have the right to submit it under the open source license
+        indicated in the file; or
+
+    (b) The contribution is based upon previous work that, to the best
+        of my knowledge, is covered under an appropriate open source
+        license and I have the right under that license to submit that
+        work with modifications, whether created in whole or in part
+        by me, under the same open source license (unless I am
+        permitted to submit under a different license), as indicated
+        in the file; or
+
+    (c) The contribution was provided directly to me by some other
+        person who certified (a), (b) or (c) and I have not modified
+        it.
+
+    (d) I understand and agree that this project and the contribution
+        are public and that a record of the contribution (including all
+        personal information I submit with it, including my sign-off) is
+        maintained indefinitely and may be redistributed consistent with
+        this project or the open source license(s) involved.
+
+Contributors are encouraged to first open an issue on GitHub to discuss proposed
+feature contributions and gauge potential interest.
 
 Overview
 ^^^^^^^^
@@ -85,6 +130,8 @@ From the project root, run:
     pre-commit run --all
 
 This command will attempt to fix any lint violations and then format the code.
+Some lint violations cannot be `fixed automatically <https://docs.astral.sh/ruff/linter/#fix-safety>`__
+and will require manual resolution.
 
 To run Ruff checks at the same time as ``git commit``, pre-commit hooks can be installed by running this command in the project root:
 
@@ -97,18 +144,21 @@ To run Ruff checks at the same time as ``git commit``, pre-commit hooks can be i
 Building the Documentation
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The Sphinx documentation can be built by running the following from the project root:
+The Warp library should first be built locally by running ``build_lib.py`` before building the Sphinx documentation.
+The documentation can then be built by running the following from the project root:
 
 .. code-block:: bash
 
-    pip install -r docs/requirements.txt
-    python build_docs.py
+    python -m pip install -e .[docs]
+    python build_docs.py --quick
 
-This command also regenerates the stub file (``warp/stubs.py``) and the reStructuredText file for the
+The ``-quick`` flag skip running the `doctest tests <https://www.sphinx-doc.org/en/master/usage/extensions/doctest.html>`__,
+which take some time to run. If your changes modify core library functionality, it can be a good idea to run ``build_docs.py``
+without the ``-quick`` flag to ensure that the documentation code snippets are still up to date.
+
+Running ``build_docs.py`` also regenerates both the stub file (``warp/stubs.py``) and the reStructuredText file for the
 :doc:`functions` page. After building the documentation, it is recommended to run a ``git status`` to
 check if your changes have modified these files. If so, please commit the modified files to your branch.
-
-.. note:: In the future, Warp needs to be built at least once prior to building the documentation.
 
 .. _pull-requests:
 
@@ -176,12 +226,20 @@ test methods (a separate method for each device) to a test class.
 
 .. code-block:: python
 
-    # Copyright (c) 2024 NVIDIA CORPORATION.  All rights reserved.
-    # NVIDIA CORPORATION and its licensors retain all intellectual property
-    # and proprietary rights in and to this software, related documentation
-    # and any modifications thereto.  Any use, reproduction, disclosure or
-    # distribution of this software and related documentation without an express
-    # license agreement from NVIDIA CORPORATION is strictly prohibited.
+    # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+    # SPDX-License-Identifier: Apache-2.0
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    # http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
 
     import unittest
 
@@ -290,9 +348,9 @@ If the test function is added to a test class using ``add_function_test()``, we 
 to the ``device`` parameter.
 
 The final common technique is to avoid calling ``add_function_test`` on a test function in order to skip it.
-Examples are `test_torch.py <https://github.com/NVIDIA/warp/blob/main/warp/tests/test_torch.py>`__,
-`test_jax.py <https://github.com/NVIDIA/warp/blob/main/warp/tests/test_jax.py>`__, and
-`test_dlpack.py <https://github.com/NVIDIA/warp/blob/main/warp/tests/test_dlpack.py>`__.
+Examples are `test_torch.py <https://github.com/NVIDIA/warp/blob/main/warp/tests/interop/test_torch.py>`__,
+`test_jax.py <https://github.com/NVIDIA/warp/blob/main/warp/tests/interop/test_jax.py>`__, and
+`test_dlpack.py <https://github.com/NVIDIA/warp/blob/main/warp/tests/interop/test_dlpack.py>`__.
 This technique is discouraged because the test is not marked as skipped in the ``unittest`` framework.
 Instead, the test is treated as if it does not exist.
 This can create a situation in which we are unaware that a test is being skipped because it does not show up under the

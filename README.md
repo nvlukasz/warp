@@ -1,4 +1,5 @@
 [![PyPI version](https://badge.fury.io/py/warp-lang.svg)](https://badge.fury.io/py/warp-lang)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/NVIDIA/warp?link=https%3A%2F%2Fgithub.com%2FNVIDIA%2Fwarp%2Fcommits%2Fmain)
 [![Downloads](https://static.pepy.tech/badge/warp-lang/month)](https://pepy.tech/project/warp-lang)
 [![codecov](https://codecov.io/github/NVIDIA/warp/graph/badge.svg?token=7O1KSM79FG)](https://codecov.io/github/NVIDIA/warp)
@@ -15,7 +16,8 @@ and comes with a rich set of primitives that make it easy to write
 programs for physics simulation, perception, robotics, and geometry processing. In addition, Warp kernels
 are differentiable and can be used as part of machine-learning pipelines with frameworks such as PyTorch, JAX and Paddle.
 
-Please refer to the project [Documentation](https://nvidia.github.io/warp/) for API and language reference and [CHANGELOG.md](./CHANGELOG.md) for release history.
+Please refer to the project [Documentation](https://nvidia.github.io/warp/) for API and language reference and
+[CHANGELOG.md](https://github.com/NVIDIA/warp/blob/main/CHANGELOG.md) for release history.
 
 <div align="center">
     <img src="https://github.com/NVIDIA/warp/raw/main/docs/img/header.jpg">
@@ -45,9 +47,9 @@ the `pip install` command, e.g.
 
 | Platform        | Install Command                                                                                                               |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Linux aarch64   | `pip install https://github.com/NVIDIA/warp/releases/download/v1.6.0/warp_lang-1.6.0+cu11-py3-none-manylinux2014_aarch64.whl` |
-| Linux x86-64    | `pip install https://github.com/NVIDIA/warp/releases/download/v1.6.0/warp_lang-1.6.0+cu11-py3-none-manylinux2014_x86_64.whl`  |
-| Windows x86-64  | `pip install https://github.com/NVIDIA/warp/releases/download/v1.6.0/warp_lang-1.6.0+cu11-py3-none-win_amd64.whl`             |
+| Linux aarch64   | `pip install https://github.com/NVIDIA/warp/releases/download/v1.7.1/warp_lang-1.7.1+cu11-py3-none-manylinux2014_aarch64.whl` |
+| Linux x86-64    | `pip install https://github.com/NVIDIA/warp/releases/download/v1.7.1/warp_lang-1.7.1+cu11-py3-none-manylinux2014_x86_64.whl`  |
+| Windows x86-64  | `pip install https://github.com/NVIDIA/warp/releases/download/v1.7.1/warp_lang-1.7.1+cu11-py3-none-win_amd64.whl`             |
 
 The `--force-reinstall` option may need to be used to overwrite a previous installation.
 
@@ -223,16 +225,16 @@ python -m warp.tests
             <td align="center">raymarch</td>
         </tr>
         <tr>
+            <td><a href="https://github.com/NVIDIA/warp/tree/main/warp/examples/core/example_sample_mesh.py"><img src="https://media.githubusercontent.com/media/NVIDIA/warp/refs/heads/main/docs/img/examples/core_sample_mesh.png"></a></td>
             <td><a href="https://github.com/NVIDIA/warp/tree/main/warp/examples/core/example_sph.py"><img src="https://media.githubusercontent.com/media/NVIDIA/warp/refs/heads/main/docs/img/examples/core_sph.png"></a></td>
             <td><a href="https://github.com/NVIDIA/warp/tree/main/warp/examples/core/example_torch.py"><img src="https://media.githubusercontent.com/media/NVIDIA/warp/refs/heads/main/docs/img/examples/core_torch.png"></a></td>
             <td><a href="https://github.com/NVIDIA/warp/tree/main/warp/examples/core/example_wave.py"><img src="https://media.githubusercontent.com/media/NVIDIA/warp/refs/heads/main/docs/img/examples/core_wave.png"></a></td>
-            <td></td>
         </tr>
         <tr>
+            <td align="center">sample mesh</td>
             <td align="center">sph</td>
             <td align="center">torch</td>
             <td align="center">wave</td>
-            <td align="center"></td>
         </tr>
     </tbody>
 </table>
@@ -295,6 +297,18 @@ python -m warp.tests
             <td align="center">spring cage</td>
             <td align="center">trajectory</td>
             <td align="center">soft body properties</td>
+        </tr>
+        <tr>
+            <td><a href="https://github.com/NVIDIA/warp/tree/main/warp/examples/optim/example_fluid_checkpoint.py"><img src="https://media.githubusercontent.com/media/NVIDIA/warp/refs/heads/main/docs/img/examples/optim_fluid_checkpoint.png"></a></td>
+            <td></td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td align="center">fluid checkpoint</td>
+            <td align="center"></td>
+            <td align="center"></td>
+            <td align="center"></td>
         </tr>
     </tbody>
 </table>
@@ -425,6 +439,8 @@ Problems, questions, and feature requests can be opened on [GitHub Issues](https
 
 The Warp team also monitors the **#warp** forum on the public [Omniverse Discord](https://discord.com/invite/nvidiaomniverse) server, come chat with us!
 
+For inquiries not suited for GitHub Issues or Discord, please email warp-python@nvidia.com.
+
 ## Versioning
 
 Versions take the format X.Y.Z, similar to [Python itself](https://devguide.python.org/developer-workflow/development-cycle/#devcycle):
@@ -440,26 +456,34 @@ Note that prior to 0.11.0, this schema was not strictly adhered to.
 
 ## License
 
-Warp is provided under the NVIDIA Software License, please see [LICENSE.md](./LICENSE.md) for full license text.
+Warp is provided under the Apache License, Version 2.0.
+Please see [LICENSE.md](https://github.com/NVIDIA/warp/blob/main/LICENSE.md) for full license text.
 
 ## Contributing
 
-Contributions and pull requests from the community are welcome and are taken under the
-terms described in the **Feedback** section of [LICENSE.md](LICENSE.md#9-feedback).
+Contributions and pull requests from the community are welcome.
 Please see the [Contribution Guide](https://nvidia.github.io/warp/modules/contribution_guide.html) for more
 information on contributing to the development of Warp.
 
-## Citing
+## Publications & Citation
 
-If you use Warp in your research, please use the following citation:
+### Research Using Warp
+
+Our [PUBLICATIONS.md](https://github.com/NVIDIA/warp/blob/main/PUBLICATIONS.md) file lists academic and research
+publications that leverage the capabilities of Warp.
+We encourage you to add your own published work using Warp to this list.
+
+### Citing Warp
+
+To cite Warp itself in your own publications, please use the following BibTeX entry:
 
 ```bibtex
 @misc{warp2022,
-title= {Warp: A High-performance Python Framework for GPU Simulation and Graphics},
-author = {Miles Macklin},
-month = {March},
-year = {2022},
-note= {NVIDIA GPU Technology Conference (GTC)},
-howpublished = {\url{https://github.com/nvidia/warp}}
+  title        = {Warp: A High-performance Python Framework for GPU Simulation and Graphics},
+  author       = {Miles Macklin},
+  month        = {March},
+  year         = {2022},
+  note         = {NVIDIA GPU Technology Conference (GTC)},
+  howpublished = {\url{https://github.com/nvidia/warp}}
 }
 ```

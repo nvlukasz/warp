@@ -1,9 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from typing import Any, Optional
 
 import warp as wp
 from warp.fem.linalg import array_axpy, symmetric_eigenvalues_qr
 from warp.sparse import BsrMatrix, bsr_assign, bsr_axpy, bsr_copy, bsr_mm, bsr_mv
-from warp.types import type_is_matrix, type_length
+from warp.types import type_is_matrix, type_size
 
 
 def normalize_dirichlet_projector(projector_matrix: BsrMatrix, fixed_value: Optional[wp.array] = None):
@@ -38,7 +53,7 @@ def normalize_dirichlet_projector(projector_matrix: BsrMatrix, fixed_value: Opti
         if fixed_value.shape[0] != projector_matrix.nrow:
             raise ValueError("Fixed value array must be of length equal to the number of rows of blocks")
 
-        if type_length(fixed_value.dtype) == 1:
+        if type_size(fixed_value.dtype) == 1:
             # array of scalars, convert to 1d array of vectors
             fixed_value = wp.array(
                 data=None,

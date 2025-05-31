@@ -1,18 +1,21 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # This script is an 'offline' build of the core warp runtime libraries
 # designed to be executed as part of CI / developer workflows, not
 # as part of the user runtime (since it requires CUDA toolkit, etc)
-
-import sys
-
-if sys.version_info < (3, 8):
-    raise Exception("Warp requires Python 3.8 minimum")
 
 import argparse
 import glob
@@ -20,6 +23,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 
 from warp.build_dll import build_dll, find_host_compiler, machine_architecture, set_msvc_env, verbose_cmd
 from warp.context import export_builtins
@@ -36,6 +40,13 @@ parser.add_argument(
     help="Build configuration, default 'release'",
     choices=["release", "debug"],
 )
+
+parser.add_argument(
+    "--clang_build_toolchain",
+    action="store_true",
+    help="(Linux only) Use Clang compiler for building both CPU and GPU code during library compilation (default: use host compiler and NVCC)",
+)
+parser.set_defaults(clang_build_toolchain=False)
 
 # Note argparse.BooleanOptionalAction can be used here when Python 3.9+ becomes the minimum supported version
 parser.add_argument("--verbose", action="store_true", help="Verbose building output, default enabled")
@@ -57,22 +68,41 @@ parser.set_defaults(fast_math=False)
 parser.add_argument("--quick", action="store_true", help="Only generate PTX code")
 parser.set_defaults(quick=False)
 
-parser.add_argument("--build_llvm", action="store_true", help="Build Clang/LLVM compiler from source, default disabled")
-parser.add_argument("--no_build_llvm", dest="build_llvm", action="store_false")
-parser.set_defaults(build_llvm=False)
+group_clang_llvm = parser.add_argument_group("Clang/LLVM Options")
 
-parser.add_argument(
+group_clang_llvm.add_argument("--llvm_path", type=str, help="Path to an existing LLVM installation")
+
+group_clang_llvm.add_argument(
+    "--build_llvm", action="store_true", help="Build Clang/LLVM compiler from source, default disabled"
+)
+group_clang_llvm.add_argument("--no_build_llvm", dest="build_llvm", action="store_false")
+group_clang_llvm.set_defaults(build_llvm=False)
+
+group_clang_llvm.add_argument(
     "--llvm_source_path", type=str, help="Path to the LLVM project source code (optional, repo cloned if not set)"
 )
 
-parser.add_argument("--debug_llvm", action="store_true", help="Enable LLVM compiler code debugging, default disabled")
-parser.add_argument("--no_debug_llvm", dest="debug_llvm", action="store_false")
-parser.set_defaults(debug_llvm=False)
+group_clang_llvm.add_argument(
+    "--debug_llvm", action="store_true", help="Enable LLVM compiler code debugging, default disabled"
+)
+group_clang_llvm.add_argument("--no_debug_llvm", dest="debug_llvm", action="store_false")
+group_clang_llvm.set_defaults(debug_llvm=False)
 
-parser.add_argument("--standalone", action="store_true", help="Use standalone LLVM-based JIT compiler, default enabled")
-parser.add_argument("--no_standalone", dest="standalone", action="store_false")
-parser.set_defaults(standalone=True)
+group_clang_llvm.add_argument(
+    "--standalone", action="store_true", help="Use standalone LLVM-based JIT compiler, default enabled"
+)
+group_clang_llvm.add_argument("--no_standalone", dest="standalone", action="store_false")
+group_clang_llvm.set_defaults(standalone=True)
 
+parser.add_argument("--libmathdx", action="store_true", help="Build Warp with MathDx support, default enabled")
+parser.add_argument("--no_libmathdx", dest="libmathdx", action="store_false")
+parser.set_defaults(libmathdx=True)
+
+parser.add_argument(
+    "--compile_time_trace",
+    action="store_true",
+    help="Output a 'build_warp_time_trace.json' trace file for the NVCC compilation process, default disabled",
+)
 
 args = parser.parse_args()
 
@@ -168,8 +198,12 @@ else:
         args.cuda_path = find_cuda_sdk()
 
     # libmathdx needs to be used with a build of Warp that supports CUDA
-    if not args.libmathdx_path and args.cuda_path:
-        args.libmathdx_path = find_libmathdx()
+    if args.libmathdx:
+        if not args.libmathdx_path and args.cuda_path:
+            args.libmathdx_path = find_libmathdx()
+    else:
+        args.libmathdx_path = None
+
 
 # setup MSVC and WinSDK paths
 if platform.system() == "Windows":
@@ -187,8 +221,8 @@ if platform.system() == "Windows":
             sys.exit(1)
 
 
-# return platform specific shared library name
-def lib_name(name):
+def lib_name(name: str) -> str:
+    """Return platform-specific shared library name."""
     if platform.system() == "Windows":
         return f"{name}.dll"
     elif platform.system() == "Darwin":
@@ -205,6 +239,26 @@ def generate_exports_header_file():
 
     try:
         with open(export_path, "w") as f:
+            # Add copyright notice using a triple-quoted string
+            copyright_notice = """/*
+ * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+"""
+            f.write(copyright_notice)
             export_builtins(f)
 
         print(f"Finished writing {export_path}")
@@ -247,7 +301,7 @@ try:
     else:
         warp_cu_path = os.path.join(build_path, "native/warp.cu")
 
-    if args.libmathdx_path is None:
+    if args.libmathdx and args.libmathdx_path is None:
         print("Warning: libmathdx not found, building without MathDx support")
 
     warp_dll_path = os.path.join(build_path, f"bin/{lib_name('warp')}")
@@ -259,7 +313,7 @@ try:
         import build_llvm
 
         if args.build_llvm:
-            build_llvm.build_from_source(args)
+            build_llvm.build_llvm_clang_from_source(args)
 
         build_llvm.build_warp_clang(args, lib_name("warp-clang"))
 

@@ -1,9 +1,17 @@
-# Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import ctypes
 import os
@@ -404,8 +412,8 @@ def test_dlpack_warp_to_jax(test, device):
 
     test.assertEqual(a.ptr, j1.unsafe_buffer_pointer())
     test.assertEqual(a.ptr, j2.unsafe_buffer_pointer())
-    test.assertEqual(a.device, wp.device_from_jax(list(j1.devices())[0]))
-    test.assertEqual(a.device, wp.device_from_jax(list(j2.devices())[0]))
+    test.assertEqual(a.device, wp.device_from_jax(next(iter(j1.devices()))))
+    test.assertEqual(a.device, wp.device_from_jax(next(iter(j2.devices()))))
     test.assertEqual(a.shape, j1.shape)
     test.assertEqual(a.shape, j2.shape)
 
@@ -452,8 +460,8 @@ def test_dlpack_warp_to_jax_v2(test, device):
 
     test.assertEqual(a.ptr, j1.unsafe_buffer_pointer())
     test.assertEqual(a.ptr, j2.unsafe_buffer_pointer())
-    test.assertEqual(a.device, wp.device_from_jax(list(j1.devices())[0]))
-    test.assertEqual(a.device, wp.device_from_jax(list(j2.devices())[0]))
+    test.assertEqual(a.device, wp.device_from_jax(next(iter(j1.devices()))))
+    test.assertEqual(a.device, wp.device_from_jax(next(iter(j2.devices()))))
     test.assertEqual(a.shape, j1.shape)
     test.assertEqual(a.shape, j2.shape)
 
@@ -535,15 +543,15 @@ def test_dlpack_jax_to_warp(test, device):
         j = jax.numpy.arange(N, dtype=jax.numpy.float32)
 
         # use generic dlpack conversion
-        a1 = wp.from_dlpack(jax.dlpack.to_dlpack(j))
+        a1 = wp.from_dlpack(j)
 
         # use jax wrapper
         a2 = wp.from_jax(j)
 
         test.assertEqual(a1.ptr, j.unsafe_buffer_pointer())
         test.assertEqual(a2.ptr, j.unsafe_buffer_pointer())
-        test.assertEqual(a1.device, wp.device_from_jax(list(j.devices())[0]))
-        test.assertEqual(a2.device, wp.device_from_jax(list(j.devices())[0]))
+        test.assertEqual(a1.device, wp.device_from_jax(next(iter(j.devices()))))
+        test.assertEqual(a2.device, wp.device_from_jax(next(iter(j.devices()))))
         test.assertEqual(a1.shape, j.shape)
         test.assertEqual(a2.shape, j.shape)
 
@@ -578,8 +586,8 @@ def test_dlpack_jax_to_warp_v2(test, device):
 
         test.assertEqual(a1.ptr, j.unsafe_buffer_pointer())
         test.assertEqual(a2.ptr, j.unsafe_buffer_pointer())
-        test.assertEqual(a1.device, wp.device_from_jax(list(j.devices())[0]))
-        test.assertEqual(a2.device, wp.device_from_jax(list(j.devices())[0]))
+        test.assertEqual(a1.device, wp.device_from_jax(next(iter(j.devices()))))
+        test.assertEqual(a2.device, wp.device_from_jax(next(iter(j.devices()))))
         test.assertEqual(a1.shape, j.shape)
         test.assertEqual(a2.shape, j.shape)
 

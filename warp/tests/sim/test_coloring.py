@@ -1,10 +1,17 @@
-# Copyright (c) 2024 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
-
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import numpy as np
 
@@ -39,6 +46,19 @@ def color_lattice_grid(num_x, num_y):
     color_groups = [np.array(group) for group in colors]
 
     return color_groups
+
+
+def test_coloring_corner_case(test, device):
+    builder_1 = wp.sim.ModelBuilder()
+    builder_1.color()
+    test.assertTrue(len(builder_1.particle_color_groups) == 0)
+
+    builder_2 = wp.sim.ModelBuilder()
+    builder_2.add_particle(pos=wp.vec3(0, 0, 0), vel=wp.vec3(0, 0, 0), mass=1.0)
+    builder_2.add_particle(pos=wp.vec3(1, 0, 0), vel=wp.vec3(0, 0, 0), mass=1.0)
+    builder_2.color()
+    test.assertTrue(len(builder_2.particle_color_groups) == 1)
+    test.assertTrue(builder_2.particle_color_groups[0].shape[0] == 2)
 
 
 @unittest.skipUnless(USD_AVAILABLE, "Requires usd-core")
@@ -220,7 +240,7 @@ def test_combine_coloring(test, device):
 
         particle_number_colored = np.full((model.particle_count), -1, dtype=int)
         particle_colors = np.full((model.particle_count), -1, dtype=int)
-        for color, color_group in enumerate(model.particle_coloring):
+        for color, color_group in enumerate(model.particle_color_groups):
             particle_number_colored[color_group.numpy()] += 1
             particle_colors[color_group.numpy()] = color
 
@@ -245,6 +265,7 @@ class TestColoring(unittest.TestCase):
 
 add_function_test(TestColoring, "test_coloring_trimesh", test_coloring_trimesh, devices=devices)
 add_function_test(TestColoring, "test_combine_coloring", test_combine_coloring, devices=devices)
+add_function_test(TestColoring, "test_coloring_corner_case", test_coloring_corner_case, devices=devices)
 
 if __name__ == "__main__":
     wp.clear_kernel_cache()

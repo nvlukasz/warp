@@ -1,9 +1,18 @@
-/** Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
- * NVIDIA CORPORATION and its licensors retain all intellectual property
- * and proprietary rights in and to this software, related documentation
- * and any modifications thereto.  Any use, reproduction, disclosure or
- * distribution of this software and related documentation without an express
- * license agreement from NVIDIA CORPORATION is strictly prohibited.
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #pragma once
@@ -140,26 +149,15 @@ using vec2d = vec_t<2,double>;
 using vec3d = vec_t<3,double>;
 using vec4d = vec_t<4,double>;
 
-//--------------
-// vec<Length, Type> methods
-
-// Should these accept const references as arguments? It's all
-// inlined so maybe it doesn't matter? Even if it does, it
-// probably depends on the Length of the vector...
-
-// negation:
 template<unsigned Length, typename Type>
-inline CUDA_CALLABLE vec_t<Length, Type> operator - (vec_t<Length, Type> a)
+inline CUDA_CALLABLE vec_t<Length, Type> operator - (const vec_t<Length, Type>& x)
 {
-    // NB: this constructor will initialize all ret's components to 0, which is
-    // unnecessary... 
     vec_t<Length, Type> ret;
-    for( unsigned i=0; i < Length; ++i )
+    for(unsigned i=0; i < Length; ++i)
     {
-        ret[i] = -a[i];
+        ret[i] = -x[i];
     }
 
-    // Wonder if this does a load of copying when it returns... hopefully not as it's inlined?
     return ret;
 }
 
@@ -834,8 +832,9 @@ inline CUDA_CALLABLE void expect_near(const vec_t<Length, Type>& actual, const v
     if (diff > tolerance)
     {
         printf("Error, expect_near() failed with tolerance "); print(tolerance);
-        printf("\t Expected: "); print(expected); 
-        printf("\t Actual: "); print(actual);
+        printf("    Expected: "); print(expected); 
+        printf("    Actual: "); print(actual);
+        printf("    Max absolute difference: "); print(diff);
     }
 }
 

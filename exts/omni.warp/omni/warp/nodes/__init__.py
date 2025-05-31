@@ -1,9 +1,17 @@
-# Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Public Python API exposed by the omni.warp.nodes package."""
 
@@ -29,10 +37,10 @@ __all__ = [
     "bundle_set_prim_type",
     "bundle_set_world_xform",
     "device_get_cuda_compute",
-    "from_omni_graph_ptr",
     "from_omni_graph",
-    "mesh_create_bundle",
+    "from_omni_graph_ptr",
     "mesh_copy_bundle",
+    "mesh_create_bundle",
     "mesh_get_display_color",
     "mesh_get_face_count",
     "mesh_get_face_vertex_counts",
@@ -41,13 +49,13 @@ __all__ = [
     "mesh_get_normals",
     "mesh_get_point_count",
     "mesh_get_points",
-    "mesh_triangulate",
     "mesh_get_uvs",
     "mesh_get_velocities",
     "mesh_get_vertex_count",
     "mesh_get_world_extent",
-    "points_create_bundle",
+    "mesh_triangulate",
     "points_copy_bundle",
+    "points_create_bundle",
     "points_get_display_color",
     "points_get_local_extent",
     "points_get_masses",
@@ -57,8 +65,8 @@ __all__ = [
     "points_get_widths",
     "points_get_world_extent",
     "type_convert_og_to_warp",
-    "type_convert_sdf_name_to_warp",
     "type_convert_sdf_name_to_og",
+    "type_convert_sdf_name_to_warp",
 ]
 
 from ._impl.attributes import (

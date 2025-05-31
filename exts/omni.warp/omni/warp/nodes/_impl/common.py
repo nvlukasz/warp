@@ -1,9 +1,17 @@
-# Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """General helpers for this extension."""
 
@@ -36,11 +44,11 @@ class IntEnum(int, Enum):
 # ------------------------------------------------------------------------------
 
 
-class NodeTimer(object):
+class NodeTimer:
     """Context wrapping Warp's scoped timer for use with nodes."""
 
     def __init__(self, name: str, db: Any, active: bool = False) -> None:
-        name = "{}:{}".format(db.node.get_prim_path(), name)
+        name = f"{db.node.get_prim_path()}:{name}"
         self.timer = wp.ScopedTimer(name, active=active, synchronize=True)
 
     def __enter__(self) -> None:
@@ -123,22 +131,15 @@ def get_warp_type_from_data_type_name(
     str_namespace: Optional[str] = "wp",
 ):
     if as_str:
-        prefix = "" if str_namespace is None else "{}.".format(str_namespace)
+        prefix = "" if str_namespace is None else f"{str_namespace}."
 
         if dim_count == 0:
-            return "{prefix}{dtype}".format(prefix=prefix, dtype=data_type_name)
+            return f"{prefix}{data_type_name}"
 
         if dim_count == 1:
-            return "{prefix}array(dtype={prefix}{dtype})".format(
-                prefix=prefix,
-                dtype=data_type_name,
-            )
+            return f"{prefix}array(dtype={prefix}{data_type_name})"
 
-        return "{prefix}array(dtype={prefix}{dtype}, ndim={ndim})".format(
-            prefix=prefix,
-            dtype=data_type_name,
-            ndim=dim_count,
-        )
+        return f"{prefix}array(dtype={prefix}{data_type_name}, ndim={dim_count})"
 
     dtype = getattr(wp.types, data_type_name)
     if dim_count == 0:
@@ -161,7 +162,7 @@ def type_convert_og_to_warp(
         (og_type.base_type, og_type.tuple_count, og_type.role),
     )
     if data_type_name is None:
-        raise RuntimeError("Unsupported attribute type '{}'.".format(og_type))
+        raise RuntimeError(f"Unsupported attribute type '{og_type}'.")
 
     if dim_count is None:
         dim_count = og_type.array_depth
@@ -190,7 +191,7 @@ def type_convert_sdf_name_to_warp(
 
     data_type_name = _SDF_DATA_TYPE_NAME_TO_WARP.get(sdf_type_name)
     if data_type_name is None:
-        raise RuntimeError("Unsupported attribute type '{}'.".format(sdf_type_name))
+        raise RuntimeError(f"Unsupported attribute type '{sdf_type_name}'.")
 
     return get_warp_type_from_data_type_name(
         data_type_name,
@@ -214,7 +215,7 @@ def type_convert_sdf_name_to_og(
 
     data_type = _SDF_DATA_TYPE_TO_OG.get(sdf_type_name)
     if data_type is None:
-        raise RuntimeError("Unsupported attribute type '{}'.".format(sdf_type_name))
+        raise RuntimeError(f"Unsupported attribute type '{sdf_type_name}'.")
 
     base_data_type, tuple_count, role = data_type
     return og.Type(

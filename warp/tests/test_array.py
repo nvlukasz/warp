@@ -1,9 +1,17 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import unittest
 from typing import Any
@@ -404,7 +412,7 @@ def test_slicing(test, device):
     assert_array_equal(wp_arr[:5], wp.array(np_arr[:5], dtype=int, device=device))
     assert_array_equal(wp_arr[1:5], wp.array(np_arr[1:5], dtype=int, device=device))
     assert_array_equal(wp_arr[-9:-5:1], wp.array(np_arr[-9:-5:1], dtype=int, device=device))
-    assert_array_equal(wp_arr[:5,], wp.array(np_arr[:5], dtype=int, device=device))  # noqa: E231
+    assert_array_equal(wp_arr[:5,], wp.array(np_arr[:5], dtype=int, device=device))
 
 
 def test_view(test, device):
@@ -2362,6 +2370,257 @@ def test_array_from_cai(test, device):
     assert_np_equal(arr_warp.numpy(), np.array([[2, 1, 1], [1, 0, 0], [1, 0, 0]]))
 
 
+def test_array_from_data(test, device):
+    with wp.ScopedDevice(device):
+        # =========================================
+        # scalars, reshaping
+
+        data = np.arange(12, dtype=np.float32).reshape((3, 4))
+        src = wp.array(data)
+
+        assert src.device == device
+
+        dtypes = [Any, wp.float32]
+        shapes = [None, (3, 4), (12,), (3, 2, 2)]
+
+        for dtype in dtypes:
+            for shape in shapes:
+                with test.subTest(msg=f"scalar, dtype={dtype}, shape={shape}"):
+                    dst = wp.array(src, dtype=dtype, shape=shape)
+                    assert dst.device == src.device
+                    if dtype is Any:
+                        assert dst.dtype == src.dtype
+                    else:
+                        assert dst.dtype == dtype
+                    if shape is None:
+                        assert dst.shape == src.shape
+                        assert_np_equal(dst.numpy(), data)
+                    else:
+                        assert dst.shape == shape
+                        assert_np_equal(dst.numpy(), data.reshape(shape))
+
+        # =========================================
+        # vectors, reshaping
+
+        with test.subTest(msg="vector, single"):
+            data = np.arange(3, dtype=np.float32)
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.vec3)
+            assert dst.dtype == wp.vec3
+            assert dst.shape == (1,)
+            assert_np_equal(dst.numpy(), data.reshape((1, 3)))
+
+        with test.subTest(msg="vector, multiple in 1d"):
+            data = np.arange(12, dtype=np.float32)
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.vec3)
+            assert dst.dtype == wp.vec3
+            assert dst.shape == (4,)
+            assert_np_equal(dst.numpy(), data.reshape((4, 3)))
+
+        with test.subTest(msg="vector, singles in 2d"):
+            data = np.arange(12, dtype=np.float32).reshape((4, 3))
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.vec3)
+            assert dst.dtype == wp.vec3
+            assert dst.shape == (4,)
+            assert_np_equal(dst.numpy(), data.reshape((4, 3)))
+
+        with test.subTest(msg="vector, multiples in 2d"):
+            data = np.arange(24, dtype=np.float32).reshape((4, 6))
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.vec3)
+            assert dst.dtype == wp.vec3
+            assert dst.shape == (4, 2)
+            assert_np_equal(dst.numpy(), data.reshape((4, 2, 3)))
+
+        with test.subTest(msg="vector, singles in 2d, reshape"):
+            data = np.arange(12, dtype=np.float32).reshape((4, 3))
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.vec3, shape=(2, 2))
+            assert dst.dtype == wp.vec3
+            assert dst.shape == (2, 2)
+            assert_np_equal(dst.numpy(), data.reshape((2, 2, 3)))
+
+        with test.subTest(msg="vector, multiples in 2d, reshape"):
+            data = np.arange(24, dtype=np.float32).reshape((4, 6))
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.vec3, shape=(2, 2, 2))
+            assert dst.dtype == wp.vec3
+            assert dst.shape == (2, 2, 2)
+            assert_np_equal(dst.numpy(), data.reshape((2, 2, 2, 3)))
+
+        # =========================================
+        # matrices, reshaping
+
+        with test.subTest(msg="matrix, single in 2d"):
+            # one 2x2 matrix in a 2d array
+            data = np.arange(4, dtype=np.float32).reshape((2, 2))
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.mat22)
+            assert dst.dtype == wp.mat22
+            assert dst.shape == (1,)
+            assert_np_equal(dst.numpy(), data.reshape((1, 2, 2)))
+
+        with test.subTest(msg="matrix, single in 1d"):
+            # 2x2 matrix in a 1d array
+            data = np.arange(4, dtype=np.float32)
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.mat22)
+            assert dst.dtype == wp.mat22
+            assert dst.shape == (1,)
+            assert_np_equal(dst.numpy(), data.reshape((1, 2, 2)))
+
+        with test.subTest(msg="matrix, multiples in 1d"):
+            # 3 2x2 matrices in a 1d array
+            data = np.arange(12, dtype=np.float32)
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.mat22)
+            assert dst.dtype == wp.mat22
+            assert dst.shape == (3,)
+            assert_np_equal(dst.numpy(), data.reshape((3, 2, 2)))
+
+        with test.subTest(msg="matrix, multiples in 1d, reshape"):
+            # 4 2x2 matrices in a 1d array
+            data = np.arange(16, dtype=np.float32)
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.mat22, shape=(4,))
+            assert dst.dtype == wp.mat22
+            assert dst.shape == (4,)
+            assert_np_equal(dst.numpy(), data.reshape((4, 2, 2)))
+
+        with test.subTest(msg="matrix, multiples in 2d"):
+            # 3 2x2 matrices in a 2d array
+            data = np.arange(12, dtype=np.float32).reshape((3, 4))
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.mat22)
+            assert dst.dtype == wp.mat22
+            assert dst.shape == (3,)
+            assert_np_equal(dst.numpy(), data.reshape((3, 2, 2)))
+
+        with test.subTest(msg="matrix, multiples in 2d, reshape"):
+            # 4 2x2 matrices in a 2d array
+            data = np.arange(16, dtype=np.float32).reshape((4, 4))
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.mat22, shape=(2, 2))
+            assert dst.dtype == wp.mat22
+            assert dst.shape == (2, 2)
+            assert_np_equal(dst.numpy(), data.reshape((2, 2, 2, 2)))
+
+        with test.subTest(msg="matrix, multiples in 3d"):
+            # 3 2x2 matrices in a 3d array
+            data = np.arange(12, dtype=np.float32).reshape((3, 2, 2))
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.mat22)
+            assert dst.dtype == wp.mat22
+            assert dst.shape == (3,)
+            assert_np_equal(dst.numpy(), data.reshape((3, 2, 2)))
+
+        with test.subTest(msg="matrix, multiples in 3d, reshape"):
+            # 4 2x2 matrices in a 3d array
+            data = np.arange(16, dtype=np.float32).reshape((4, 2, 2))
+            src = wp.array(data)
+            dst = wp.array(src, dtype=wp.mat22, shape=(2, 2))
+            assert dst.dtype == wp.mat22
+            assert dst.shape == (2, 2)
+            assert_np_equal(dst.numpy(), data.reshape((2, 2, 2, 2)))
+
+        # =========================================
+        # vectors and matrices in strided arrays
+
+        with test.subTest(msg="vector, singles in 2d, strided"):
+            # 4 vec3 in strided 2d array
+            data = np.arange(20, dtype=np.float32).reshape((4, 5))
+            src = wp.array(data)[:, 2:]  # source with strides
+            dst = wp.array(src, dtype=wp.vec3)
+            assert dst.dtype == wp.vec3
+            assert dst.shape == (4,)
+            expected = np.array(
+                [
+                    [2, 3, 4],
+                    [7, 8, 9],
+                    [12, 13, 14],
+                    [17, 18, 19],
+                ],
+                dtype=np.float32,
+            )
+            assert_np_equal(dst.numpy(), expected)
+
+        with test.subTest(msg="vector, multiples in 2d, strided"):
+            # 4 vec3 in strided 2d array
+            data = np.arange(14, dtype=np.float32).reshape((2, 7))
+            src = wp.array(data)[:, 1:]  # source with strides
+            dst = wp.array(src, dtype=wp.vec3)
+            assert dst.dtype == wp.vec3
+            assert dst.shape == (2, 2)
+            expected = np.array(
+                [
+                    [
+                        [1, 2, 3],
+                        [4, 5, 6],
+                    ],
+                    [
+                        [8, 9, 10],
+                        [11, 12, 13],
+                    ],
+                ],
+                dtype=np.float32,
+            )
+            assert_np_equal(dst.numpy(), expected)
+
+        with test.subTest(msg="matrix, multiples in 2d, strided"):
+            # 3 2x2 matrices in a 2d array
+            data = np.arange(15, dtype=np.float32).reshape((3, 5))
+            src = wp.array(data)[:, 1:]  # source with strides
+            dst = wp.array(src, dtype=wp.mat22)
+            assert dst.dtype == wp.mat22
+            assert dst.shape == (3,)
+            expected = np.array(
+                [
+                    [
+                        [1, 2],
+                        [3, 4],
+                    ],
+                    [
+                        [6, 7],
+                        [8, 9],
+                    ],
+                    [
+                        [11, 12],
+                        [13, 14],
+                    ],
+                ],
+                dtype=np.float32,
+            )
+            assert_np_equal(dst.numpy(), expected)
+
+        with test.subTest(msg="matrix, multiples in 3d, strided"):
+            # 3 2x2 matrices in a 3d array
+            data = np.arange(18, dtype=np.float32).reshape((3, 3, 2))
+            src = wp.array(data)[:, 1:]  # source with strides
+            dst = wp.array(src, dtype=wp.mat22)
+            assert dst.dtype == wp.mat22
+            assert dst.shape == (3,)
+            expected = np.array(
+                [
+                    [
+                        [2, 3],
+                        [4, 5],
+                    ],
+                    [
+                        [8, 9],
+                        [10, 11],
+                    ],
+                    [
+                        [14, 15],
+                        [16, 17],
+                    ],
+                ],
+                dtype=np.float32,
+            )
+            assert_np_equal(dst.numpy(), expected)
+
+
 @wp.kernel
 def inplace_add_1d(x: wp.array(dtype=float), y: wp.array(dtype=float)):
     i = wp.tid()
@@ -2596,7 +2855,7 @@ def test_array_inplace_non_diff_ops(test, device):
     wp.launch(inplace_div_1d, N, inputs=[x1, y1], device=device)
     assert_np_equal(x1.numpy(), np.full(N, fill_value=2.0, dtype=float))
 
-    for dtype in wp.types.non_atomic_types + (wp.vec2b, wp.vec2ub, wp.vec2s, wp.vec2us, uint16vec3):
+    for dtype in (*wp.types.non_atomic_types, wp.vec2b, wp.vec2ub, wp.vec2s, wp.vec2us, uint16vec3):
         x = wp.full(N, value=0, dtype=dtype, device=device)
         y = wp.full(N, value=1, dtype=dtype, device=device)
 
@@ -2795,7 +3054,7 @@ def test_alloc_strides(test, device):
 
 def test_casting(test, device):
     idxs = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
-    idxs = wp.array(idxs, device=device).reshape((-1, 3))
+    idxs = wp.array(idxs, device=device, dtype=wp.int32).reshape((-1, 3))
     idxs = wp.array(idxs, shape=idxs.shape[0], dtype=wp.vec3i, device=device)
     assert idxs.dtype is wp.vec3i
     assert idxs.shape == (4,)
@@ -2838,25 +3097,25 @@ def test_array_len(test, device):
 
 def test_cuda_interface_conversion(test, device):
     class MyArrayInterface:
-        def __init__(self, data):
-            self.data = np.array(data)
+        def __init__(self, data, npdtype):
+            self.data = np.array(data, dtype=npdtype)
             self.__array_interface__ = self.data.__array_interface__
             self.__cuda_array_interface__ = self.data.__array_interface__
             self.__len__ = self.data.__len__
 
-    array = MyArrayInterface((1, 2, 3))
+    array = MyArrayInterface((1, 2, 3), np.int8)
     wp_array = wp.array(array, dtype=wp.int8, device=device)
     assert wp_array.ptr != 0
 
-    array = MyArrayInterface((1, 2, 3))
+    array = MyArrayInterface((1, 2, 3), np.float32)
     wp_array = wp.array(array, dtype=wp.float32, device=device)
     assert wp_array.ptr != 0
 
-    array = MyArrayInterface((1, 2, 3))
+    array = MyArrayInterface((1, 2, 3), np.float32)
     wp_array = wp.array(array, dtype=wp.vec3, device=device)
     assert wp_array.ptr != 0
 
-    array = MyArrayInterface((1, 2, 3, 4))
+    array = MyArrayInterface((1, 2, 3, 4), np.float32)
     wp_array = wp.array(array, dtype=wp.mat22, device=device)
     assert wp_array.ptr != 0
 
@@ -2875,6 +3134,7 @@ add_function_test(TestArray, "test_shape", test_shape, devices=devices)
 add_function_test(TestArray, "test_negative_shape", test_negative_shape, devices=devices)
 add_function_test(TestArray, "test_flatten", test_flatten, devices=devices)
 add_function_test(TestArray, "test_reshape", test_reshape, devices=devices)
+
 add_function_test(TestArray, "test_slicing", test_slicing, devices=devices)
 add_function_test(TestArray, "test_transpose", test_transpose, devices=devices)
 add_function_test(TestArray, "test_view", test_view, devices=devices)
@@ -2934,6 +3194,7 @@ add_function_test(TestArray, "test_alloc_strides", test_alloc_strides, devices=d
 add_function_test(TestArray, "test_casting", test_casting, devices=devices)
 add_function_test(TestArray, "test_array_len", test_array_len, devices=devices)
 add_function_test(TestArray, "test_cuda_interface_conversion", test_cuda_interface_conversion, devices=devices)
+add_function_test(TestArray, "test_array_from_data", test_array_from_data, devices=devices)
 
 try:
     import torch

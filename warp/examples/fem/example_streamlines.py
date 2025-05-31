@@ -1,9 +1,17 @@
-# Copyright (c) 2024 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 ###########################################################################
 # Example Streamlines
@@ -150,6 +158,11 @@ class Example:
                 res=res,
             )
             self._geo = fem.Tetmesh(tet_vtx_indices, pos, build_bvh=True)
+        elif mesh == "hex":
+            pos, hex_vtx_indices = fem_example_utils.gen_hexmesh(
+                res=res,
+            )
+            self._geo = fem.Hexmesh(hex_vtx_indices, pos, assume_parallelepiped_cells=True, build_bvh=True)
         elif mesh == "nano":
             volume = fem_example_utils.gen_volume(
                 res=res,
@@ -272,7 +285,7 @@ class Example:
         inflow_test = fem.make_test(u_space, domain=self._inflow)
         inflow_trial = fem.make_trial(u_space, domain=self._inflow)
         dirichlet_projector = fem.integrate(
-            noslip_projector_form, fields={"u": inflow_test, "v": inflow_trial}, nodal=True, output_dtype=float
+            noslip_projector_form, fields={"u": inflow_test, "v": inflow_trial}, assembly="nodal", output_dtype=float
         )
 
         freeslip_test = fem.make_test(u_space, domain=self._freeslip)
@@ -280,7 +293,7 @@ class Example:
         dirichlet_projector += fem.integrate(
             freeslip_projector_form,
             fields={"u": freeslip_test, "v": freeslip_trial},
-            nodal=True,
+            assembly="nodal",
             output_dtype=float,
         )
         fem.normalize_dirichlet_projector(dirichlet_projector)
@@ -292,7 +305,7 @@ class Example:
         rho_test = fem.make_test(u_space)
         rho_trial = fem.make_trial(u_space)
         inv_mass_matrix = fem.integrate(
-            mass_form, fields={"u": rho_trial, "v": rho_test}, nodal=True, output_dtype=float
+            mass_form, fields={"u": rho_trial, "v": rho_test}, assembly="nodal", output_dtype=float
         )
         fem_example_utils.invert_diagonal_bsr_matrix(inv_mass_matrix)
 

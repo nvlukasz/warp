@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from typing import Union
 
 import warp as wp
@@ -57,7 +72,10 @@ class NanogridSpaceTopology(SpaceTopology):
     @cache.cached_arg_value
     def topo_arg_value(self, device):
         arg = NanogridTopologyArg()
+        self.fill_topo_arg(arg, device)
+        return arg
 
+    def fill_topo_arg(self, arg, device):
         arg.vertex_grid = self._vertex_grid
         arg.face_grid = self._face_grid
         arg.edge_grid = self._edge_grid
@@ -65,7 +83,6 @@ class NanogridSpaceTopology(SpaceTopology):
         arg.vertex_count = self._grid.vertex_count()
         arg.face_count = self._face_count
         arg.edge_count = self._edge_count
-        return arg
 
     def _make_element_node_index(self):
         element_node_index_generic = self._make_element_node_index_generic()

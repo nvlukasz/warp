@@ -1,9 +1,18 @@
-/** Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
- * NVIDIA CORPORATION and its licensors retain all intellectual property
- * and proprietary rights in and to this software, related documentation
- * and any modifications thereto.  Any use, reproduction, disclosure or
- * distribution of this software and related documentation without an express
- * license agreement from NVIDIA CORPORATION is strictly prohibited.
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #include "../native/crt.h"
@@ -49,10 +58,30 @@
 #if defined(_WIN64)
     extern "C" void __chkstk();
 #elif defined(__APPLE__)
-    extern "C" void __bzero(void*, size_t);
+
+#if defined(__MACH__) && defined(__aarch64__)
+    extern "C" void _bzero(void *s, size_t n) {
+        memset(s, 0, n);
+    }
+    extern "C" void __bzero(void *s, size_t n) {
+        memset(s, 0, n);
+    }
+
+    extern "C" void _memset_pattern16(void *s, const void *pattern, size_t n);
+    extern "C" void __memset_pattern16(void *s, const void *pattern, size_t n);
+
+#else
+    // // Intel Mac's define bzero in libSystem.dylib
+    extern "C" void __bzero(void *s, size_t n);
+
+    extern "C" void _memset_pattern16(void *s, const void *pattern, size_t n);
+    extern "C" void __memset_pattern16(void *s, const void *pattern, size_t n);
+
+#endif
+
     extern "C" __double2 __sincos_stret(double);
     extern "C" __float2 __sincosf_stret(float);
-#endif
+#endif // defined(__APPLE__)
 
 extern "C" {
 
@@ -425,7 +454,14 @@ WP_API int load_obj(const char* object_file, const char* module_name)
             // triggering the stack overflow guards.
             SYMBOL(__chkstk),
         #elif defined(__APPLE__)
-            SYMBOL(__bzero),
+            #if defined(__MACH__) && defined(__aarch64__)
+                SYMBOL(bzero),
+                SYMBOL(_bzero),
+            #else
+                // Intel Mac
+                SYMBOL(__bzero),
+            #endif
+            SYMBOL(memset_pattern16),
             SYMBOL(__sincos_stret), SYMBOL(__sincosf_stret),
         #else
             SYMBOL(sincosf), SYMBOL_T(sincos, void(*)(double,double*,double*)),

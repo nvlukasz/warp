@@ -1,9 +1,17 @@
-# Copyright (c) 2024 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 ###########################################################################
 # Example Nonconforming Contact
@@ -197,7 +205,9 @@ class Example:
         # (Note: this is constant per body, this could be precomputed)
         sym_grad_matrix = fem.integrate(symmetric_grad_form, fields={"u": u_trial, "tau": tau_test})
 
-        tau_inv_mass_matrix = fem.integrate(tensor_mass_form, fields={"sig": tau_trial, "tau": tau_test}, nodal=True)
+        tau_inv_mass_matrix = fem.integrate(
+            tensor_mass_form, fields={"sig": tau_trial, "tau": tau_test}, assembly="nodal"
+        )
         fem_example_utils.invert_diagonal_bsr_matrix(tau_inv_mass_matrix)
 
         stress_matrix = tau_inv_mass_matrix @ fem.integrate(
@@ -219,13 +229,13 @@ class Example:
 
         # Enforce boundary conditions
         u_bd_matrix = fem.integrate(
-            bottom_boundary_projector_form, fields={"u": u_bd_trial, "v": u_bd_test}, nodal=True
+            bottom_boundary_projector_form, fields={"u": u_bd_trial, "v": u_bd_test}, assembly="nodal"
         )
 
         # read displacement from other body set create bottom boundary Dirichlet BC
         other_u_field = fem.field.field.NonconformingField(boundary, other_u_field)
         u_bd_rhs = fem.integrate(
-            bottom_boundary_projector_form, fields={"u": other_u_field, "v": u_bd_test}, nodal=True
+            bottom_boundary_projector_form, fields={"u": other_u_field, "v": u_bd_test}, assembly="nodal"
         )
 
         fem.project_linear_system(stiffness_matrix, u_rhs, u_bd_matrix, u_bd_rhs)

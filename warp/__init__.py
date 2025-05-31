@@ -1,9 +1,17 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # isort: skip_file
 
@@ -13,6 +21,7 @@
 from warp.types import array, array1d, array2d, array3d, array4d, constant, from_ptr
 from warp.types import indexedarray, indexedarray1d, indexedarray2d, indexedarray3d, indexedarray4d
 from warp.fabric import fabricarray, fabricarrayarray, indexedfabricarray, indexedfabricarrayarray
+from warp.types import tile
 
 from warp.types import bool, int8, uint8, int16, uint16, int32, uint32, int64, uint64, float16, float32, float64
 from warp.types import vec2, vec2b, vec2ub, vec2s, vec2us, vec2i, vec2ui, vec2l, vec2ul, vec2h, vec2f, vec2d
@@ -70,7 +79,7 @@ from warp.context import (
     event_from_ipc_handle,
 )
 from warp.context import set_module_options, get_module_options, get_module
-from warp.context import capture_begin, capture_end, capture_launch
+from warp.context import capture_begin, capture_end, capture_launch, capture_if, capture_while
 from warp.context import Kernel, Function, Launch
 from warp.context import Stream, get_stream, set_stream, wait_stream, synchronize_stream
 from warp.context import Event, record_event, wait_event, synchronize_event, get_event_elapsed_time
@@ -99,6 +108,7 @@ from warp.utils import (
     TIMING_GRAPH,
     TIMING_ALL,
 )
+from warp.utils import map
 
 from warp.torch import from_torch, to_torch
 from warp.torch import dtype_from_torch, dtype_to_torch
@@ -117,6 +127,7 @@ from warp.paddle import device_from_paddle, device_to_paddle
 from warp.paddle import stream_from_paddle
 
 from warp.build import clear_kernel_cache
+from warp.build import clear_lto_cache
 
 from warp.constants import *
 

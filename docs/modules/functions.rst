@@ -4,8 +4,11 @@
 .. functions:
 .. currentmodule:: warp
 
-Kernel Reference
-================
+Built-Ins Reference
+===================
+This section lists the Warp types and functions available to use from Warp kernels and optionally also from the Warp Python runtime API.
+For a listing of the API that is exclusively intended to be used at the *Python Scope* and run inside the CPython interpreter, see the :doc:`runtime` section.
+
 
 Scalar Types
 ------------
@@ -96,12 +99,26 @@ Scalar Math
 ---------------
 .. py:function:: min(a: Scalar, b: Scalar) -> Scalar
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the minimum of two scalars.
 
 
 .. py:function:: min(a: Vector[Any,Scalar], b: Vector[Any,Scalar]) -> Vector[Any,Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the element-wise minimum of two vectors.
 
@@ -110,10 +127,24 @@ Scalar Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the minimum element of a vector ``a``.
 
 
 .. py:function:: max(a: Scalar, b: Scalar) -> Scalar
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the maximum of two scalars.
 
@@ -122,6 +153,13 @@ Scalar Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the element-wise maximum of two vectors.
 
 
@@ -129,15 +167,36 @@ Scalar Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the maximum element of a vector ``a``.
 
 
 .. py:function:: clamp(x: Scalar, low: Scalar, high: Scalar) -> Scalar
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Clamp the value of ``x`` to the range [low, high].
 
 
 .. py:function:: abs(x: Scalar) -> Scalar
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the absolute value of ``x``.
 
@@ -146,10 +205,24 @@ Scalar Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the absolute values of the elements of ``x``.
 
 
 .. py:function:: sign(x: Scalar) -> Scalar
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return -1 if ``x`` < 0, return 1 otherwise.
 
@@ -158,115 +231,276 @@ Scalar Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return -1 for the negative elements of ``x``, and 1 otherwise.
 
 
 .. py:function:: step(x: Scalar) -> Scalar
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return 1.0 if ``x`` < 0.0, return 0.0 otherwise.
 
 
 .. py:function:: nonzero(x: Scalar) -> Scalar
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return 1.0 if ``x`` is not equal to zero, return 0.0 otherwise.
 
 
 .. py:function:: sin(x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the sine of ``x`` in radians.
 
 
 .. py:function:: cos(x: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the cosine of ``x`` in radians.
 
 
 .. py:function:: acos(x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return arccos of ``x`` in radians. Inputs are automatically clamped to [-1.0, 1.0].
 
 
 .. py:function:: asin(x: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return arcsin of ``x`` in radians. Inputs are automatically clamped to [-1.0, 1.0].
 
 
 .. py:function:: sqrt(x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the square root of ``x``, where ``x`` is positive.
 
 
 .. py:function:: cbrt(x: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the cube root of ``x``.
 
 
 .. py:function:: tan(x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the tangent of ``x`` in radians.
 
 
 .. py:function:: atan(x: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the arctangent of ``x`` in radians.
 
 
 .. py:function:: atan2(y: Float, x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the 2-argument arctangent, atan2, of the point ``(x, y)`` in radians.
 
 
 .. py:function:: sinh(x: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the sinh of ``x``.
 
 
 .. py:function:: cosh(x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the cosh of ``x``.
 
 
 .. py:function:: tanh(x: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the tanh of ``x``.
 
 
 .. py:function:: degrees(x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Convert ``x`` from radians into degrees.
 
 
 .. py:function:: radians(x: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Convert ``x`` from degrees into radians.
 
 
 .. py:function:: log(x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the natural logarithm (base-e) of ``x``, where ``x`` is positive.
 
 
 .. py:function:: log2(x: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the binary logarithm (base-2) of ``x``, where ``x`` is positive.
 
 
 .. py:function:: log10(x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the common logarithm (base-10) of ``x``, where ``x`` is positive.
 
 
 .. py:function:: exp(x: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the value of the exponential function :math:`e^x`.
 
 
 .. py:function:: pow(x: Float, y: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the result of ``x`` raised to power of ``y``.
 
 
 .. py:function:: round(x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the nearest integer value to ``x``, rounding halfway cases away from zero.
 
@@ -276,12 +510,26 @@ Scalar Math
 
 .. py:function:: rint(x: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the nearest integer value to ``x``, rounding halfway cases to nearest even integer.
 
     It is generally faster than :func:`warp.round()`. Equivalent to :func:`numpy.rint()`.
 
 
 .. py:function:: trunc(x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the nearest integer that is closer to zero than ``x``.
 
@@ -292,15 +540,36 @@ Scalar Math
 
 .. py:function:: floor(x: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the largest integer that is less than or equal to ``x``.
 
 
 .. py:function:: ceil(x: Float) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the smallest integer that is greater than or equal to ``x``.
 
 
 .. py:function:: frac(x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Retrieve the fractional part of ``x``.
 
@@ -309,12 +578,26 @@ Scalar Math
 
 .. py:function:: isfinite(a: Scalar) -> bool
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return ``True`` if ``a`` is a finite number, otherwise return ``False``.
 
 
 .. py:function:: isfinite(a: Vector[Any,Scalar]) -> bool
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return ``True`` if all elements of the vector ``a`` are finite, otherwise return ``False``.
 
@@ -323,6 +606,13 @@ Scalar Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return ``True`` if all elements of the quaternion ``a`` are finite, otherwise return ``False``.
 
 
@@ -330,10 +620,24 @@ Scalar Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return ``True`` if all elements of the matrix ``a`` are finite, otherwise return ``False``.
 
 
 .. py:function:: isnan(a: Scalar) -> bool
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return ``True`` if ``a`` is NaN, otherwise return ``False``.
 
@@ -342,12 +646,26 @@ Scalar Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return ``True`` if any element of the vector ``a`` is NaN, otherwise return ``False``.
 
 
 .. py:function:: isnan(a: Quaternion[Scalar]) -> bool
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return ``True`` if any element of the quaternion ``a`` is NaN, otherwise return ``False``.
 
@@ -356,10 +674,24 @@ Scalar Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return ``True`` if any element of the matrix ``a`` is NaN, otherwise return ``False``.
 
 
 .. py:function:: isinf(a: Scalar) -> bool
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return ``True`` if ``a`` is positive or negative infinity, otherwise return ``False``.
 
@@ -368,6 +700,13 @@ Scalar Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return ``True`` if any element of the vector ``a`` is positive or negative infinity, otherwise return ``False``.
 
 
@@ -375,12 +714,26 @@ Scalar Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return ``True`` if any element of the quaternion ``a`` is positive or negative infinity, otherwise return ``False``.
 
 
 .. py:function:: isinf(a: Matrix[Any,Any,Scalar]) -> bool
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return ``True`` if any element of the matrix ``a`` is positive or negative infinity, otherwise return ``False``.
 
@@ -391,6 +744,13 @@ Vector Math
 ---------------
 .. py:function:: dot(a: Vector[Any,Scalar], b: Vector[Any,Scalar]) -> Scalar
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Compute the dot product between two vectors.
 
 
@@ -398,40 +758,94 @@ Vector Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Compute the dot product between two quaternions.
 
 
 .. py:function:: ddot(a: Matrix[Any,Any,Scalar], b: Matrix[Any,Any,Scalar]) -> Scalar
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Compute the double dot product between two matrices.
 
 
 .. py:function:: argmin(a: Vector[Any,Scalar]) -> uint32
 
-    Return the index of the minimum element of a vector ``a``. [1]_
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+
+    Return the index of the minimum element of a vector ``a``.
 
 
 .. py:function:: argmax(a: Vector[Any,Scalar]) -> uint32
 
-    Return the index of the maximum element of a vector ``a``. [1]_
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+
+    Return the index of the maximum element of a vector ``a``.
 
 
 .. py:function:: outer(a: Vector[Any,Scalar], b: Vector[Any,Scalar]) -> Matrix[Any,Any,Scalar]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Compute the outer product ``a*b^T`` for two vectors.
 
 
 .. py:function:: cross(a: Vector[3,Scalar], b: Vector[3,Scalar]) -> Vector[3,Scalar]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Compute the cross product of two 3D vectors.
 
 
 .. py:function:: skew(vec: Vector[3,Scalar]) -> Matrix[3,3,Scalar]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Compute the skew-symmetric 3x3 matrix for a 3D vector ``vec``.
 
 
 .. py:function:: length(a: Vector[Any,Float]) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Compute the length of a floating-point vector ``a``.
 
@@ -440,10 +854,24 @@ Vector Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Compute the length of a quaternion ``a``.
 
 
 .. py:function:: length_sq(a: Vector[Any,Scalar]) -> Scalar
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Compute the squared length of a vector ``a``.
 
@@ -452,10 +880,24 @@ Vector Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Compute the squared length of a quaternion ``a``.
 
 
 .. py:function:: normalize(a: Vector[Any,Float]) -> Vector[Any,Float]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Compute the normalized value of ``a``. If ``length(a)`` is 0 then the zero vector is returned.
 
@@ -464,15 +906,36 @@ Vector Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Compute the normalized value of ``a``. If ``length(a)`` is 0, then the zero quaternion is returned.
 
 
 .. py:function:: transpose(a: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the transpose of the matrix ``a``.
 
 
 .. py:function:: inverse(a: Matrix[2,2,Float]) -> Matrix[Any,Any,Float]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the inverse of a 2x2 matrix ``a``.
 
@@ -481,6 +944,13 @@ Vector Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the inverse of a 3x3 matrix ``a``.
 
 
@@ -488,10 +958,24 @@ Vector Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the inverse of a 4x4 matrix ``a``.
 
 
 .. py:function:: determinant(a: Matrix[2,2,Float]) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the determinant of a 2x2 matrix ``a``.
 
@@ -500,6 +984,13 @@ Vector Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the determinant of a 3x3 matrix ``a``.
 
 
@@ -507,25 +998,60 @@ Vector Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the determinant of a 4x4 matrix ``a``.
 
 
 .. py:function:: trace(a: Matrix[Any,Any,Scalar]) -> Scalar
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the trace of the matrix ``a``.
 
 
 .. py:function:: diag(vec: Vector[Any,Scalar]) -> Matrix[Any,Any,Scalar]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Returns a matrix with the components of the vector ``vec`` on the diagonal.
 
 
 .. py:function:: get_diag(mat: Matrix[Any,Any,Scalar]) -> Vector[Any,Scalar]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Returns a vector containing the diagonal elements of the square matrix ``mat``.
 
 
 .. py:function:: cw_mul(a: Vector[Any,Scalar], b: Vector[Any,Scalar]) -> Vector[Any,Scalar]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Component-wise multiplication of two vectors.
 
@@ -534,10 +1060,24 @@ Vector Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Component-wise multiplication of two matrices.
 
 
 .. py:function:: cw_div(a: Vector[Any,Scalar], b: Vector[Any,Scalar]) -> Vector[Any,Scalar]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Component-wise division of two vectors.
 
@@ -546,61 +1086,195 @@ Vector Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Component-wise division of two matrices.
 
 
 .. py:function:: vector(*args: Scalar, length: int32, dtype: Scalar) -> Vector[Any,Scalar]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Construct a vector of given length and dtype.
 
 
 .. py:function:: matrix(pos: Vector[3,Float], rot: Quaternion[Float], scale: Vector[3,Float], dtype: Float) -> Matrix[4,4,Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Construct a 4x4 transformation matrix that applies the transformations as
     Translation(pos)*Rotation(rot)*Scaling(scale) when applied to column vectors, i.e.: y = (TRS)*x
+
+    .. warning::
+       This function has been deprecated in favor of :func:`warp.math.transform_compose()`.
 
 
 .. py:function:: matrix(*args: Scalar, shape: Tuple[int, int], dtype: Scalar) -> Matrix[Any,Any,Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Construct a matrix. If the positional ``arg_types`` are not given, then matrix will be zero-initialized.
 
 
 .. py:function:: matrix_from_cols(*args: Vector[Any,Scalar]) -> Matrix[Any,Any,Scalar]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Construct a matrix from column vectors.
 
 
 .. py:function:: matrix_from_rows(*args: Vector[Any,Scalar]) -> Matrix[Any,Any,Scalar]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Construct a matrix from row vectors.
 
 
 .. py:function:: identity(n: int32, dtype: Scalar) -> Matrix[Any,Any,Scalar]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Create an identity matrix with shape=(n,n) with the type given by ``dtype``.
 
 
-.. py:function:: svd3(A: Matrix[3,3,Float], U: Matrix[3,3,Float], sigma: Vector[3,Float], V: Matrix[3,3,Scalar]) -> None
+.. py:function:: svd3(A: Matrix[3,3,Float]) -> Tuple[Matrix[3,3,Float], Vector[3,Float], Matrix[3,3,Float]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Compute the SVD of a 3x3 matrix ``A``. The singular values are returned in ``sigma``,
     while the left and right basis vectors are returned in ``U`` and ``V``.
 
 
-.. py:function:: svd2(A: Matrix[2,2,Float], U: Matrix[2,2,Float], sigma: Vector[2,Float], V: Matrix[2,2,Scalar]) -> None
+.. py:function:: svd3(A: Matrix[3,3,Float], U: Matrix[3,3,Float], sigma: Vector[3,Float], V: Matrix[3,3,Float]) -> None
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+    Compute the SVD of a 3x3 matrix ``A``. The singular values are returned in ``sigma``,
+    while the left and right basis vectors are returned in ``U`` and ``V``.
+
+
+.. py:function:: svd2(A: Matrix[2,2,Float]) -> Tuple[Matrix[2,2,Float], Vector[2,Float], Matrix[2,2,Float]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Compute the SVD of a 2x2 matrix ``A``. The singular values are returned in ``sigma``,
     while the left and right basis vectors are returned in ``U`` and ``V``.
 
 
-.. py:function:: qr3(A: Matrix[3,3,Float], Q: Matrix[3,3,Float], R: Matrix[3,3,Float]) -> None
+.. py:function:: svd2(A: Matrix[2,2,Float], U: Matrix[2,2,Float], sigma: Vector[2,Float], V: Matrix[2,2,Float]) -> None
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+    Compute the SVD of a 2x2 matrix ``A``. The singular values are returned in ``sigma``,
+    while the left and right basis vectors are returned in ``U`` and ``V``.
+
+
+.. py:function:: qr3(A: Matrix[3,3,Float]) -> Tuple[Matrix[3,3,Float], Matrix[3,3,Float]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Compute the QR decomposition of a 3x3 matrix ``A``. The orthogonal matrix is returned in ``Q``,
     while the upper triangular matrix is returned in ``R``.
 
 
+.. py:function:: qr3(A: Matrix[3,3,Float], Q: Matrix[3,3,Float], R: Matrix[3,3,Float]) -> None
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+    Compute the QR decomposition of a 3x3 matrix ``A``. The orthogonal matrix is returned in ``Q``,
+    while the upper triangular matrix is returned in ``R``.
+
+
+.. py:function:: eig3(A: Matrix[3,3,Float]) -> Tuple[Matrix[3,3,Float], Vector[3,Float]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+    Compute the eigendecomposition of a 3x3 matrix ``A``. The eigenvectors are returned as the columns of ``Q``,
+    while the corresponding eigenvalues are returned in ``d``.
+
+
 .. py:function:: eig3(A: Matrix[3,3,Float], Q: Matrix[3,3,Float], d: Vector[3,Float]) -> None
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Compute the eigendecomposition of a 3x3 matrix ``A``. The eigenvectors are returned as the columns of ``Q``,
     while the corresponding eigenvalues are returned in ``d``.
@@ -617,13 +1291,25 @@ Quaternion Math
 ---------------
 .. py:function:: quaternion(dtype: Float) -> Quaternion[Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Construct a zero-initialized quaternion. Quaternions are laid out as
     [ix, iy, iz, r], where ix, iy, iz are the imaginary part, and r the real part.
 
 
-.. py:function:: quaternion(x: Float, y: Float, z: Float, w: Float) -> Quaternion[Float]
+.. py:function:: quaternion(x: Float, y: Float, z: Float, w: Float, dtype: Scalar) -> Quaternion[Float]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Create a quaternion using the supplied components (type inferred from component type).
 
@@ -632,6 +1318,12 @@ Quaternion Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Create a quaternion using the supplied vector/scalar (type inferred from scalar type).
 
 
@@ -639,62 +1331,163 @@ Quaternion Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Construct a quaternion of type dtype from another quaternion of a different dtype.
 
 
 .. py:function:: quat_identity(dtype: Float) -> quatf
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Construct an identity quaternion with zero imaginary part and real part of 1.0
 
 
 .. py:function:: quat_from_axis_angle(axis: Vector[3,Float], angle: Float) -> Quaternion[Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Construct a quaternion representing a rotation of angle radians around the given axis.
 
 
+.. py:function:: quat_to_axis_angle(quat: Quaternion[Float]) -> Tuple[Vector[3,Float], Float]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+    Extract the rotation axis and angle radians a quaternion represents.
+
+
 .. py:function:: quat_to_axis_angle(quat: Quaternion[Float], axis: Vector[3,Float], angle: Float) -> None
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Extract the rotation axis and angle radians a quaternion represents.
 
 
 .. py:function:: quat_from_matrix(mat: Matrix[3,3,Float]) -> Quaternion[Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Construct a quaternion from a 3x3 matrix.
+
+    If the matrix is not a pure rotation, but for example includes scaling or skewing, the result is undefined.
 
 
 .. py:function:: quat_from_matrix(mat: Matrix[4,4,Float]) -> Quaternion[Float]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Construct a quaternion from a 4x4 matrix.
+
+    If the top-left 3x3 block of the matrix is not a pure rotation, but for example includes scaling or skewing, the result is undefined.
 
 
 .. py:function:: quat_rpy(roll: Float, pitch: Float, yaw: Float) -> Quaternion[Float]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Construct a quaternion representing a combined roll (z), pitch (x), yaw rotations (y) in radians.
 
 
 .. py:function:: quat_inverse(quat: Quaternion[Float]) -> Quaternion[Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Compute quaternion conjugate.
 
 
 .. py:function:: quat_rotate(quat: Quaternion[Float], vec: Vector[3,Float]) -> Vector[3,Float]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Rotate a vector by a quaternion.
 
 
 .. py:function:: quat_rotate_inv(quat: Quaternion[Float], vec: Vector[3,Float]) -> Vector[3,Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Rotate a vector by the inverse of a quaternion.
 
 
 .. py:function:: quat_slerp(a: Quaternion[Float], b: Quaternion[Float], t: Float) -> Quaternion[Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Linearly interpolate between two quaternions.
 
 
 .. py:function:: quat_to_matrix(quat: Quaternion[Float]) -> Matrix[3,3,Float]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Convert a quaternion to a 3x3 rotation matrix.
 
@@ -703,32 +1496,110 @@ Quaternion Math
 
 Transformations
 ---------------
-.. py:function:: transformation(pos: Vector[3,Float], rot: Quaternion[Float], dtype: Float) -> Transformation[Float]
+.. py:function:: transformation(p: Vector[3,Float], q: Quaternion[Float], dtype: Float) -> Transformation[Float]
 
-    Construct a rigid-body transformation with translation part ``pos`` and rotation ``rot``.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Construct a rigid-body transformation with translation part ``p`` and rotation ``q``.
+
+
+.. py:function:: transformation(*args: Float, dtype: Float) -> Transformation[Float]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Construct a spatial transfom vector of given dtype.
 
 
 .. py:function:: transform_identity(dtype: Float) -> transformf
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Construct an identity transform with zero translation and identity rotation.
 
 
 .. py:function:: transform_get_translation(xform: Transformation[Float]) -> Vector[3,Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the translational part of a transform ``xform``.
 
 
 .. py:function:: transform_get_rotation(xform: Transformation[Float]) -> Quaternion[Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the rotational part of a transform ``xform``.
 
 
+.. py:function:: transform_set_translation(xform: Transformation[Float], p: Vector[3,Float]) -> None
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+    Set the translational part of a transform ``xform``.
+
+
+.. py:function:: transform_set_rotation(xform: Transformation[Float], q: Quaternion[Float]) -> None
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+    Set the rotational part of a transform ``xform``.
+
+
 .. py:function:: transform_multiply(a: Transformation[Float], b: Transformation[Float]) -> Transformation[Float]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Multiply two rigid body transformations together.
 
 
 .. py:function:: transform_point(xform: Transformation[Float], point: Vector[3,Float]) -> Vector[3,Float]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Apply the transform to a point ``point`` treating the homogeneous coordinate as w=1 (translation and rotation).
 
@@ -736,6 +1607,13 @@ Transformations
 .. py:function:: transform_point(mat: Matrix[4,4,Float], point: Vector[3,Float]) -> Vector[3,Float]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Apply the transform to a point ``point`` treating the homogeneous coordinate as w=1.
 
@@ -748,12 +1626,26 @@ Transformations
 
 .. py:function:: transform_vector(xform: Transformation[Float], vec: Vector[3,Float]) -> Vector[3,Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Apply the transform to a vector ``vec`` treating the homogeneous coordinate as w=0 (rotation only).
 
 
 .. py:function:: transform_vector(mat: Matrix[4,4,Float], vec: Vector[3,Float]) -> Vector[3,Float]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Apply the transform to a vector ``vec`` treating the homogeneous coordinate as w=0.
 
@@ -766,16 +1658,31 @@ Transformations
 
 .. py:function:: transform_inverse(xform: Transformation[Float]) -> Transformation[Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Compute the inverse of the transformation ``xform``.
 
 
 .. autofunction:: warp.math.transform_from_matrix
 .. autofunction:: warp.math.transform_to_matrix
+.. autofunction:: warp.math.transform_compose
+.. autofunction:: warp.math.transform_decompose
 
 
 Spatial Math
 ---------------
 .. py:function:: spatial_vector(dtype: Float) -> Vector[6,Float]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Zero-initialize a 6D screw vector.
 
@@ -784,6 +1691,12 @@ Spatial Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Construct a 6D screw vector from two 3D vectors.
 
 
@@ -791,50 +1704,114 @@ Spatial Math
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Construct a 6D screw vector from six values.
 
 
 .. py:function:: spatial_adjoint(r: Matrix[3,3,Float], s: Matrix[3,3,Float]) -> Matrix[6,6,Float]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Construct a 6x6 spatial inertial matrix from two 3x3 diagonal blocks.
 
 
 .. py:function:: spatial_dot(a: Vector[6,Float], b: Vector[6,Float]) -> Float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Compute the dot product of two 6D screw vectors.
 
 
 .. py:function:: spatial_cross(a: Vector[6,Float], b: Vector[6,Float]) -> Vector[6,Float]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Compute the cross product of two 6D screw vectors.
 
 
 .. py:function:: spatial_cross_dual(a: Vector[6,Float], b: Vector[6,Float]) -> Vector[6,Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Compute the dual cross product of two 6D screw vectors.
 
 
 .. py:function:: spatial_top(svec: Vector[6,Float]) -> Vector[3,Float]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return the top (first) part of a 6D screw vector.
 
 
 .. py:function:: spatial_bottom(svec: Vector[6,Float]) -> Vector[3,Float]
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return the bottom (second) part of a 6D screw vector.
 
 
 .. py:function:: spatial_jacobian(S: Array[Vector[6,Float]], joint_parents: Array[int32], joint_qd_start: Array[int32], joint_start: int32, joint_count: int32, J_start: int32, J_out: Array[Float]) -> None
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
 
 .. py:function:: spatial_mass(I_s: Array[Matrix[6,6,Float]], joint_start: int32, joint_count: int32, M_start: int32, M: Array[Float]) -> None
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
 
 
 
 Tile Primitives
 ---------------
-.. py:function:: tile_zeros(shape: Tuple[int, ...], dtype: Any, storage: str) -> Tile
+.. py:function:: tile_zeros(shape: Tuple[int, ...], dtype: Any, storage: str) -> Tile[Any,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
 
     Allocate a tile of zero-initialized items.
 
@@ -842,10 +1819,15 @@ Tile Primitives
     :param dtype: Data type of output tile's elements (default float)
     :param storage: The storage location for the tile: ``"register"`` for registers
       (default) or ``"shared"`` for shared memory.
-    :returns: A zero-initialized tile with shape and data type as specified [1]_
+    :returns: A zero-initialized tile with shape and data type as specified
 
 
-.. py:function:: tile_ones(shape: Tuple[int, ...], dtype: Any, storage: str) -> Tile
+.. py:function:: tile_ones(shape: Tuple[int, ...], dtype: Any, storage: str) -> Tile[Any,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
 
     Allocate a tile of one-initialized items.
 
@@ -853,10 +1835,15 @@ Tile Primitives
     :param dtype: Data type of output tile's elements
     :param storage: The storage location for the tile: ``"register"`` for registers
       (default) or ``"shared"`` for shared memory.
-    :returns: A one-initialized tile with shape and data type as specified [1]_
+    :returns: A one-initialized tile with shape and data type as specified
 
 
-.. py:function:: tile_arange(*args: Scalar, dtype: Any, storage: str) -> Tile
+.. py:function:: tile_arange(*args: Scalar, dtype: Scalar, storage: str) -> Tile[Scalar,Tuple[int]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
 
     Generate a tile of linearly spaced elements.
 
@@ -869,10 +1856,16 @@ Tile Primitives
     :param dtype: Data type of output tile's elements (optional, default: ``float``)
     :param storage: The storage location for the tile: ``"register"`` for registers
       (default) or ``"shared"`` for shared memory.
-    :returns: A tile with ``shape=(n)`` with linearly spaced elements of specified data type [1]_
+    :returns: A tile with ``shape=(n)`` with linearly spaced elements of specified data type
 
 
-.. py:function:: tile_load(a: Array[Any], shape: Tuple[int, ...], offset: Tuple[int, ...], storage: str) -> Array[Scalar]
+.. py:function:: tile_load(a: Array[Any], shape: Tuple[int, ...], offset: Tuple[int, ...], storage: str) -> Tile[Any,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Loads a tile from a global memory array.
 
@@ -886,7 +1879,13 @@ Tile Primitives
     :returns: A tile with shape as specified and data type the same as the source array
 
 
-.. py:function:: tile_store(a: Array[Any], t: Tile, offset: Tuple[int, ...]) -> None
+.. py:function:: tile_store(a: Array[Any], t: Tile[Any,Tuple[int, ...]], offset: Tuple[int, ...]) -> None
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Store a tile to a global memory array.
 
@@ -897,9 +1896,15 @@ Tile Primitives
     :param offset: Offset in the destination array (optional)
 
 
-.. py:function:: tile_atomic_add(a: Array[Any], t: Tile, offset: Tuple[int, ...]) -> Tile
+.. py:function:: tile_atomic_add(a: Array[Any], t: Tile[Any,Tuple[int, ...]], offset: Tuple[int, ...]) -> Tile[Any,Tuple[int, ...]]
 
-    Atomically add a 1D tile to the array `a`, each element will be updated atomically.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically add a tile onto the array `a`, each element will be updated atomically.
 
     :param a: Array in global memory, should have the same ``dtype`` as the input tile
     :param t: Source tile to add to the destination array
@@ -907,17 +1912,73 @@ Tile Primitives
     :returns: A tile with the same dimensions and data type as the source tile, holding the original value of the destination elements
 
 
-.. py:function:: tile_view(t: Tile, offset: Tuple[int, ...], shape: Tuple[int, ...]) -> Tile
+.. py:function:: tile_view(t: Tile[Any,Tuple[int, ...]], offset: Tuple[int, ...], shape: Tuple[int, ...]) -> Tile[Any,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
 
     Return a slice of a given tile [offset, offset+shape], if shape is not specified it will be inferred from the unspecified offset dimensions.
 
     :param t: Input tile to extract a subrange from
     :param offset: Offset in the source tile
     :param shape: Shape of the returned slice
-    :returns: A tile with dimensions given by the specified shape or the remaining source tile dimensions [1]_
+    :returns: A tile with dimensions given by the specified shape or the remaining source tile dimensions
 
 
-.. py:function:: tile_assign(dst: Tile, src: Tile, offset: Tuple[int, ...]) -> None
+.. py:function:: tile_squeeze(t: Tile[Any,Tuple[int, ...]], axis: Tuple[int, ...]) -> Tile[Any,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Return a squeezed view of a tile with the same data.
+
+    :param t: Input tile to squeeze
+    :param axis: A subset of the entries of length one in the shape (optional)
+    :returns: The input tile but with all or a subset of the dimensions of length one removed.
+
+
+.. py:function:: tile_reshape(t: Tile[Any,Tuple[int, ...]], shape: Tuple[int, ...]) -> Tile[Any,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Return a reshaped view of a tile with the same data.
+
+    :param t: Input tile to reshape
+    :param shape: New shape for the tile
+    :returns: A tile containing the same data as the input tile, but arranged in a new shape.
+
+
+.. py:function:: tile_astype(t: Tile[Scalar,Tuple[int, ...]], dtype: Scalar) -> Tile[Any,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Return a new tile with the same data as the input tile, but with a different data type.
+
+    :param t: Input tile
+    :param dtype: New data type for the tile
+    :returns: A tile with the same data as the input tile, but with a different data type
+
+
+.. py:function:: tile_assign(dst: Tile[Any,Tuple[int, ...]], src: Tile[Any,Tuple[int, ...]], offset: Tuple[int, ...]) -> None
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Assign a tile to a subrange of a destination tile.
 
@@ -926,40 +1987,13 @@ Tile Primitives
     :param offset: Offset in the destination tile to write to
 
 
-.. py:function:: tile(x: Any) -> Tile
+.. py:function:: untile(a: Tile[Any,Tuple[int, ...]]) -> Any
 
-    Construct a new tile from per-thread kernel values.
+    .. hlist::
+       :columns: 8
 
-    This function converts values computed using scalar kernel code to a tile representation for input into collective operations.
-
-    * If the input value is a scalar, then the resulting tile has ``shape=(1, block_dim)``
-    * If the input value is a vector, then the resulting tile has ``shape=(length(vector), block_dim)``
-
-    :param x: A per-thread local value, e.g. scalar, vector, or matrix.
-    :returns: A tile with first dimension according to the value type length and a second dimension equal to ``block_dim``
-
-    This example shows how to create a linear sequence from thread variables:
-
-    .. code-block:: python
-
-        @wp.kernel
-        def compute():
-            i = wp.tid()
-            t = wp.tile(i*2)
-            print(t)
-
-        wp.launch(compute, dim=16, inputs=[], block_dim=16)
-
-    Prints:
-
-    .. code-block:: text
-
-        [0 2 4 6 8 10 12 14 16 18 20 22 24 26 28 30] = tile(shape=(16), storage=register)
-
-    
-
-
-.. py:function:: untile(a: Tile) -> Scalar
+       * Kernel
+       * Differentiable
 
     Convert a tile back to per-thread values.
 
@@ -1002,7 +2036,13 @@ Tile Primitives
     
 
 
-.. py:function:: tile_transpose(a: Tile) -> Tile
+.. py:function:: tile_transpose(a: Tile[Any,Tuple[int, int]]) -> Tile[Any,Tuple[int, int]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Transpose a tile.
 
@@ -1013,20 +2053,31 @@ Tile Primitives
     :returns: Tile with ``shape=(N,M)``
 
 
-.. py:function:: tile_broadcast(a: Tile, shape: Tuple[int, ...]) -> Tile
+.. py:function:: tile_broadcast(a: Tile[Any,Tuple[int, ...]], shape: Tuple[int, ...]) -> Tile[Any,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Broadcast a tile.
 
-    This function will attempt to broadcast the input tile ``a`` to the destination shape (m, n).
-
+    Broadcasts the input tile ``a`` to the destination shape.
     Broadcasting follows NumPy broadcast rules.
 
     :param a: Tile to broadcast
     :param shape: The shape to broadcast to
-    :returns: Tile with broadcast ``shape=(m, n)``
+    :returns: Tile with broadcast shape
 
 
-.. py:function:: tile_sum(a: Tile) -> Tile
+.. py:function:: tile_sum(a: Tile[Scalar,Tuple[int, ...]]) -> Tile[Scalar,Tuple[1]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Cooperatively compute the sum of the tile elements using all threads in the block.
 
@@ -1056,7 +2107,54 @@ Tile Primitives
     
 
 
-.. py:function:: tile_min(a: Tile) -> Tile
+.. py:function:: tile_sort(keys: Tile[Any,Tuple[int]], values: Tile[Any,Tuple[int]]) -> None
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Cooperatively sort the elements of two tiles in ascending order based on the keys, using all threads in the block.
+
+    :param keys: Keys to sort by. Supported key types: :class:`float32`, :class:`int32`, :class:`uint32`. Must be in shared memory.
+    :param values: Values to sort along with keys. No type restrictions. Must be in shared memory.
+    :returns: No return value. Sorts both tiles in-place.
+
+    Example:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def compute():
+
+            keys = wp.tile_arange(32, 0, -1, dtype=int, storage="shared")
+            values = wp.tile_arange(0, 32, 1, dtype=int, storage="shared")
+            wp.tile_sort(keys, values)
+
+            print(keys)
+            print(values)
+
+
+        wp.launch_tiled(compute, dim=[1], inputs=[], block_dim=64)
+
+    Prints:
+
+    .. code-block:: text
+
+        [1, 2, ..., 32] = tile(shape=(32), storage=shared)
+        [31, 30, 29, ..., 0] = tile(shape=(32), storage=shared)
+
+    
+
+
+.. py:function:: tile_min(a: Tile[Scalar,Tuple[int, ...]]) -> Tile[Scalar,Tuple[1]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Cooperatively compute the minimum of the tile elements using all threads in the block.
 
@@ -1087,7 +2185,50 @@ Tile Primitives
     
 
 
-.. py:function:: tile_max(a: Tile) -> Tile
+.. py:function:: tile_argmin(a: Tile[Scalar,Tuple[int, ...]]) -> Tile[Int,Tuple[1]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Cooperatively compute the index of the minimum element in the tile using all threads in the block.
+
+    :param a: The tile to compute the argmin from
+    :returns: A single-element tile holding the index of the minimum value
+
+    Example:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def compute():
+
+            t = wp.tile_arange(64, 128)
+            s = wp.tile_argmin(t)
+
+            print(s)
+
+
+        wp.launch_tiled(compute, dim=[1], inputs=[], block_dim=64)
+
+    Prints:
+
+    .. code-block:: text
+
+        [0] = tile(shape=(1), storage=register)
+
+    
+
+
+.. py:function:: tile_max(a: Tile[Scalar,Tuple[int, ...]]) -> Tile[Scalar,Tuple[1]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Cooperatively compute the maximum of the tile elements using all threads in the block.
 
@@ -1117,7 +2258,49 @@ Tile Primitives
     
 
 
-.. py:function:: tile_reduce(op: Callable, a: Tile) -> Tile
+.. py:function:: tile_argmax(a: Tile[Scalar,Tuple[int, ...]]) -> Tile[Int,Tuple[1]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Cooperatively compute the index of the maximum element in the tile using all threads in the block.
+
+    :param a: The tile to compute the argmax from
+    :returns: A single-element tile holding the index of the maximum value
+
+    Example:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def compute():
+
+            t = wp.tile_arange(64, 128)
+            s = wp.tile_argmax(t)
+
+            print(s)
+
+        wp.launch_tiled(compute, dim=[1], inputs=[], block_dim=64)
+
+    Prints:
+
+    .. code-block:: text
+
+        [63] = tile(shape=(1), storage=register)
+
+    
+
+
+.. py:function:: tile_reduce(op: Callable, a: Tile[Scalar,Tuple[int, ...]]) -> Tile[Scalar,Tuple[1]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Apply a custom reduction operator across the tile.
 
@@ -1149,7 +2332,13 @@ Tile Primitives
     
 
 
-.. py:function:: tile_map(op: Callable, a: Tile) -> Tile
+.. py:function:: tile_map(op: Callable, a: Tile[Scalar,Tuple[int, ...]]) -> Tile[Scalar,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Apply a unary function onto the tile.
 
@@ -1181,9 +2370,15 @@ Tile Primitives
     
 
 
-.. py:function:: tile_map(op: Callable, a: Tile, b: Tile) -> Tile
+.. py:function:: tile_map(op: Callable, a: Tile[Scalar,Tuple[int, ...]], b: Tile[Scalar,Tuple[int, ...]]) -> Tile[Scalar,Tuple[int, ...]]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Apply a binary function onto the tile.
 
@@ -1218,12 +2413,24 @@ Tile Primitives
         [1 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9] = tile(shape=(10), storage=register)
 
 
-.. py:function:: tile_diag_add(a: Tile, d: Tile) -> Tile
+.. py:function:: tile_diag_add(a: Tile[Any,Tuple[int, int]], d: Tile[Any,Tuple[int]]) -> Tile[Any,Tuple[int, int]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Add a square matrix and a diagonal matrix 'd' represented as a 1D tile
 
 
-.. py:function:: tile_matmul(a: Tile, b: Tile, out: Tile) -> Tile
+.. py:function:: tile_matmul(a: Tile[Float,Tuple[int, int]], b: Tile[Float,Tuple[int, int]], out: Tile[Float,Tuple[int, int]]) -> None
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Computes the matrix product and accumulates ``out += a*b``.
 
@@ -1231,7 +2438,7 @@ Tile Primitives
         * fp16, fp32, fp64 (real)
         * vec2h, vec2f, vec2d (complex)
 
-    All input and output tiles must have the same datatype. Tile data will be automatically be migrated
+    All input and output tiles must have the same datatype. Tile data will automatically be migrated
     to shared memory if necessary and will use TensorCore operations when available.
 
     :param a: A tile with ``shape=(M, K)``
@@ -1240,9 +2447,15 @@ Tile Primitives
     
 
 
-.. py:function:: tile_matmul(a: Tile, b: Tile) -> Tile
+.. py:function:: tile_matmul(a: Tile[Float,Tuple[int, int]], b: Tile[Float,Tuple[int, int]]) -> Tile[Float,Tuple[int, int]]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Computes the matrix product ``out = a*b``.
 
@@ -1250,7 +2463,7 @@ Tile Primitives
         * fp16, fp32, fp64 (real)
         * vec2h, vec2f, vec2d (complex)
 
-    Both input tiles must have the same datatype. Tile data will be automatically be migrated
+    Both input tiles must have the same datatype. Tile data will automatically be migrated
     to shared memory if necessary and will use TensorCore operations when available.
 
     :param a: A tile with ``shape=(M, K)``
@@ -1259,7 +2472,13 @@ Tile Primitives
     
 
 
-.. py:function:: tile_fft(inout: Tile) -> Tile
+.. py:function:: tile_fft(inout: Tile[Vector[2,Float],Tuple[int, int]]) -> Tile[Vector[2,Float],Tuple[int, int]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the forward FFT along the second dimension of a 2D tile of data.
 
@@ -1273,7 +2492,13 @@ Tile Primitives
     :param inout: The input/output tile
 
 
-.. py:function:: tile_ifft(inout: Tile) -> Tile
+.. py:function:: tile_ifft(inout: Tile[Vector[2,Float],Tuple[int, int]]) -> Tile[Vector[2,Float],Tuple[int, int]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the inverse FFT along the second dimension of a 2D tile of data.
 
@@ -1287,7 +2512,13 @@ Tile Primitives
     :param inout: The input/output tile
 
 
-.. py:function:: tile_cholesky(A: Tile) -> Tile
+.. py:function:: tile_cholesky(A: Tile[Float,Tuple[int, int]]) -> Tile[Float,Tuple[int, int]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the Cholesky factorization L of a matrix A.
     L is lower triangular and satisfies LL^T = A.
@@ -1302,7 +2533,13 @@ Tile Primitives
     :returns L: A square, lower triangular, matrix, such that LL^T = A
 
 
-.. py:function:: tile_cholesky_solve(L: Tile, x: Tile) -> None
+.. py:function:: tile_cholesky_solve(L: Tile[Float,Tuple[int, int]], y: Tile[Float,Tuple[int]]) -> None
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     With L such that LL^T = A, solve for x in Ax = y
 
@@ -1313,54 +2550,65 @@ Tile Primitives
         * float64
 
     :param L: A square, lower triangular, matrix, such that LL^T = A
-    :param x: An 1D tile of length M
-    :returns y: An 1D tile of length M such that LL^T y = x
+    :param y: A 1D tile of length M
+    :returns x: A 1D tile of length M such that LL^T x = y
 
 
 
 
 Utility
 ---------------
-.. py:function:: mlp(weights: Array[float32], bias: Array[float32], activation: Callable, index: int32, x: Array[float32], out: Array[float32]) -> None
-
-    Evaluate a multi-layer perceptron (MLP) layer in the form: ``out = act(weights*x + bias)``.
-
-    .. deprecated:: 1.6
-        Use :doc:`tile primitives </modules/tiles>` instead.
-
-    :param weights: A layer's network weights with dimensions ``(m, n)``.
-    :param bias: An array with dimensions ``(n)``.
-    :param activation: A ``wp.func`` function that takes a single scalar float as input and returns a scalar float as output
-    :param index: The batch item to process, typically each thread will process one item in the batch, in which case
-                  index should be ``wp.tid()``
-    :param x: The feature matrix with dimensions ``(n, b)``
-    :param out: The network output with dimensions ``(m, b)``
-
-    :note: Feature and output matrices are transposed compared to some other frameworks such as PyTorch.
-           All matrices are assumed to be stored in flattened row-major memory layout (NumPy default).
-
-
 .. py:function:: reversed(range: range_t) -> range_t
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Returns the range in reversed order.
 
 
 .. py:function:: printf(fmt: str, *args: Any) -> None
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Allows printing formatted strings using C-style format specifiers.
 
 
 .. py:function:: print(value: Any) -> None
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Print variable to stdout
 
 
 .. py:function:: breakpoint() -> None
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Debugger breakpoint
 
 
 .. py:function:: tid() -> int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Return the current thread index for a 1D kernel launch.
 
@@ -1374,6 +2622,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Return the current thread indices for a 2D kernel launch.
 
     Use ``i,j = wp.tid()`` syntax to retrieve the coordinates inside the kernel thread grid.
@@ -1384,6 +2638,12 @@ Utility
 .. py:function:: tid() -> Tuple[int, int, int]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Return the current thread indices for a 3D kernel launch.
 
@@ -1396,6 +2656,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Return the current thread indices for a 4D kernel launch.
 
     Use ``i,j,k,l = wp.tid()`` syntax to retrieve the coordinates inside the kernel thread grid.
@@ -1403,239 +2669,653 @@ Utility
     This function may not be called from user-defined Warp functions.
 
 
+.. py:function:: block_dim() -> int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+    Returns the number of threads in the current block.
+
+
 .. py:function:: select(cond: bool, value_if_false: Any, value_if_true: Any) -> Any
 
-    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``.
+
+    .. deprecated:: 1.7
+         Use :func:`where` instead, which has the more intuitive argument order:
+         ``where(cond, value_if_true, value_if_false)``.
 
 
 .. py:function:: select(cond: int8, value_if_false: Any, value_if_true: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``.
+
+    .. deprecated:: 1.7
+         Use :func:`where` instead, which has the more intuitive argument order:
+         ``where(cond, value_if_true, value_if_false)``.
 
 
 .. py:function:: select(cond: uint8, value_if_false: Any, value_if_true: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``.
+
+    .. deprecated:: 1.7
+         Use :func:`where` instead, which has the more intuitive argument order:
+         ``where(cond, value_if_true, value_if_false)``.
 
 
 .. py:function:: select(cond: int16, value_if_false: Any, value_if_true: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``.
+
+    .. deprecated:: 1.7
+         Use :func:`where` instead, which has the more intuitive argument order:
+         ``where(cond, value_if_true, value_if_false)``.
 
 
 .. py:function:: select(cond: uint16, value_if_false: Any, value_if_true: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``.
+
+    .. deprecated:: 1.7
+         Use :func:`where` instead, which has the more intuitive argument order:
+         ``where(cond, value_if_true, value_if_false)``.
 
 
 .. py:function:: select(cond: int32, value_if_false: Any, value_if_true: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``.
+
+    .. deprecated:: 1.7
+         Use :func:`where` instead, which has the more intuitive argument order:
+         ``where(cond, value_if_true, value_if_false)``.
 
 
 .. py:function:: select(cond: uint32, value_if_false: Any, value_if_true: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``.
+
+    .. deprecated:: 1.7
+         Use :func:`where` instead, which has the more intuitive argument order:
+         ``where(cond, value_if_true, value_if_false)``.
 
 
 .. py:function:: select(cond: int64, value_if_false: Any, value_if_true: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``.
+
+    .. deprecated:: 1.7
+         Use :func:`where` instead, which has the more intuitive argument order:
+         ``where(cond, value_if_true, value_if_false)``.
 
 
 .. py:function:: select(cond: uint64, value_if_false: Any, value_if_true: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``False`` then return ``value_if_false``, otherwise return ``value_if_true``.
+
+    .. deprecated:: 1.7
+         Use :func:`where` instead, which has the more intuitive argument order:
+         ``where(cond, value_if_true, value_if_false)``.
 
 
 .. py:function:: select(arr: Array[Any], value_if_false: Any, value_if_true: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Select between two arguments, if ``arr`` is null then return ``value_if_false``, otherwise return ``value_if_true``
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``arr`` is null then return ``value_if_false``, otherwise return ``value_if_true``.
+
+    .. deprecated:: 1.7
+         Use :func:`where` instead, which has the more intuitive argument order:
+         ``where(arr, value_if_true, value_if_false)``.
+
+
+.. py:function:: where(cond: bool, value_if_true: Any, value_if_false: Any) -> Any
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``True`` then return ``value_if_true``, otherwise return ``value_if_false``.
+
+
+.. py:function:: where(cond: int8, value_if_true: Any, value_if_false: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``True`` then return ``value_if_true``, otherwise return ``value_if_false``.
+
+
+.. py:function:: where(cond: uint8, value_if_true: Any, value_if_false: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``True`` then return ``value_if_true``, otherwise return ``value_if_false``.
+
+
+.. py:function:: where(cond: int16, value_if_true: Any, value_if_false: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``True`` then return ``value_if_true``, otherwise return ``value_if_false``.
+
+
+.. py:function:: where(cond: uint16, value_if_true: Any, value_if_false: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``True`` then return ``value_if_true``, otherwise return ``value_if_false``.
+
+
+.. py:function:: where(cond: int32, value_if_true: Any, value_if_false: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``True`` then return ``value_if_true``, otherwise return ``value_if_false``.
+
+
+.. py:function:: where(cond: uint32, value_if_true: Any, value_if_false: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``True`` then return ``value_if_true``, otherwise return ``value_if_false``.
+
+
+.. py:function:: where(cond: int64, value_if_true: Any, value_if_false: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``True`` then return ``value_if_true``, otherwise return ``value_if_false``.
+
+
+.. py:function:: where(cond: uint64, value_if_true: Any, value_if_false: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``cond`` is ``True`` then return ``value_if_true``, otherwise return ``value_if_false``.
+
+
+.. py:function:: where(arr: Array[Any], value_if_true: Any, value_if_false: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Select between two arguments, if ``arr`` is not null then return ``value_if_true``, otherwise return ``value_if_false``.
 
 
 .. py:function:: atomic_add(arr: Array[Any], i: Int, value: Any) -> Any
 
-    Atomically add ``value`` onto ``arr[i]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically adds ``value`` onto ``arr[i]`` and returns the original value of ``arr[i]``.
+        This function is automatically invoked when using the syntax ``arr[i] += value``.
 
 
 .. py:function:: atomic_add(arr: Array[Any], i: Int, j: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically add ``value`` onto ``arr[i,j]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically adds ``value`` onto ``arr[i,j]`` and returns the original value of ``arr[i,j]``.
+        This function is automatically invoked when using the syntax ``arr[i,j] += value``.
 
 
 .. py:function:: atomic_add(arr: Array[Any], i: Int, j: Int, k: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically add ``value`` onto ``arr[i,j,k]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically adds ``value`` onto ``arr[i,j,k]`` and returns the original value of ``arr[i,j,k]``.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] += value``.
 
 
 .. py:function:: atomic_add(arr: Array[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically add ``value`` onto ``arr[i,j,k,l]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically adds ``value`` onto ``arr[i,j,k,l]`` and returns the original value of ``arr[i,j,k,l]``.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] += value``.
 
 
 .. py:function:: atomic_add(arr: FabricArray[Any], i: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically add ``value`` onto ``arr[i]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically adds ``value`` onto ``arr[i]`` and returns the original value of ``arr[i]``.
+        This function is automatically invoked when using the syntax ``arr[i] += value``.
 
 
 .. py:function:: atomic_add(arr: FabricArray[Any], i: Int, j: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically add ``value`` onto ``arr[i,j]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically adds ``value`` onto ``arr[i,j]`` and returns the original value of ``arr[i,j]``.
+        This function is automatically invoked when using the syntax ``arr[i,j] += value``.
 
 
 .. py:function:: atomic_add(arr: FabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically add ``value`` onto ``arr[i,j,k]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically adds ``value`` onto ``arr[i,j,k]`` and returns the original value of ``arr[i,j,k]``.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] += value``.
 
 
 .. py:function:: atomic_add(arr: FabricArray[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically add ``value`` onto ``arr[i,j,k,l]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically adds ``value`` onto ``arr[i,j,k,l]`` and returns the original value of ``arr[i,j,k,l]``.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] += value``.
 
 
 .. py:function:: atomic_add(arr: IndexedFabricArray[Any], i: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically add ``value`` onto ``arr[i]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically adds ``value`` onto ``arr[i]`` and returns the original value of ``arr[i]``.
+        This function is automatically invoked when using the syntax ``arr[i] += value``.
 
 
 .. py:function:: atomic_add(arr: IndexedFabricArray[Any], i: Int, j: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically add ``value`` onto ``arr[i,j]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically adds ``value`` onto ``arr[i,j]`` and returns the original value of ``arr[i,j]``.
+        This function is automatically invoked when using the syntax ``arr[i,j] += value``.
 
 
 .. py:function:: atomic_add(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically add ``value`` onto ``arr[i,j,k]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically adds ``value`` onto ``arr[i,j,k]`` and returns the original value of ``arr[i,j,k]``.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] += value``.
 
 
 .. py:function:: atomic_add(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically add ``value`` onto ``arr[i,j,k,l]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically adds ``value`` onto ``arr[i,j,k,l]`` and returns the original value of ``arr[i,j,k,l]``.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] += value``.
 
 
 .. py:function:: atomic_sub(arr: Array[Any], i: Int, value: Any) -> Any
 
-    Atomically subtract ``value`` onto ``arr[i]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically subtracts ``value`` onto ``arr[i]`` and returns the original value of ``arr[i]``.
+        This function is automatically invoked when using the syntax ``arr[i] -= value``.
 
 
 .. py:function:: atomic_sub(arr: Array[Any], i: Int, j: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically subtract ``value`` onto ``arr[i,j]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically subtracts ``value`` onto ``arr[i,j]`` and returns the original value of ``arr[i,j]``.
+        This function is automatically invoked when using the syntax ``arr[i,j] -= value``.
 
 
 .. py:function:: atomic_sub(arr: Array[Any], i: Int, j: Int, k: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically subtract ``value`` onto ``arr[i,j,k]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically subtracts ``value`` onto ``arr[i,j,k]`` and returns the original value of ``arr[i,j,k]``.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] -= value``.
 
 
 .. py:function:: atomic_sub(arr: Array[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically subtract ``value`` onto ``arr[i,j,k,l]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically subtracts ``value`` onto ``arr[i,j,k,l]`` and returns the original value of ``arr[i,j,k,l]``.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] -= value``.
 
 
 .. py:function:: atomic_sub(arr: FabricArray[Any], i: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically subtract ``value`` onto ``arr[i]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically subtracts ``value`` onto ``arr[i]`` and returns the original value of ``arr[i]``.
+        This function is automatically invoked when using the syntax ``arr[i] -= value``.
 
 
 .. py:function:: atomic_sub(arr: FabricArray[Any], i: Int, j: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically subtract ``value`` onto ``arr[i,j]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically subtracts ``value`` onto ``arr[i,j]`` and returns the original value of ``arr[i,j]``.
+        This function is automatically invoked when using the syntax ``arr[i,j] -= value``.
 
 
 .. py:function:: atomic_sub(arr: FabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically subtract ``value`` onto ``arr[i,j,k]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically subtracts ``value`` onto ``arr[i,j,k]`` and returns the original value of ``arr[i,j,k]``.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] -= value``.
 
 
 .. py:function:: atomic_sub(arr: FabricArray[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically subtract ``value`` onto ``arr[i,j,k,l]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically subtracts ``value`` onto ``arr[i,j,k,l]`` and returns the original value of ``arr[i,j,k,l]``.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] -= value``.
 
 
 .. py:function:: atomic_sub(arr: IndexedFabricArray[Any], i: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically subtract ``value`` onto ``arr[i]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically subtracts ``value`` onto ``arr[i]`` and returns the original value of ``arr[i]``.
+        This function is automatically invoked when using the syntax ``arr[i] -= value``.
 
 
 .. py:function:: atomic_sub(arr: IndexedFabricArray[Any], i: Int, j: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically subtract ``value`` onto ``arr[i,j]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically subtracts ``value`` onto ``arr[i,j]`` and returns the original value of ``arr[i,j]``.
+        This function is automatically invoked when using the syntax ``arr[i,j] -= value``.
 
 
 .. py:function:: atomic_sub(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically subtract ``value`` onto ``arr[i,j,k]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically subtracts ``value`` onto ``arr[i,j,k]`` and returns the original value of ``arr[i,j,k]``.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] -= value``.
 
 
 .. py:function:: atomic_sub(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
 
-    Atomically subtract ``value`` onto ``arr[i,j,k,l]`` and return the old value.
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically subtracts ``value`` onto ``arr[i,j,k,l]`` and returns the original value of ``arr[i,j,k,l]``.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] -= value``.
 
 
 .. py:function:: atomic_min(arr: Array[Any], i: Int, value: Any) -> Any
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the minimum of ``value`` and ``arr[i]``, atomically update the array, and return the old value.
 
@@ -1646,6 +3326,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Compute the minimum of ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
@@ -1654,6 +3340,12 @@ Utility
 .. py:function:: atomic_min(arr: Array[Any], i: Int, j: Int, k: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the minimum of ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
 
@@ -1664,6 +3356,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Compute the minimum of ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
@@ -1672,6 +3370,12 @@ Utility
 .. py:function:: atomic_min(arr: FabricArray[Any], i: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the minimum of ``value`` and ``arr[i]``, atomically update the array, and return the old value.
 
@@ -1682,6 +3386,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Compute the minimum of ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
@@ -1690,6 +3400,12 @@ Utility
 .. py:function:: atomic_min(arr: FabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the minimum of ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
 
@@ -1700,6 +3416,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Compute the minimum of ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
@@ -1708,6 +3430,12 @@ Utility
 .. py:function:: atomic_min(arr: IndexedFabricArray[Any], i: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the minimum of ``value`` and ``arr[i]``, atomically update the array, and return the old value.
 
@@ -1718,6 +3446,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Compute the minimum of ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
@@ -1726,6 +3460,12 @@ Utility
 .. py:function:: atomic_min(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the minimum of ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
 
@@ -1736,12 +3476,24 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Compute the minimum of ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
 
 
 .. py:function:: atomic_max(arr: Array[Any], i: Int, value: Any) -> Any
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the maximum of ``value`` and ``arr[i]``, atomically update the array, and return the old value.
 
@@ -1752,6 +3504,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Compute the maximum of ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
@@ -1760,6 +3518,12 @@ Utility
 .. py:function:: atomic_max(arr: Array[Any], i: Int, j: Int, k: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the maximum of ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
 
@@ -1770,6 +3534,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Compute the maximum of ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
@@ -1778,6 +3548,12 @@ Utility
 .. py:function:: atomic_max(arr: FabricArray[Any], i: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the maximum of ``value`` and ``arr[i]``, atomically update the array, and return the old value.
 
@@ -1788,6 +3564,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Compute the maximum of ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
@@ -1796,6 +3578,12 @@ Utility
 .. py:function:: atomic_max(arr: FabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the maximum of ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
 
@@ -1806,6 +3594,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Compute the maximum of ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
@@ -1814,6 +3608,12 @@ Utility
 .. py:function:: atomic_max(arr: IndexedFabricArray[Any], i: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the maximum of ``value`` and ``arr[i]``, atomically update the array, and return the old value.
 
@@ -1824,6 +3624,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Compute the maximum of ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
@@ -1832,6 +3638,12 @@ Utility
 .. py:function:: atomic_max(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Compute the maximum of ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
 
@@ -1842,12 +3654,25 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Compute the maximum of ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
 
 
 .. py:function:: lerp(a: Float, b: Float, t: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Linearly interpolate two values ``a`` and ``b`` using factor ``t``, computed as ``a*(1-t) + b*t``
 
@@ -1856,12 +3681,26 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Linearly interpolate two values ``a`` and ``b`` using factor ``t``, computed as ``a*(1-t) + b*t``
 
 
 .. py:function:: lerp(a: Matrix[Any,Any,Float], b: Matrix[Any,Any,Float], t: Float) -> Matrix[Any,Any,Float]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Linearly interpolate two values ``a`` and ``b`` using factor ``t``, computed as ``a*(1-t) + b*t``
 
@@ -1870,6 +3709,13 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Linearly interpolate two values ``a`` and ``b`` using factor ``t``, computed as ``a*(1-t) + b*t``
 
 
@@ -1877,16 +3723,37 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Linearly interpolate two values ``a`` and ``b`` using factor ``t``, computed as ``a*(1-t) + b*t``
 
 
 .. py:function:: smoothstep(a: Float, b: Float, x: Float) -> Float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Smoothly interpolate between two values ``a`` and ``b`` using a factor ``x``,
     and return a result between 0 and 1 using a cubic Hermite interpolation after clamping.
 
 
 .. py:function:: expect_near(a: Float, b: Float, tolerance: Float) -> None
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Prints an error to stdout if ``a`` and ``b`` are not closer than tolerance in magnitude
 
@@ -1895,12 +3762,26 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Prints an error to stdout if any element of ``a`` and ``b`` are not closer than tolerance in magnitude
 
 
 .. py:function:: expect_near(a: Quaternion[Float], b: Quaternion[Float], tolerance: Float) -> None
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Prints an error to stdout if any element of ``a`` and ``b`` are not closer than tolerance in magnitude
 
@@ -1909,10 +3790,23 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Prints an error to stdout if any element of ``a`` and ``b`` are not closer than tolerance in magnitude
 
 
 .. py:function:: len(a: Vector[Any,Scalar]) -> int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Return the number of elements in a vector.
 
@@ -1921,12 +3815,24 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Return the number of elements in a quaternion.
 
 
 .. py:function:: len(a: Matrix[Any,Any,Scalar]) -> int
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Return the number of rows in a matrix.
 
@@ -1935,6 +3841,12 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Return the number of elements in a transformation.
 
 
@@ -1942,22 +3854,54 @@ Utility
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Return the size of the first dimension in an array.
 
 
-.. py:function:: len(a: Tile) -> int
+.. py:function:: len(a: Tile[Any,Tuple[int, ...]]) -> int
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Return the number of rows in a tile.
+
+
+.. py:function:: len(a: Tuple) -> int
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Return the number of elements in a tuple.
 
 
 
 
 Geometry
 ---------------
-.. autoclass:: BvhQuery
-.. py:function:: bvh_query_aabb(id: uint64, low: vec3f, high: vec3f) -> bvh_query_t
+.. autoclass:: warp.BvhQuery
+   :exclude-members: Var, vars
+.. py:function:: bvh_query_aabb(id: uint64, low: vec3f, high: vec3f) -> BvhQuery
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Construct an axis-aligned bounding box query against a BVH object.
 
@@ -1968,7 +3912,13 @@ Geometry
     :param high: The upper bound of the bounding box in BVH space
 
 
-.. py:function:: bvh_query_ray(id: uint64, start: vec3f, dir: vec3f) -> bvh_query_t
+.. py:function:: bvh_query_ray(id: uint64, start: vec3f, dir: vec3f) -> BvhQuery
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Construct a ray query against a BVH object.
 
@@ -1979,14 +3929,27 @@ Geometry
     :param dir: The direction of the ray in BVH space
 
 
-.. py:function:: bvh_query_next(query: bvh_query_t, index: int32) -> bool
+.. py:function:: bvh_query_next(query: BvhQuery, index: int32) -> bool
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Move to the next bound returned by the query.
     The index of the current bound is stored in ``index``, returns ``False`` if there are no more overlapping bound.
 
 
-.. autoclass:: MeshQueryPoint
-.. py:function:: mesh_query_point(id: uint64, point: vec3f, max_dist: float32) -> mesh_query_point_t
+.. autoclass:: warp.MeshQueryPoint
+   :exclude-members: Var, vars
+.. py:function:: mesh_query_point(id: uint64, point: vec3f, max_dist: float32) -> MeshQueryPoint
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Computes the closest point on the :class:`Mesh` with identifier ``id`` to the given ``point`` in space.
 
@@ -1999,7 +3962,13 @@ Geometry
     :param max_dist: Mesh faces above this distance will not be considered by the query
 
 
-.. py:function:: mesh_query_point_no_sign(id: uint64, point: vec3f, max_dist: float32) -> mesh_query_point_t
+.. py:function:: mesh_query_point_no_sign(id: uint64, point: vec3f, max_dist: float32) -> MeshQueryPoint
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Computes the closest point on the :class:`Mesh` with identifier ``id`` to the given ``point`` in space.
 
@@ -2010,7 +3979,13 @@ Geometry
     :param max_dist: Mesh faces above this distance will not be considered by the query
 
 
-.. py:function:: mesh_query_furthest_point_no_sign(id: uint64, point: vec3f, min_dist: float32) -> mesh_query_point_t
+.. py:function:: mesh_query_furthest_point_no_sign(id: uint64, point: vec3f, min_dist: float32) -> MeshQueryPoint
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Computes the furthest point on the mesh with identifier `id` to the given point in space.
 
@@ -2021,7 +3996,13 @@ Geometry
     :param min_dist: Mesh faces below this distance will not be considered by the query
 
 
-.. py:function:: mesh_query_point_sign_normal(id: uint64, point: vec3f, max_dist: float32, epsilon: float32) -> mesh_query_point_t
+.. py:function:: mesh_query_point_sign_normal(id: uint64, point: vec3f, max_dist: float32, epsilon: float32) -> MeshQueryPoint
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Computes the closest point on the :class:`Mesh` with identifier ``id`` to the given ``point`` in space.
 
@@ -2036,7 +4017,13 @@ Geometry
                     fraction of the average edge length, also for treating closest point as being on edge/vertex default 1e-3
 
 
-.. py:function:: mesh_query_point_sign_winding_number(id: uint64, point: vec3f, max_dist: float32, accuracy: float32, threshold: float32) -> mesh_query_point_t
+.. py:function:: mesh_query_point_sign_winding_number(id: uint64, point: vec3f, max_dist: float32, accuracy: float32, threshold: float32) -> MeshQueryPoint
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Computes the closest point on the :class:`Mesh` with identifier ``id`` to the given point in space.
 
@@ -2053,8 +4040,15 @@ Geometry
     :param threshold: The threshold of the winding number to be considered inside, default 0.5
 
 
-.. autoclass:: MeshQueryRay
-.. py:function:: mesh_query_ray(id: uint64, start: vec3f, dir: vec3f, max_t: float32) -> mesh_query_ray_t
+.. autoclass:: warp.MeshQueryRay
+   :exclude-members: Var, vars
+.. py:function:: mesh_query_ray(id: uint64, start: vec3f, dir: vec3f, max_t: float32) -> MeshQueryRay
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Computes the closest ray hit on the :class:`Mesh` with identifier ``id``.
 
@@ -2064,8 +4058,15 @@ Geometry
     :param max_t: The maximum distance along the ray to check for intersections
 
 
-.. autoclass:: MeshQueryAABB
-.. py:function:: mesh_query_aabb(id: uint64, low: vec3f, high: vec3f) -> mesh_query_aabb_t
+.. autoclass:: warp.MeshQueryAABB
+   :exclude-members: Var, vars
+.. py:function:: mesh_query_aabb(id: uint64, low: vec3f, high: vec3f) -> MeshQueryAABB
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Construct an axis-aligned bounding box query against a :class:`Mesh`.
 
@@ -2076,7 +4077,13 @@ Geometry
     :param high: The upper bound of the bounding box in mesh space
 
 
-.. py:function:: mesh_query_aabb_next(query: mesh_query_aabb_t, index: int32) -> bool
+.. py:function:: mesh_query_aabb_next(query: MeshQueryAABB, index: int32) -> bool
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Move to the next triangle overlapping the query bounding box.
 
@@ -2085,23 +4092,48 @@ Geometry
 
 .. py:function:: mesh_eval_position(id: uint64, face: int32, bary_u: float32, bary_v: float32) -> vec3f
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Evaluates the position on the :class:`Mesh` given a face index and barycentric coordinates.
 
 
 .. py:function:: mesh_eval_velocity(id: uint64, face: int32, bary_u: float32, bary_v: float32) -> vec3f
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Evaluates the velocity on the :class:`Mesh` given a face index and barycentric coordinates.
 
 
-.. autoclass:: HashGridQuery
-.. py:function:: hash_grid_query(id: uint64, point: vec3f, max_dist: float32) -> hash_grid_query_t
+.. autoclass:: warp.HashGridQuery
+   :exclude-members: Var, vars
+.. py:function:: hash_grid_query(id: uint64, point: vec3f, max_dist: float32) -> HashGridQuery
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Construct a point query against a :class:`HashGrid`.
 
     This query can be used to iterate over all neighboring point within a fixed radius from the query point.
 
 
-.. py:function:: hash_grid_query_next(query: hash_grid_query_t, index: int32) -> bool
+.. py:function:: hash_grid_query_next(query: HashGridQuery, index: int32) -> bool
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Move to the next point in the hash grid query.
 
@@ -2109,6 +4141,12 @@ Geometry
 
 
 .. py:function:: hash_grid_point_id(id: uint64, index: int32) -> int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Return the index of a point in the :class:`HashGrid`.
 
@@ -2119,6 +4157,12 @@ Geometry
 
 .. py:function:: intersect_tri_tri(v0: vec3f, v1: vec3f, v2: vec3f, u0: vec3f, u1: vec3f, u2: vec3f) -> int
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Tests for intersection between two triangles (v0, v1, v2) and (u0, u1, u2) using Moller's method.
 
     Returns > 0 if triangles intersect.
@@ -2126,30 +4170,65 @@ Geometry
 
 .. py:function:: mesh_get(id: uint64) -> Mesh
 
-    Retrieves the mesh given its index. [1]_
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+
+    Retrieves the mesh given its index.
 
 
 .. py:function:: mesh_eval_face_normal(id: uint64, face: int32) -> vec3f
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Evaluates the face normal the mesh given a face index.
 
 
 .. py:function:: mesh_get_point(id: uint64, index: int32) -> vec3f
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Returns the point of the mesh given a index.
 
 
 .. py:function:: mesh_get_velocity(id: uint64, index: int32) -> vec3f
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Returns the velocity of the mesh given a index.
 
 
 .. py:function:: mesh_get_index(id: uint64, index: int32) -> int
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Returns the point-index of the mesh given a face-vertex index.
 
 
 .. py:function:: closest_point_edge_edge(p1: vec3f, q1: vec3f, p2: vec3f, q2: vec3f, epsilon: float32) -> vec3f
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Finds the closest points between two edges.
 
@@ -2169,12 +4248,24 @@ Volumes
 ---------------
 .. py:function:: volume_sample(id: uint64, uvw: vec3f, sampling_mode: int32, dtype: Any) -> Any
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Sample the volume of type `dtype` given by ``id`` at the volume local-space point ``uvw``.
 
     Interpolation should be :attr:`warp.Volume.CLOSEST` or :attr:`wp.Volume.LINEAR.`
 
 
 .. py:function:: volume_sample_grad(id: uint64, uvw: vec3f, sampling_mode: int32, grad: Any, dtype: Any) -> Any
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Sample the volume given by ``id`` and its gradient at the volume local-space point ``uvw``.
 
@@ -2183,6 +4274,12 @@ Volumes
 
 .. py:function:: volume_lookup(id: uint64, i: int32, j: int32, k: int32, dtype: Any) -> Any
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Returns the value of voxel with coordinates ``i``, ``j``, ``k`` for a volume of type type `dtype`.
 
     If the voxel at this index does not exist, this function returns the background value.
@@ -2190,10 +4287,23 @@ Volumes
 
 .. py:function:: volume_store(id: uint64, i: int32, j: int32, k: int32, value: Any) -> None
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Store ``value`` at the voxel with coordinates ``i``, ``j``, ``k``.
 
 
 .. py:function:: volume_sample_f(id: uint64, uvw: vec3f, sampling_mode: int32) -> float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Sample the volume given by ``id`` at the volume local-space point ``uvw``.
 
@@ -2202,12 +4312,26 @@ Volumes
 
 .. py:function:: volume_sample_grad_f(id: uint64, uvw: vec3f, sampling_mode: int32, grad: vec3f) -> float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Sample the volume and its gradient given by ``id`` at the volume local-space point ``uvw``.
 
     Interpolation should be :attr:`warp.Volume.CLOSEST` or :attr:`wp.Volume.LINEAR.`
 
 
 .. py:function:: volume_lookup_f(id: uint64, i: int32, j: int32, k: int32) -> float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Returns the value of voxel with coordinates ``i``, ``j``, ``k``.
 
@@ -2216,10 +4340,23 @@ Volumes
 
 .. py:function:: volume_store_f(id: uint64, i: int32, j: int32, k: int32, value: float32) -> None
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Store ``value`` at the voxel with coordinates ``i``, ``j``, ``k``.
 
 
 .. py:function:: volume_sample_v(id: uint64, uvw: vec3f, sampling_mode: int32) -> vec3f
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Sample the vector volume given by ``id`` at the volume local-space point ``uvw``.
 
@@ -2228,6 +4365,13 @@ Volumes
 
 .. py:function:: volume_lookup_v(id: uint64, i: int32, j: int32, k: int32) -> vec3f
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Returns the vector value of voxel with coordinates ``i``, ``j``, ``k``.
 
     If the voxel at this index does not exist, this function returns the background value.
@@ -2235,15 +4379,35 @@ Volumes
 
 .. py:function:: volume_store_v(id: uint64, i: int32, j: int32, k: int32, value: vec3f) -> None
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Store ``value`` at the voxel with coordinates ``i``, ``j``, ``k``.
 
 
 .. py:function:: volume_sample_i(id: uint64, uvw: vec3f) -> int
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Sample the :class:`int32` volume given by ``id`` at the volume local-space point ``uvw``. 
 
 
 .. py:function:: volume_lookup_i(id: uint64, i: int32, j: int32, k: int32) -> int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Returns the :class:`int32` value of voxel with coordinates ``i``, ``j``, ``k``.
 
@@ -2252,10 +4416,22 @@ Volumes
 
 .. py:function:: volume_store_i(id: uint64, i: int32, j: int32, k: int32, value: int32) -> None
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Store ``value`` at the voxel with coordinates ``i``, ``j``, ``k``.
 
 
 .. py:function:: volume_sample_index(id: uint64, uvw: vec3f, sampling_mode: int32, voxel_data: Array[Any], background: Any) -> Any
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Sample the volume given by ``id`` at the volume local-space point ``uvw``.
 
@@ -2267,6 +4443,12 @@ Volumes
 
 .. py:function:: volume_sample_grad_index(id: uint64, uvw: vec3f, sampling_mode: int32, voxel_data: Array[Any], background: Any, grad: Any) -> Any
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Sample the volume given by ``id`` and its gradient at the volume local-space point ``uvw``.
 
     Values for allocated voxels are read from the ``voxel_data`` array, and `background` is used as the value of non-existing voxels.
@@ -2277,6 +4459,13 @@ Volumes
 
 .. py:function:: volume_lookup_index(id: uint64, i: int32, j: int32, k: int32) -> int32
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Returns the index associated to the voxel with coordinates ``i``, ``j``, ``k``.
 
     If the voxel at this index does not exist, this function returns -1.
@@ -2286,20 +4475,48 @@ Volumes
 
 .. py:function:: volume_index_to_world(id: uint64, uvw: vec3f) -> vec3f
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Transform a point ``uvw`` defined in volume index space to world space given the volume's intrinsic affine transformation.
 
 
 .. py:function:: volume_world_to_index(id: uint64, xyz: vec3f) -> vec3f
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Transform a point ``xyz`` defined in volume world space to the volume's index space given the volume's intrinsic affine transformation.
 
 
 .. py:function:: volume_index_to_world_dir(id: uint64, uvw: vec3f) -> vec3f
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Transform a direction ``uvw`` defined in volume index space to world space given the volume's intrinsic affine transformation.
 
 
 .. py:function:: volume_world_to_index_dir(id: uint64, xyz: vec3f) -> vec3f
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Transform a direction ``xyz`` defined in volume world space to the volume's index space given the volume's intrinsic affine transformation.
 
@@ -2310,12 +4527,26 @@ Random
 ---------------
 .. py:function:: rand_init(seed: int32) -> uint32
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Initialize a new random number generator given a user-defined seed. Returns a 32-bit integer representing the RNG state.
 
 
 .. py:function:: rand_init(seed: int32, offset: int32) -> uint32
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Initialize a new random number generator given a user-defined seed and an offset.
 
@@ -2325,6 +4556,13 @@ Random
 
 .. py:function:: randi(state: uint32) -> int
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return a random integer in the range [-2^31, 2^31).
 
 
@@ -2332,10 +4570,24 @@ Random
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return a random integer between [low, high).
 
 
 .. py:function:: randu(state: uint32) -> uint32
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return a random unsigned integer in the range [0, 2^32).
 
@@ -2344,10 +4596,24 @@ Random
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return a random unsigned integer between [low, high).
 
 
 .. py:function:: randf(state: uint32) -> float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Return a random float between [0.0, 1.0).
 
@@ -2356,65 +4622,155 @@ Random
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Return a random float between [low, high).
 
 
 .. py:function:: randn(state: uint32) -> float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Sample a normal (Gaussian) distribution of mean 0 and variance 1. 
 
 
 .. py:function:: sample_cdf(state: uint32, cdf: Array[float32]) -> int
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Inverse-transform sample a cumulative distribution function.
 
 
 .. py:function:: sample_triangle(state: uint32) -> vec2f
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Uniformly sample a triangle. Returns sample barycentric coordinates.
 
 
 .. py:function:: sample_unit_ring(state: uint32) -> vec2f
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Uniformly sample a ring in the xy plane.
 
 
 .. py:function:: sample_unit_disk(state: uint32) -> vec2f
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Uniformly sample a disk in the xy plane.
 
 
 .. py:function:: sample_unit_sphere_surface(state: uint32) -> vec3f
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Uniformly sample a unit sphere surface.
 
 
 .. py:function:: sample_unit_sphere(state: uint32) -> vec3f
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Uniformly sample a unit sphere.
 
 
 .. py:function:: sample_unit_hemisphere_surface(state: uint32) -> vec3f
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Uniformly sample a unit hemisphere surface.
 
 
 .. py:function:: sample_unit_hemisphere(state: uint32) -> vec3f
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Uniformly sample a unit hemisphere.
 
 
 .. py:function:: sample_unit_square(state: uint32) -> vec2f
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Uniformly sample a unit square.
 
 
 .. py:function:: sample_unit_cube(state: uint32) -> vec3f
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Uniformly sample a unit cube.
 
 
 .. py:function:: poisson(state: uint32, lam: float32) -> uint32
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Generate a random sample from a Poisson distribution.
 
@@ -2424,12 +4780,26 @@ Random
 
 .. py:function:: noise(state: uint32, x: float32) -> float
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Non-periodic Perlin-style noise in 1D.
 
 
 .. py:function:: noise(state: uint32, xy: vec2f) -> float
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Non-periodic Perlin-style noise in 2D.
 
@@ -2438,6 +4808,13 @@ Random
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Non-periodic Perlin-style noise in 3D.
 
 
@@ -2445,10 +4822,24 @@ Random
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Non-periodic Perlin-style noise in 4D.
 
 
 .. py:function:: pnoise(state: uint32, x: float32, px: int32) -> float
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Periodic Perlin-style noise in 1D.
 
@@ -2457,12 +4848,26 @@ Random
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Periodic Perlin-style noise in 2D.
 
 
 .. py:function:: pnoise(state: uint32, xyz: vec3f, px: int32, py: int32, pz: int32) -> float
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Periodic Perlin-style noise in 3D.
 
@@ -2471,26 +4876,51 @@ Random
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Periodic Perlin-style noise in 4D.
 
 
 .. py:function:: curlnoise(state: uint32, xy: vec2f, octaves: uint32, lacunarity: float32, gain: float32) -> vec2f
 
-    Divergence-free vector field based on the gradient of a Perlin noise function. [1]_
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+
+    Divergence-free vector field based on the gradient of a Perlin noise function.
 
 
 .. py:function:: curlnoise(state: uint32, xyz: vec3f, octaves: uint32, lacunarity: float32, gain: float32) -> vec3f
     :noindex:
     :nocontentsentry:
 
-    Divergence-free vector field based on the curl of three Perlin noise functions. [1]_
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+
+    Divergence-free vector field based on the curl of three Perlin noise functions.
 
 
 .. py:function:: curlnoise(state: uint32, xyzt: vec4f, octaves: uint32, lacunarity: float32, gain: float32) -> vec3f
     :noindex:
     :nocontentsentry:
 
-    Divergence-free vector field based on the curl of three Perlin noise functions. [1]_
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+
+    Divergence-free vector field based on the curl of three Perlin noise functions.
 
 
 
@@ -2499,6 +4929,12 @@ Other
 ---------------
 .. py:function:: lower_bound(arr: Array[Scalar], value: Scalar) -> int
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Search a sorted array ``arr`` for the closest element greater than or equal to ``value``.
 
 
@@ -2506,25 +4942,73 @@ Other
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
     Search a sorted array ``arr`` in the range [arr_begin, arr_end) for the closest element greater than or equal to ``value``.
 
 
 .. py:function:: bit_and(a: Int, b: Int) -> Int
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: bit_or(a: Int, b: Int) -> Int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: bit_xor(a: Int, b: Int) -> Int
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: lshift(a: Int, b: Int) -> Int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: rshift(a: Int, b: Int) -> Int
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: invert(a: Int) -> Int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 
@@ -2533,147 +5017,350 @@ Operators
 ---------------
 .. py:function:: add(a: Scalar, b: Scalar) -> Scalar
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: add(a: Vector[Any,Scalar], b: Vector[Any,Scalar]) -> Vector[Any,Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: add(a: Quaternion[Scalar], b: Quaternion[Scalar]) -> Quaternion[Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: add(a: Matrix[Any,Any,Scalar], b: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: add(a: Transformation[Scalar], b: Transformation[Scalar]) -> Transformation[Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
 
-.. py:function:: add(a: Tile, b: Tile) -> Tile
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: add(a: Tile[Any,Tuple[int, ...]], b: Tile[Any,Tuple[int, ...]]) -> Tile[Scalar,Tuple[int, ...]]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Add each element of two tiles together
 
 
 .. py:function:: sub(a: Scalar, b: Scalar) -> Scalar
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: sub(a: Vector[Any,Scalar], b: Vector[Any,Scalar]) -> Vector[Any,Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: sub(a: Matrix[Any,Any,Scalar], b: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: sub(a: Quaternion[Scalar], b: Quaternion[Scalar]) -> Quaternion[Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: sub(a: Transformation[Scalar], b: Transformation[Scalar]) -> Transformation[Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
 
-.. py:function:: sub(a: Tile, b: Tile) -> Tile
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: sub(a: Tile[Any,Tuple[int, ...]], b: Tile[Any,Tuple[int, ...]]) -> Tile[Scalar,Tuple[int, ...]]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Subtract each element b from a
 
 
 .. py:function:: mul(a: Scalar, b: Scalar) -> Scalar
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: mul(a: Vector[Any,Scalar], b: Scalar) -> Vector[Any,Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: mul(a: Scalar, b: Vector[Any,Scalar]) -> Vector[Any,Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: mul(a: Quaternion[Scalar], b: Scalar) -> Quaternion[Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: mul(a: Scalar, b: Quaternion[Scalar]) -> Quaternion[Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: mul(a: Quaternion[Scalar], b: Quaternion[Scalar]) -> Quaternion[Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: mul(a: Scalar, b: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: mul(a: Matrix[Any,Any,Scalar], b: Scalar) -> Matrix[Any,Any,Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: mul(a: Matrix[Any,Any,Scalar], b: Vector[Any,Scalar]) -> Vector[Any,Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: mul(a: Vector[Any,Scalar], b: Matrix[Any,Any,Scalar]) -> Vector[Any,Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: mul(a: Matrix[Any,Any,Scalar], b: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: mul(a: Transformation[Scalar], b: Transformation[Scalar]) -> Transformation[Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: mul(a: Scalar, b: Transformation[Scalar]) -> Transformation[Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: mul(a: Transformation[Scalar], b: Scalar) -> Transformation[Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
 
-.. py:function:: mul(x: Tile, y: Scalar) -> Tile
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: mul(x: Tile[Any,Tuple[int, ...]], y: Scalar) -> Tile[Any,Tuple[int, ...]]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Multiply each element of a tile by a scalar
 
 
-.. py:function:: mul(x: Scalar, y: Tile) -> Tile
+.. py:function:: mul(x: Scalar, y: Tile[Any,Tuple[int, ...]]) -> Tile[Any,Tuple[int, ...]]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Multiply each element of a tile by a scalar
 
 
 .. py:function:: mod(a: Scalar, b: Scalar) -> Scalar
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Modulo operation using truncated division.
 
@@ -2682,134 +5369,330 @@ Operators
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
     Modulo operation using truncated division.
 
 
 .. py:function:: div(a: Scalar, b: Scalar) -> Scalar
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: div(a: Vector[Any,Scalar], b: Scalar) -> Vector[Any,Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: div(a: Scalar, b: Vector[Any,Scalar]) -> Vector[Any,Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: div(a: Matrix[Any,Any,Scalar], b: Scalar) -> Matrix[Any,Any,Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: div(a: Scalar, b: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: div(a: Quaternion[Scalar], b: Scalar) -> Quaternion[Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: div(a: Scalar, b: Quaternion[Scalar]) -> Quaternion[Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: floordiv(a: Scalar, b: Scalar) -> Scalar
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: pos(x: Scalar) -> Scalar
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: pos(x: Vector[Any,Scalar]) -> Vector[Any,Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: pos(x: Quaternion[Scalar]) -> Quaternion[Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: pos(x: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: neg(x: Scalar) -> Scalar
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: neg(x: Vector[Any,Scalar]) -> Vector[Any,Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: neg(x: Quaternion[Scalar]) -> Quaternion[Scalar]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: neg(x: Matrix[Any,Any,Scalar]) -> Matrix[Any,Any,Scalar]
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
 
-.. py:function:: neg(x: Tile) -> Tile
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: neg(x: Tile[Any,Tuple[int, ...]]) -> Tile[Scalar,Tuple[int, ...]]
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
     Negate each element of a tile
 
 
 .. py:function:: unot(a: bool) -> bool
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: unot(a: int8) -> bool
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: unot(a: uint8) -> bool
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: unot(a: int16) -> bool
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: unot(a: uint16) -> bool
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: unot(a: int32) -> bool
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: unot(a: uint32) -> bool
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: unot(a: int64) -> bool
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: unot(a: uint64) -> bool
     :noindex:
     :nocontentsentry:
 
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
 
 .. py:function:: unot(a: Array[Any]) -> bool
     :noindex:
     :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 
@@ -2817,6 +5700,12 @@ Operators
 Code Generation
 ---------------
 .. py:function:: static(expr: Any) -> Any
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
 
     Evaluate a static Python expression and replaces it with its result.
 
@@ -2828,5 +5717,3 @@ Code Generation
     (excluding Warp arrays since they cannot be created in a Warp kernel at the moment).
 
 
-.. rubric:: Footnotes
-.. [1] Function gradients have not been implemented for backpropagation.

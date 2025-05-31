@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import warp as wp
 from warp.fem.cache import TemporaryStore, borrow_temporary, borrow_temporary_like, cached_arg_value
 from warp.fem.domain import GeometryDomain
@@ -129,13 +144,16 @@ class SpaceRestriction:
         dof_indices_in_element: wp.array(dtype=int)
 
     @cached_arg_value
-    def node_arg(self, device):
+    def node_arg_value(self, device):
         arg = SpaceRestriction.NodeArg()
+        self.fill_node_arg(arg, device)
+        return arg
+
+    def fill_node_arg(self, arg: NodeArg, device):
         arg.dof_element_offsets = self._dof_partition_element_offsets.array.to(device)
         arg.dof_element_indices = self._dof_element_indices.array.to(device)
         arg.dof_partition_indices = self._dof_partition_indices.array.to(device)
         arg.dof_indices_in_element = self._dof_indices_in_element.array.to(device)
-        return arg
 
     @wp.func
     def node_partition_index(args: NodeArg, restriction_node_index: int):

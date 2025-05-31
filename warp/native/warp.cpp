@@ -1,9 +1,18 @@
-/** Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
- * NVIDIA CORPORATION and its licensors retain all intellectual property
- * and proprietary rights in and to this software, related documentation
- * and any modifications thereto.  Any use, reproduction, disclosure or
- * distribution of this software and related documentation without an express
- * license agreement from NVIDIA CORPORATION is strictly prohibited.
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #include "warp.h"
@@ -113,7 +122,7 @@ float half_bits_to_float(uint16_t u)
 int init()
 {
 #if WP_ENABLE_CUDA
-    int cuda_init();
+    int cuda_init(void);
     // note: it's safe to proceed even if CUDA initialization failed
     cuda_init();
 #endif
@@ -1013,6 +1022,7 @@ WP_API int cuda_device_get_count() { return 0; }
 WP_API void* cuda_device_get_primary_context(int ordinal) { return NULL; }
 WP_API const char* cuda_device_get_name(int ordinal) { return NULL; }
 WP_API int cuda_device_get_arch(int ordinal) { return 0; }
+WP_API int cuda_device_get_sm_count(int ordinal) { return 0; }
 WP_API void cuda_device_get_uuid(int ordinal, char uuid[16]) {}
 WP_API int cuda_device_get_pci_domain_id(int ordinal) { return -1; }
 WP_API int cuda_device_get_pci_bus_id(int ordinal) { return -1; }
@@ -1053,6 +1063,7 @@ WP_API void* cuda_ipc_open_event_handle(void* context, char* handle) { return NU
 
 WP_API void* cuda_stream_create(void* context, int priority) { return NULL; }
 WP_API void cuda_stream_destroy(void* context, void* stream) {}
+WP_API int cuda_stream_query(void* stream) { return 0; }
 WP_API void cuda_stream_register(void* context, void* stream) {}
 WP_API void cuda_stream_unregister(void* context, void* stream) {}
 WP_API void* cuda_stream_get_current() { return NULL; }
@@ -1065,16 +1076,26 @@ WP_API int cuda_stream_get_priority(void* stream) { return 0; }
 
 WP_API void* cuda_event_create(void* context, unsigned flags) { return NULL; }
 WP_API void cuda_event_destroy(void* event) {}
-WP_API void cuda_event_record(void* event, void* stream) {}
+WP_API int cuda_event_query(void* event) { return 0; }
+WP_API void cuda_event_record(void* event, void* stream, bool timing) {}
 WP_API void cuda_event_synchronize(void* event) {}
 WP_API float cuda_event_elapsed_time(void* start_event, void* end_event) { return 0.0f; }
 
 WP_API bool cuda_graph_begin_capture(void* context, void* stream, int external) { return false; }
 WP_API bool cuda_graph_end_capture(void* context, void* stream, void** graph_ret) { return false; }
+WP_API bool cuda_graph_create_exec(void* context, void* graph, void** graph_exec_ret) { return false; }
 WP_API bool cuda_graph_launch(void* graph, void* stream) { return false; }
 WP_API bool cuda_graph_destroy(void* context, void* graph) { return false; }
+WP_API bool cuda_graph_exec_destroy(void* context, void* graph_exec) { return false; }
 
-WP_API size_t cuda_compile_program(const char* cuda_src, const char* program_name, int arch, const char* include_dir, int num_cuda_include_dirs, const char** cuda_include_dirs, bool debug, bool verbose, bool verify_fp, bool fast_math, bool fuse_fp, bool lineinfo, const char* output_path, size_t num_ltoirs, char** ltoirs, size_t* ltoir_sizes, int* ltoir_input_types) { return 0; }
+WP_API bool cuda_graph_insert_if_else(void* context, void* stream, int* condition, void** if_graph_ret, void** else_graph_ret) { return false; }
+WP_API bool cuda_graph_insert_while(void* context, void* stream, int* condition, void** body_graph_ret, uint64_t* handle_ret) { return false; }
+WP_API bool cuda_graph_set_condition(void* context, void* stream, int* condition, uint64_t handle) { return false; }
+WP_API bool cuda_graph_pause_capture(void* context, void* stream, void** graph_ret) { return false; }
+WP_API bool cuda_graph_resume_capture(void* context, void* stream, void* graph) { return false; }
+WP_API bool cuda_graph_insert_child_graph(void* context, void* stream, void* child_graph) { return false; }
+
+WP_API size_t cuda_compile_program(const char* cuda_src, const char* program_name, int arch, const char* include_dir, int num_cuda_include_dirs, const char** cuda_include_dirs, bool debug, bool verbose, bool verify_fp, bool fast_math, bool fuse_fp, bool lineinfo, bool compile_time_trace, const char* output_path, size_t num_ltoirs, char** ltoirs, size_t* ltoir_sizes, int* ltoir_input_types) { return 0; }
 
 WP_API void* cuda_load_module(void* context, const char* ptx) { return NULL; }
 WP_API void cuda_unload_module(void* context, void* module) {}

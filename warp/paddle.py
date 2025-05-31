@@ -1,14 +1,22 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import annotations
 
 import ctypes
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
 import numpy
 
@@ -21,7 +29,7 @@ if TYPE_CHECKING:
 
 
 # return the warp device corresponding to a paddle device
-def device_from_paddle(paddle_device: Union[Place, CPUPlace, CUDAPinnedPlace, CUDAPlace, str]) -> warp.context.Device:
+def device_from_paddle(paddle_device: Place | CPUPlace | CUDAPinnedPlace | CUDAPlace | str) -> warp.context.Device:
     """Return the Warp device corresponding to a Paddle device.
 
     Args:
@@ -210,9 +218,9 @@ dtype_is_compatible.compatible_sets = None
 # wrap a paddle tensor to a wp array, data is not copied
 def from_paddle(
     t: paddle.Tensor,
-    dtype: Optional[paddle.dtype] = None,
-    requires_grad: Optional[bool] = None,
-    grad: Optional[paddle.Tensor] = None,
+    dtype: paddle.dtype | None = None,
+    requires_grad: bool | None = None,
+    grad: paddle.Tensor | None = None,
     return_ctype: bool = False,
 ) -> warp.array:
     """Convert a Paddle tensor to a Warp array without copying the data.
@@ -331,9 +339,8 @@ def from_paddle(
         return a
 
 
-def to_paddle(a: warp.array, requires_grad: bool = None) -> paddle.Tensor:
-    """
-    Convert a Warp array to a Paddle tensor without copying the data.
+def to_paddle(a: warp.array, requires_grad: bool | None = None) -> paddle.Tensor:
+    """Convert a Warp array to a Paddle tensor without copying the data.
 
     Args:
         a (warp.array): The Warp array to convert.

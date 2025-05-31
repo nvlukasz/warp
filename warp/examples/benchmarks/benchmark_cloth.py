@@ -1,9 +1,17 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # include parent path
 import csv
@@ -152,7 +160,7 @@ def run_benchmark(mode, dim, timers, render=False):
         stage = Usd.Stage.CreateNew("benchmark.usd")
         stage.SetStartTimeCode(0.0)
         stage.SetEndTimeCode(sim_duration * sim_fps)
-        stage.SetTimeCodesPerSecond(sim_fps)
+        stage.SetFramesPerSecond(sim_fps)
 
         grid = UsdGeom.Mesh.Define(stage, "/root")
         grid.GetPointsAttr().Set(cloth.positions, 0.0)
@@ -235,7 +243,7 @@ def run_benchmark(mode, dim, timers, render=False):
             # run one warm-up iteration to accurately measure initialization time (some engines do lazy init)
             positions = integrator.simulate(sim_dt, sim_substeps)
 
-    label = "Dim ({}^2)".format(dim)
+    label = f"Dim ({dim}^2)"
 
     # run simulation
     for _i in range(sim_frames):
@@ -267,7 +275,7 @@ run_benchmark(mode, 128, timers, render=False)
 # write results
 
 for k, v in timers.items():
-    print("{:16} min: {:8.2f} max: {:8.2f} avg: {:8.2f}".format(k, np.min(v), np.max(v), np.mean(v)))
+    print(f"{k:16} min: {np.min(v):8.2f} max: {np.max(v):8.2f} avg: {np.mean(v):8.2f}")
 
 report = open(os.path.join("benchmark.csv"), "a")
 writer = csv.writer(report, delimiter=",")

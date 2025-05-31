@@ -1,9 +1,17 @@
-# Copyright (c) 2025 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import ctypes
 import enum
@@ -122,14 +130,14 @@ class XLA_FFI_DataType(enum.IntEnum):
 #   int64_t* dims;  // length == rank
 # };
 class XLA_FFI_Buffer(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("struct_size", ctypes.c_size_t),
         ("extension_start", ctypes.POINTER(XLA_FFI_Extension_Base)),
         ("dtype", ctypes.c_int),  # XLA_FFI_DataType
         ("data", ctypes.c_void_p),
         ("rank", ctypes.c_int64),
         ("dims", ctypes.POINTER(ctypes.c_int64)),
-    ]
+    )
 
 
 # typedef enum {
@@ -154,13 +162,13 @@ class XLA_FFI_RetType(enum.IntEnum):
 #   void** args;             // length == size
 # };
 class XLA_FFI_Args(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("struct_size", ctypes.c_size_t),
         ("extension_start", ctypes.POINTER(XLA_FFI_Extension_Base)),
         ("size", ctypes.c_int64),
         ("types", ctypes.POINTER(ctypes.c_int)),  # XLA_FFI_ArgType*
         ("args", ctypes.POINTER(ctypes.c_void_p)),
-    ]
+    )
 
 
 # struct XLA_FFI_Rets {
@@ -171,13 +179,13 @@ class XLA_FFI_Args(ctypes.Structure):
 #   void** rets;             // length == size
 # };
 class XLA_FFI_Rets(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("struct_size", ctypes.c_size_t),
         ("extension_start", ctypes.POINTER(XLA_FFI_Extension_Base)),
         ("size", ctypes.c_int64),
         ("types", ctypes.POINTER(ctypes.c_int)),  # XLA_FFI_RetType*
         ("rets", ctypes.POINTER(ctypes.c_void_p)),
-    ]
+    )
 
 
 # typedef struct XLA_FFI_ByteSpan {
@@ -185,7 +193,10 @@ class XLA_FFI_Rets(ctypes.Structure):
 #   size_t len;
 # } XLA_FFI_ByteSpan;
 class XLA_FFI_ByteSpan(ctypes.Structure):
-    _fields_ = [("ptr", ctypes.POINTER(ctypes.c_char)), ("len", ctypes.c_size_t)]
+    _fields_ = (
+        ("ptr", ctypes.POINTER(ctypes.c_char)),
+        ("len", ctypes.c_size_t),
+    )
 
 
 # typedef struct XLA_FFI_Scalar {
@@ -193,7 +204,10 @@ class XLA_FFI_ByteSpan(ctypes.Structure):
 #   void* value;
 # } XLA_FFI_Scalar;
 class XLA_FFI_Scalar(ctypes.Structure):
-    _fields_ = [("dtype", ctypes.c_int), ("value", ctypes.c_void_p)]
+    _fields_ = (
+        ("dtype", ctypes.c_int),
+        ("value", ctypes.c_void_p),
+    )
 
 
 # typedef struct XLA_FFI_Array {
@@ -202,7 +216,11 @@ class XLA_FFI_Scalar(ctypes.Structure):
 #   void* data;
 # } XLA_FFI_Array;
 class XLA_FFI_Array(ctypes.Structure):
-    _fields_ = [("dtype", ctypes.c_int), ("size", ctypes.c_size_t), ("data", ctypes.c_void_p)]
+    _fields_ = (
+        ("dtype", ctypes.c_int),
+        ("size", ctypes.c_size_t),
+        ("data", ctypes.c_void_p),
+    )
 
 
 # typedef enum {
@@ -227,14 +245,14 @@ class XLA_FFI_AttrType(enum.IntEnum):
 #   void** attrs;              // length == size
 # };
 class XLA_FFI_Attrs(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("struct_size", ctypes.c_size_t),
         ("extension_start", ctypes.POINTER(XLA_FFI_Extension_Base)),
         ("size", ctypes.c_int64),
         ("types", ctypes.POINTER(ctypes.c_int)),  # XLA_FFI_AttrType*
         ("names", ctypes.POINTER(ctypes.POINTER(XLA_FFI_ByteSpan))),
         ("attrs", ctypes.POINTER(ctypes.c_void_p)),
-    ]
+    )
 
 
 # struct XLA_FFI_Api_Version {
@@ -244,12 +262,12 @@ class XLA_FFI_Attrs(ctypes.Structure):
 #   int minor_version;  // out
 # };
 class XLA_FFI_Api_Version(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("struct_size", ctypes.c_size_t),
         ("extension_start", ctypes.POINTER(XLA_FFI_Extension_Base)),
         ("major_version", ctypes.c_int),
         ("minor_version", ctypes.c_int),
-    ]
+    )
 
 
 # enum XLA_FFI_Handler_TraitsBits {
@@ -268,11 +286,11 @@ class XLA_FFI_Handler_TraitsBits(enum.IntEnum):
 #   XLA_FFI_Handler_Traits traits;
 # };
 class XLA_FFI_Metadata(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("struct_size", ctypes.c_size_t),
         ("api_version", XLA_FFI_Api_Version),  # XLA_FFI_Extension_Type
         ("traits", ctypes.c_uint32),  # XLA_FFI_Handler_Traits
-    ]
+    )
 
 
 # struct XLA_FFI_Metadata_Extension {
@@ -280,7 +298,10 @@ class XLA_FFI_Metadata(ctypes.Structure):
 #   XLA_FFI_Metadata* metadata;
 # };
 class XLA_FFI_Metadata_Extension(ctypes.Structure):
-    _fields_ = [("extension_base", XLA_FFI_Extension_Base), ("metadata", ctypes.POINTER(XLA_FFI_Metadata))]
+    _fields_ = (
+        ("extension_base", XLA_FFI_Extension_Base),
+        ("metadata", ctypes.POINTER(XLA_FFI_Metadata)),
+    )
 
 
 # typedef enum {
@@ -329,12 +350,12 @@ class XLA_FFI_Error_Code(enum.IntEnum):
 #   XLA_FFI_Error_Code errc;
 # };
 class XLA_FFI_Error_Create_Args(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("struct_size", ctypes.c_size_t),
         ("extension_start", ctypes.POINTER(XLA_FFI_Extension_Base)),
         ("message", ctypes.c_char_p),
         ("errc", ctypes.c_int),
-    ]  # XLA_FFI_Error_Code
+    )  # XLA_FFI_Error_Code
 
 
 XLA_FFI_Error_Create = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.POINTER(XLA_FFI_Error_Create_Args))
@@ -347,12 +368,12 @@ XLA_FFI_Error_Create = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.POINTER(XLA_FFI_
 #   void* stream;  // out
 # };
 class XLA_FFI_Stream_Get_Args(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("struct_size", ctypes.c_size_t),
         ("extension_start", ctypes.POINTER(XLA_FFI_Extension_Base)),
         ("ctx", ctypes.c_void_p),  # XLA_FFI_ExecutionContext*
         ("stream", ctypes.c_void_p),
-    ]  # // out
+    )  # // out
 
 
 XLA_FFI_Stream_Get = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.POINTER(XLA_FFI_Stream_Get_Args))
@@ -383,7 +404,7 @@ XLA_FFI_Stream_Get = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.POINTER(XLA_FFI_St
 #   _XLA_FFI_API_STRUCT_FIELD(XLA_FFI_Future_SetError);
 # };
 class XLA_FFI_Api(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("struct_size", ctypes.c_size_t),
         ("extension_start", ctypes.POINTER(XLA_FFI_Extension_Base)),
         ("api_version", XLA_FFI_Api_Version),
@@ -404,7 +425,7 @@ class XLA_FFI_Api(ctypes.Structure):
         ("XLA_FFI_Future_Create", ctypes.c_void_p),  # XLA_FFI_Future_Create
         ("XLA_FFI_Future_SetAvailable", ctypes.c_void_p),  # XLA_FFI_Future_SetAvailable
         ("XLA_FFI_Future_SetError", ctypes.c_void_p),  # XLA_FFI_Future_SetError
-    ]
+    )
 
 
 # struct XLA_FFI_CallFrame {
@@ -423,7 +444,7 @@ class XLA_FFI_Api(ctypes.Structure):
 #   XLA_FFI_Future* future;  // out
 # };
 class XLA_FFI_CallFrame(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("struct_size", ctypes.c_size_t),
         ("extension_start", ctypes.POINTER(XLA_FFI_Extension_Base)),
         ("api", ctypes.POINTER(XLA_FFI_Api)),
@@ -433,7 +454,7 @@ class XLA_FFI_CallFrame(ctypes.Structure):
         ("rets", XLA_FFI_Rets),
         ("attrs", XLA_FFI_Attrs),
         ("future", ctypes.c_void_p),  # XLA_FFI_Future* // out
-    ]
+    )
 
 
 _xla_data_type_to_constructor = {

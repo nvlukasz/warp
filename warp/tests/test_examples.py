@@ -1,9 +1,17 @@
-# Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Test Warp examples with unittest.
 
 This module tests the Warp examples registered in it using the unittest
@@ -17,15 +25,18 @@ Generally the test_options[_cpu,_cuda] dictionaries should be used to prevent
 graphical windows from being open by the example {"headless": True} and to
 override example defaults so the example can run in less than ten seconds.
 
-Use {"usd_required": True} and {"torch_required": True} to skip running the test
-if usd-core or torch are not found in the Python environment.
+To skip tests if the optional dependencies are not found, use the following keys:
+- {"usd_required": True} (requires usd-core)
+- {"torch_required": True} (requires torch)
+- {"pillow_required": True} (requires pillow)
 
 Use the "num_frames" and "train_iters" keys to control the number of steps.
 
-Use "test_timeout" to override the default test timeout threshold of 300 seconds.
+Use "test_timeout" to override the default test timeout threshold of 600 seconds.
 """
 
 import os
+import platform
 import subprocess
 import sys
 import unittest
@@ -108,6 +119,14 @@ def add_example_test(
         if usd_required and not USD_AVAILABLE:
             test.skipTest("Requires usd-core")
 
+        # Mark the test as skipped if pillow is not installed but required
+        pillow_required = options.pop("pillow_required", False)
+        if pillow_required:
+            try:
+                import PIL  # noqa: F401
+            except ImportError:
+                test.skipTest("Requires pillow")
+
         # Find the current Warp cache
         warp_cache_path = wp.config.kernel_cache_dir
 
@@ -154,7 +173,7 @@ def add_example_test(
         command.extend(_build_command_line_options(options))
 
         # Set the test timeout in seconds
-        test_timeout = options.pop("test_timeout", 300)
+        test_timeout = options.pop("test_timeout", 600)
 
         # with wp.ScopedTimer(f"{name}_{sanitize_identifier(device)}"):
         # Run the script as a subprocess
@@ -221,25 +240,38 @@ add_example_test(
     devices=test_devices,
     test_options={"usd_required": True, "headless": True},
 )
+if platform.system() == "Windows":
+    # Skip GPU testing because of obscure NVRTC bug with illegal memory access
+    add_example_test(
+        TestCoreExamples,
+        name="core.example_raymarch",
+        devices=[wp.get_device("cpu")],
+        test_options={"height": 512, "width": 1024, "headless": True},
+    )
+else:
+    add_example_test(
+        TestCoreExamples,
+        name="core.example_raymarch",
+        devices=test_devices,
+        test_options={"height": 512, "width": 1024, "headless": True},
+    )
 add_example_test(
     TestCoreExamples,
-    name="core.example_raymarch",
+    name="core.example_sample_mesh",
     devices=test_devices,
-    test_options={"height": 512, "width": 1024, "headless": True},
+    test_options_cpu={"num_frames": 1},
 )
 add_example_test(
     TestCoreExamples,
     name="core.example_sph",
     devices=test_devices,
     test_options_cpu={"num_frames": 1},
-    test_options_cuda={"test_timeout": 600},
 )
 add_example_test(
     TestCoreExamples,
     name="core.example_torch",
     devices=test_devices,
     test_options={"headless": True, "num_frames": 1000, "torch_required": True},
-    test_options_cpu={"test_timeout": 600},
 )
 add_example_test(TestCoreExamples, name="core.example_wave", devices=test_devices)
 
@@ -253,7 +285,6 @@ add_example_test(
     name="optim.example_bounce",
     devices=test_devices,
     test_options_cpu={"train_iters": 3},
-    test_options_cuda={"test_timeout": 600},
 )
 add_example_test(
     TestOptimExamples,
@@ -266,7 +297,6 @@ add_example_test(
     TestOptimExamples,
     name="optim.example_cloth_throw",
     devices=test_devices,
-    test_options={"test_timeout": 600},
     test_options_cpu={"train_iters": 3},
 )
 add_example_test(
@@ -275,6 +305,12 @@ add_example_test(
     devices=test_devices,
     test_options={"usd_required": True, "headless": True},
     test_options_cpu={"train_iters": 2},
+)
+add_example_test(
+    TestOptimExamples,
+    name="optim.example_fluid_checkpoint",
+    devices=cuda_test_devices,
+    test_options={"headless": True, "train_iters": 5, "num_frames": 300, "pillow_required": True},
 )
 add_example_test(TestOptimExamples, name="optim.example_inverse_kinematics", devices=test_devices)
 add_example_test(
@@ -305,15 +341,13 @@ class TestSimExamples(unittest.TestCase):
     pass
 
 
-add_example_test(
-    TestSimExamples, name="sim.example_cartpole", devices=test_devices, test_options_cuda={"test_timeout": 600}
-)
+add_example_test(TestSimExamples, name="sim.example_cartpole", devices=test_devices)
 add_example_test(
     TestSimExamples,
     name="sim.example_cloth",
     devices=test_devices,
     test_options={"usd_required": True},
-    test_options_cpu={"num_frames": 10, "test_timeout": 600},
+    test_options_cpu={"num_frames": 10},
 )
 add_example_test(
     TestSimExamples, name="sim.example_granular", devices=test_devices, test_options_cpu={"num_frames": 10}
@@ -393,28 +427,24 @@ add_example_test(
     name="fem.example_convection_diffusion",
     devices=test_devices,
     test_options={"resolution": 20, "headless": True},
-    test_options_cpu={"test_timeout": 600},
 )
 add_example_test(
     TestFemExamples,
     name="fem.example_burgers",
     devices=test_devices,
     test_options={"resolution": 20, "num_frames": 25, "degree": 1, "headless": True},
-    test_options_cpu={"test_timeout": 600},
 )
 add_example_test(
     TestFemExamples,
     name="fem.example_convection_diffusion_dg",
     devices=test_devices,
     test_options={"resolution": 20, "num_frames": 25, "headless": True},
-    test_options_cpu={"test_timeout": 600},
 )
 add_example_test(
     TestFemExamples,
     name="fem.example_mixed_elasticity",
     devices=test_devices,
     test_options={"nonconforming_stresses": True, "mesh": "quad", "headless": True},
-    test_options_cpu={"test_timeout": 600},
 )
 add_example_test(
     TestFemExamples, name="fem.example_stokes_transfer", devices=test_devices, test_options={"headless": True}

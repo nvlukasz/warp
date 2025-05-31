@@ -1,9 +1,17 @@
-# Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Warp Test Suites
 
@@ -105,13 +113,12 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
     from warp.tests.interop.test_dlpack import TestDLPack
     from warp.tests.interop.test_jax import TestJax
     from warp.tests.interop.test_torch import TestTorch
+    from warp.tests.sim.test_cloth import TestCloth
     from warp.tests.sim.test_collision import TestCollision
     from warp.tests.sim.test_coloring import TestColoring
     from warp.tests.sim.test_model import TestModel
-
-    # from warp.tests.test_sim_grad import TestSimGradients Disabled, flaky
+    from warp.tests.sim.test_sim_grad import TestSimGradients
     from warp.tests.sim.test_sim_kinematics import TestSimKinematics
-    from warp.tests.sim.test_vbd import TestVbd
     from warp.tests.test_adam import TestAdam
     from warp.tests.test_arithmetic import TestArithmetic
     from warp.tests.test_array import TestArray
@@ -159,7 +166,6 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
     from warp.tests.test_mat_lite import TestMatLite
     from warp.tests.test_mat_scalar_ops import TestMatScalarOps
     from warp.tests.test_math import TestMath
-    from warp.tests.test_mlp import TestMLP
     from warp.tests.test_module_hashing import TestModuleHashing
     from warp.tests.test_modules_lite import TestModuleLite
     from warp.tests.test_noise import TestNoise
@@ -205,6 +211,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestBuiltinsResolution,
         TestBvh,
         TestClosestPointEdgeEdgeMethods,
+        TestCloth,
         TestCodeGen,
         TestCodeGenInstancing,
         TestCollision,
@@ -255,7 +262,6 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestMeshQueryAABBMethods,
         TestMeshQueryPoint,
         TestMeshQueryRay,
-        TestMLP,
         TestModel,
         TestModuleHashing,
         TestModuleLite,
@@ -273,7 +279,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestRounding,
         TestRunlengthEncode,
         TestScalarOps,
-        # TestSimGradients, Disabled, flaky
+        TestSimGradients,
         TestSimKinematics,
         TestSmoothstep,
         TestSnippets,
@@ -293,7 +299,6 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestTriangleClosestPoint,
         TestTypes,
         TestUtils,
-        TestVbd,
         TestVec,
         TestVecLite,
         TestVecScalarOps,
@@ -324,7 +329,6 @@ def kit_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader):
     from warp.tests.geometry.test_volume import TestVolume
     from warp.tests.geometry.test_volume_write import TestVolumeWrite
     from warp.tests.interop.test_dlpack import TestDLPack
-    from warp.tests.test_array import TestArray
     from warp.tests.test_array_reduce import TestArrayReduce
     from warp.tests.test_bool import TestBool
     from warp.tests.test_builtins_resolution import TestBuiltinsResolution
@@ -334,7 +338,6 @@ def kit_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader):
     from warp.tests.test_copy import TestCopy
     from warp.tests.test_ctypes import TestCTypes
     from warp.tests.test_devices import TestDevices
-    from warp.tests.test_fabricarray import TestFabricArray
     from warp.tests.test_fp16 import TestFp16
     from warp.tests.test_func import TestFunc
     from warp.tests.test_generics import TestGenerics
@@ -345,19 +348,15 @@ def kit_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader):
     from warp.tests.test_lvalue import TestLValue
     from warp.tests.test_mat_lite import TestMatLite
     from warp.tests.test_math import TestMath
-    from warp.tests.test_mlp import TestMLP
     from warp.tests.test_module_hashing import TestModuleHashing
     from warp.tests.test_modules_lite import TestModuleLite
     from warp.tests.test_noise import TestNoise
     from warp.tests.test_operators import TestOperators
-    from warp.tests.test_quat import TestQuat
     from warp.tests.test_rand import TestRand
-    from warp.tests.test_reload import TestReload
     from warp.tests.test_rounding import TestRounding
     from warp.tests.test_runlength_encode import TestRunlengthEncode
     from warp.tests.test_scalar_ops import TestScalarOps
     from warp.tests.test_snippet import TestSnippets
-    from warp.tests.test_sparse import TestSparse
     from warp.tests.test_static import TestStatic
     from warp.tests.test_tape import TestTape
     from warp.tests.test_transient_module import TestTransientModule
@@ -367,7 +366,6 @@ def kit_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader):
     from warp.tests.tile.test_tile_reduce import TestTileReduce
 
     test_classes = [
-        TestArray,
         TestArrayReduce,
         TestBool,
         TestBuiltinsResolution,
@@ -379,7 +377,6 @@ def kit_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader):
         TestCTypes,
         TestDevices,
         TestDLPack,
-        TestFabricArray,
         TestFp16,
         TestFunc,
         TestGenerics,
@@ -397,21 +394,17 @@ def kit_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader):
         TestMeshQueryAABBMethods,
         TestMeshQueryPoint,
         TestMeshQueryRay,
-        TestMLP,
         TestModuleHashing,
         TestModuleLite,
         TestNoise,
         TestOperators,
         TestPeer,
         TestPinned,
-        TestQuat,
         TestRand,
-        TestReload,
         TestRounding,
         TestRunlengthEncode,
         TestScalarOps,
         TestSnippets,
-        TestSparse,
         TestStatic,
         TestStreams,
         TestTape,

@@ -1,9 +1,17 @@
-# Copyright (c) 2024 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 ###########################################################################
 # Example Adaptive Grid
@@ -62,7 +70,7 @@ def mass_form(
 @fem.integrand
 def side_divergence_form(s: fem.Sample, domain: fem.Domain, u: fem.Field, psi: fem.Field):
     # normal velocity jump (non-zero at resolution boundaries)
-    return -wp.dot(fem.jump(u, s), fem.normal(domain, s)) * psi(s)
+    return -wp.dot(fem.jump(u, s), fem.normal(domain, s)) * fem.average(psi, s)
 
 
 @wp.func
@@ -165,7 +173,7 @@ class Example:
         bd_test = fem.make_test(u_space, domain=boundary)
         bd_trial = fem.make_trial(u_space, domain=boundary)
         dirichlet_projector = fem.integrate(
-            noslip_projector_form, fields={"u": bd_test, "v": bd_trial}, nodal=True, output_dtype=float
+            noslip_projector_form, fields={"u": bd_test, "v": bd_trial}, assembly="nodal", output_dtype=float
         )
         fem.normalize_dirichlet_projector(dirichlet_projector)
 
@@ -179,7 +187,7 @@ class Example:
             rho_trial = fem.make_trial(rho_space)
 
         inv_mass_matrix = fem.integrate(
-            mass_form, fields={"u": rho_trial, "v": rho_test}, nodal=True, output_dtype=float
+            mass_form, fields={"u": rho_trial, "v": rho_test}, assembly="nodal", output_dtype=float
         )
         fem_example_utils.invert_diagonal_bsr_matrix(inv_mass_matrix)
 
@@ -261,8 +269,8 @@ if __name__ == "__main__":
 
                 stage = Usd.Stage.Open(os.path.join(warp.examples.get_asset_directory(), "rocks.usd"))
                 mesh = UsdGeom.Mesh(stage.GetPrimAtPath("/root/rocks"))
-                points = np.array((mesh.GetPointsAttr().Get()))
-                counts = np.array((mesh.GetFaceVertexCountsAttr().Get()))
+                points = np.array(mesh.GetPointsAttr().Get())
+                counts = np.array(mesh.GetFaceVertexCountsAttr().Get())
                 indices = np.array(mesh.GetFaceVertexIndicesAttr().Get())
                 ref_geom = (points, counts, indices)
             except Exception:

@@ -1,9 +1,17 @@
-# Copyright (c) 2023 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Helpers to author OmniGraph attributes."""
 
@@ -44,7 +52,7 @@ _ATTR_PORT_TYPES = (
     og.AttributePortType.ATTRIBUTE_PORT_TYPE_STATE,
 )
 
-_ATTR_NAME_FMTS = {x: "{}:{{}}".format(og.get_port_type_namespace(x)) for x in _ATTR_PORT_TYPES}
+_ATTR_NAME_FMTS = {x: f"{og.get_port_type_namespace(x)}:{{}}" for x in _ATTR_PORT_TYPES}
 
 
 def attr_join_name(
@@ -153,7 +161,7 @@ def attr_cast_array_to_warp(
             device=device,
         )
 
-    raise AssertionError("Unexpected device '{}'.".format(device.alias))
+    raise AssertionError(f"Unexpected device '{device.alias}'.")
 
 
 #   Tracking
@@ -256,9 +264,7 @@ def from_omni_graph(
         if shape is None:
             if arr_size % element_size != 0:
                 raise RuntimeError(
-                    "Cannot infer a size matching the Warp data type '{}' with an array size of '{}' bytes.".format(
-                        dtype.__name__, arr_size
-                    )
+                    f"Cannot infer a size matching the Warp data type '{dtype.__name__}' with an array size of '{arr_size}' bytes."
                 )
             shape = (arr_size // element_size,)
 
@@ -317,9 +323,7 @@ def from_omni_graph(
             if shape is None:
                 if arr_size % element_size != 0:
                     raise RuntimeError(
-                        "Cannot infer a size matching the Warp data type '{}' with an array size of '{}' bytes.".format(
-                            dtype.__name__, arr_size
-                        )
+                        f"Cannot infer a size matching the Warp data type '{dtype.__name__}' with an array size of '{arr_size}' bytes."
                     )
                 shape = (arr_size // element_size,)
 
@@ -361,6 +365,6 @@ def from_omni_graph(
         elif device.is_cuda:
             return from_data_wrapper(value.gpu, dtype, shape, device)
         else:
-            raise AssertionError("Unexpected device '{}'.".format(device.alias))
+            raise AssertionError(f"Unexpected device '{device.alias}'.")
 
     return None

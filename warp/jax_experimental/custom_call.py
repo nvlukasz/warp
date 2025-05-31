@@ -1,9 +1,17 @@
-# Copyright (c) 2024 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import ctypes
 
@@ -118,7 +126,14 @@ def _create_jax_warp_primitive():
 
     # Create and register the primitive.
     # TODO add default implementation that calls the kernel via warp.
-    _jax_warp_p = jax.core.Primitive("jax_warp")
+    try:
+        # newer JAX versions
+        import jax.extend
+
+        _jax_warp_p = jax.extend.core.Primitive("jax_warp")
+    except (ImportError, AttributeError):
+        # older JAX versions
+        _jax_warp_p = jax.core.Primitive("jax_warp")
     _jax_warp_p.multiple_results = True
 
     # TODO Just launch the kernel directly, but make sure the argument
@@ -254,7 +269,12 @@ def _create_jax_warp_primitive():
     capsule = PyCapsule_New(ccall_address.value, b"xla._CUSTOM_CALL_TARGET", PyCapsule_Destructor(0))
 
     # Register the callback in XLA.
-    jax.lib.xla_client.register_custom_call_target("warp_call", capsule, platform="gpu")
+    try:
+        # newer JAX versions
+        jax.ffi.register_ffi_target("warp_call", capsule, platform="gpu", api_version=0)
+    except AttributeError:
+        # older JAX versions
+        jax.lib.xla_client.register_custom_call_target("warp_call", capsule, platform="gpu")
 
     def default_layout(shape):
         return range(len(shape) - 1, -1, -1)

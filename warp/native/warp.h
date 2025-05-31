@@ -1,15 +1,25 @@
-/** Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
- * NVIDIA CORPORATION and its licensors retain all intellectual property
- * and proprietary rights in and to this software, related documentation
- * and any modifications thereto.  Any use, reproduction, disclosure or
- * distribution of this software and related documentation without an express
- * license agreement from NVIDIA CORPORATION is strictly prohibited.
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #pragma once
 
 // defines all crt + builtin types
 #include "builtin.h"
+#include <cstdint>
 
 #define WP_CURRENT_STREAM ((void*)0xffffffffffffffff)
 
@@ -156,104 +166,68 @@ extern "C"
     WP_API void radix_sort_pairs_float_host(uint64_t keys, uint64_t values, int n);
     WP_API void radix_sort_pairs_float_device(uint64_t keys, uint64_t values, int n);
 
-    WP_API void segmented_sort_pairs_float_host(uint64_t keys, uint64_t values, int n, uint64_t segment_indices, int num_segments);
-    WP_API void segmented_sort_pairs_float_device(uint64_t keys, uint64_t values, int n, uint64_t segment_indices, int num_segments);
+    WP_API void radix_sort_pairs_int64_host(uint64_t keys, uint64_t values, int n);
+    WP_API void radix_sort_pairs_int64_device(uint64_t keys, uint64_t values, int n);
 
-    WP_API void segmented_sort_pairs_int_host(uint64_t keys, uint64_t values, int n, uint64_t segment_indices, int num_segments);
-    WP_API void segmented_sort_pairs_int_device(uint64_t keys, uint64_t values, int n, uint64_t segment_indices, int num_segments);
+    WP_API void segmented_sort_pairs_float_host(uint64_t keys, uint64_t values, int n, uint64_t segment_start_indices, uint64_t segment_end_indices, int num_segments);
+    WP_API void segmented_sort_pairs_float_device(uint64_t keys, uint64_t values, int n, uint64_t segment_start_indices, uint64_t segment_end_indices, int num_segments);
+
+    WP_API void segmented_sort_pairs_int_host(uint64_t keys, uint64_t values, int n, uint64_t segment_start_indices, uint64_t segment_end_indices, int num_segments);
+    WP_API void segmented_sort_pairs_int_device(uint64_t keys, uint64_t values, int n, uint64_t segment_start_indices, uint64_t segment_end_indices, int num_segments);
 
     WP_API void runlength_encode_int_host(uint64_t values, uint64_t run_values, uint64_t run_lengths, uint64_t run_count, int n);
     WP_API void runlength_encode_int_device(uint64_t values, uint64_t run_values, uint64_t run_lengths, uint64_t run_count, int n);
 
-    WP_API void bsr_matrix_from_triplets_float_host(
-        int rows_per_block,
-        int cols_per_block,
+    WP_API void bsr_matrix_from_triplets_host(
+        int block_size,
+        int scalar_size_in_bytes,
         int row_count,
-        int tpl_nnz,
-        int* tpl_rows,
-        int* tpl_columns,
-        void* tpl_values,
-        bool prune_numerical_zeros,
-        bool masked,
+        int col_count,
+        int tpl_nnz_upper_bound,
+        const int* tpl_nnz,
+        const int* tpl_rows,
+        const int* tpl_columns,
+        const void* tpl_values,
+        const uint64_t scalar_zero_mask,
+        bool masked_topology,
+        int* summed_block_offsets,
+        int* summed_block_indices,
         int* bsr_offsets,
         int* bsr_columns,
-        void* bsr_values,
         int* bsr_nnz,
         void* bsr_nnz_event);
-    WP_API void bsr_matrix_from_triplets_double_host(
-        int rows_per_block,
-        int cols_per_block,
+    WP_API void bsr_matrix_from_triplets_device(
+        int block_size,
+        int scalar_size_in_bytes,
         int row_count,
-        int tpl_nnz,
-        int* tpl_rows,
-        int* tpl_columns,
-        void* tpl_values,
-        bool prune_numerical_zeros,
-        bool masked,
+        int col_count,
+        int tpl_nnz_upper_bound,
+        const int* tpl_nnz,
+        const int* tpl_rows,
+        const int* tpl_columns,
+        const void* tpl_values,
+        const uint64_t scalar_zero_mask,
+        bool masked_topology,
+        int* summed_block_offsets,
+        int* summed_block_indices,
         int* bsr_offsets,
         int* bsr_columns,
-        void* bsr_values,
-        int* bsr_nnz,
-        void* bsr_nnz_event);
-    WP_API void bsr_matrix_from_triplets_float_device(
-        int rows_per_block,
-        int cols_per_block,
-        int row_count,
-        int tpl_nnz,
-        int* tpl_rows,
-        int* tpl_columns,
-        void* tpl_values,
-        bool prune_numerical_zeros,
-        bool masked,
-        int* bsr_offsets,
-        int* bsr_columns,
-        void* bsr_values,
-        int* bsr_nnz,
-        void* bsr_nnz_event);
-    WP_API void bsr_matrix_from_triplets_double_device(
-        int rows_per_block,
-        int cols_per_block,
-        int row_count,
-        int tpl_nnz,
-        int* tpl_rows,
-        int* tpl_columns,
-        void* tpl_values,
-        bool prune_numerical_zeros,
-        bool masked,
-        int* bsr_offsets,
-        int* bsr_columns,
-        void* bsr_values,
         int* bsr_nnz,
         void* bsr_nnz_event);
 
-    WP_API void bsr_transpose_float_host(int rows_per_block, int cols_per_block,
+    WP_API void bsr_transpose_host(
         int row_count, int col_count, int nnz,
-        int* bsr_offsets, int* bsr_columns,
-        void* bsr_values,
+        const int* bsr_offsets, const int* bsr_columns,
         int* transposed_bsr_offsets,
         int* transposed_bsr_columns,
-        void* transposed_bsr_values);
-    WP_API void bsr_transpose_double_host(int rows_per_block, int cols_per_block,
+        int* src_block_indices
+        );
+    WP_API void bsr_transpose_device(
         int row_count, int col_count, int nnz,
-        int* bsr_offsets, int* bsr_columns,
-        void* bsr_values,
+        const int* bsr_offsets, const int* bsr_columns,
         int* transposed_bsr_offsets,
         int* transposed_bsr_columns,
-        void* transposed_bsr_values);
-    WP_API void bsr_transpose_float_device(int rows_per_block, int cols_per_block,
-        int row_count, int col_count, int nnz,
-        int* bsr_offsets, int* bsr_columns,
-        void* bsr_values,
-        int* transposed_bsr_offsets,
-        int* transposed_bsr_columns,
-        void* transposed_bsr_values);
-    WP_API void bsr_transpose_double_device(int rows_per_block, int cols_per_block,
-        int row_count, int col_count, int nnz,
-        int* bsr_offsets, int* bsr_columns,
-        void* bsr_values,
-        int* transposed_bsr_offsets,
-        int* transposed_bsr_columns,
-        void* transposed_bsr_values);
+        int* src_block_indices);
 
 
     WP_API int cuda_driver_version();   // CUDA driver version
@@ -267,6 +241,7 @@ extern "C"
     WP_API void* cuda_device_get_primary_context(int ordinal);
     WP_API const char* cuda_device_get_name(int ordinal);
     WP_API int cuda_device_get_arch(int ordinal);
+    WP_API int cuda_device_get_sm_count(int ordinal);
     WP_API void cuda_device_get_uuid(int ordinal, char uuid[16]);
     WP_API int cuda_device_get_pci_domain_id(int ordinal);
     WP_API int cuda_device_get_pci_bus_id(int ordinal);
@@ -313,6 +288,7 @@ extern "C"
 
     WP_API void* cuda_stream_create(void* context, int priority);
     WP_API void cuda_stream_destroy(void* context, void* stream);
+    WP_API int cuda_stream_query(void* stream);
     WP_API void cuda_stream_register(void* context, void* stream);
     WP_API void cuda_stream_unregister(void* context, void* stream);
     WP_API void* cuda_stream_get_current();
@@ -325,16 +301,26 @@ extern "C"
 
     WP_API void* cuda_event_create(void* context, unsigned flags);
     WP_API void cuda_event_destroy(void* event);
-    WP_API void cuda_event_record(void* event, void* stream);
+    WP_API int cuda_event_query(void* event);
+    WP_API void cuda_event_record(void* event, void* stream, bool timing=false);
     WP_API void cuda_event_synchronize(void* event);
     WP_API float cuda_event_elapsed_time(void* start_event, void* end_event);
 
     WP_API bool cuda_graph_begin_capture(void* context, void* stream, int external);
     WP_API bool cuda_graph_end_capture(void* context, void* stream, void** graph_ret);
+    WP_API bool cuda_graph_create_exec(void* context, void* graph, void** graph_exec_ret);
     WP_API bool cuda_graph_launch(void* graph, void* stream);
     WP_API bool cuda_graph_destroy(void* context, void* graph);
+    WP_API bool cuda_graph_exec_destroy(void* context, void* graph_exec);
 
-    WP_API size_t cuda_compile_program(const char* cuda_src, const char* program_name, int arch, const char* include_dir, int num_cuda_include_dirs, const char** cuda_include_dirs, bool debug, bool verbose, bool verify_fp, bool fast_math, bool fuse_fp, bool lineinfo, const char* output_path, size_t num_ltoirs, char** ltoirs, size_t* ltoir_sizes, int* ltoir_input_types);
+    WP_API bool cuda_graph_insert_if_else(void* context, void* stream, int* condition, void** if_graph_ret, void** else_graph_ret);
+    WP_API bool cuda_graph_insert_while(void* context, void* stream, int* condition, void** body_graph_ret, uint64_t* handle_ret);
+    WP_API bool cuda_graph_set_condition(void* context, void* stream, int* condition, uint64_t handle);
+    WP_API bool cuda_graph_pause_capture(void* context, void* stream, void** graph_ret);
+    WP_API bool cuda_graph_resume_capture(void* context, void* stream, void* graph);
+    WP_API bool cuda_graph_insert_child_graph(void* context, void* stream, void* child_graph);
+
+    WP_API size_t cuda_compile_program(const char* cuda_src, const char* program_name, int arch, const char* include_dir, int num_cuda_include_dirs, const char** cuda_include_dirs, bool debug, bool verbose, bool verify_fp, bool fast_math, bool fuse_fp, bool lineinfo, bool compile_time_trace, const char* output_path, size_t num_ltoirs, char** ltoirs, size_t* ltoir_sizes, int* ltoir_input_types);
     WP_API bool cuda_compile_fft(const char* ltoir_output_path, const char* symbol_name, int num_include_dirs, const char** include_dirs, const char* mathdx_include_dir, int arch, int size, int elements_per_thread, int direction, int precision, int* shared_memory_size);
     WP_API bool cuda_compile_dot(const char* ltoir_output_path, const char* symbol_name, int num_include_dirs, const char** include_dirs, const char* mathdx_include_dir, int arch, int M, int N, int K, int precision_A, int precision_B, int precision_C, int type, int arrangement_A, int arrangement_B, int arrangement_C, int num_threads);
     WP_API bool cuda_compile_solver(const char* fatbin_output_path, const char* ltoir_output_path, const char* symbol_name, int num_include_dirs, const char** include_dirs, const char* mathdx_include_dir, int arch, int M, int N, int function, int precision, int fill_mode, int num_threads);

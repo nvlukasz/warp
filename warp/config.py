@@ -1,13 +1,21 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from typing import Optional
 
-version: str = "1.6.0"
+version: str = "1.7.1"
 """Warp version string"""
 
 verify_fp: bool = False
@@ -45,6 +53,8 @@ Args:
     mode: Either ``"release"`` or ``"debug"``.
 
 Note: Debug mode may impact performance.
+
+This setting can be overridden at the module level by setting the ``"mode"`` module option.
 """
 
 verbose: bool = False
@@ -89,14 +99,46 @@ Args:
     cuda_output: One of {``None``, ``"ptx"``, ``"cubin"``}. If ``None``, format is auto-determined.
 """
 
-ptx_target_arch: int = 75
-"""Target architecture version for PTX generation.
+ptx_target_arch: Optional[int] = None
+"""Target architecture version for PTX generation, e.g., ``ptx_target_arch = 75``.
 
-Defaults to minimum architecture version supporting all Warp features.
+If ``None``, the architecture is determined by devices present in the system.
+"""
+
+lineinfo: bool = False
+"""Enable the compilation of modules with line information.
+
+Modules compiled for GPU execution will be compiled with the
+``--generate-line-info`` compiler option, which generates line-number
+information for device code. Line-number information is always included when
+compiling a module in ``"debug"`` mode regardless of this setting.
+
+This setting can be overridden at the module level by setting the ``"lineinfo"`` module option.
+"""
+
+line_directives: bool = True
+"""Enable Python source line mapping in generated code.
+
+If ``True``, ``#line`` directives are inserted in generated code for modules
+compiled with line information  to map back to the original Python source file.
+"""
+
+compile_time_trace: bool = False
+"""Enable the generation of Trace Event Format files for runtime module compilation.
+
+These are JSON files that can be opened by tools like ``edge://tracing/`` and
+``chrome://tracing/``.
+
+This setting is currently only effective when compiling modules for the GPU with NVRTC (CUDA 12.8+).
+
+This setting can be overridden at the module level by setting the ``"compile_time_trace"`` module option.
 """
 
 enable_backward: bool = True
-"""Enable compilation of kernel backward passes."""
+"""Enable compilation of kernel backward passes.
+
+This setting can be overridden at the module level by setting the ``"enable_backward"`` module option.
+"""
 
 llvm_cuda: bool = False
 """Use Clang/LLVM compiler instead of NVRTC for CUDA compilation."""
@@ -111,4 +153,17 @@ enable_mempools_at_init: bool = True
 """Enable CUDA memory pools during device initialization when supported."""
 
 max_unroll: int = 16
-"""Maximum unroll factor for loops."""
+"""Maximum unroll factor for loops.
+
+Note that ``max_unroll`` does not consider the total number of iterations in
+nested loops. This can result in a large amount of automatically generated code
+if each nested loop is below the ``max_unroll`` threshold.
+
+This setting can be overridden at the module level by setting the ``"max_unroll"`` module option.
+"""
+
+_git_commit_hash: Optional[str] = None
+"""Git commit hash associated with the Warp installation.
+
+Set automatically by CI, do not modify.
+"""

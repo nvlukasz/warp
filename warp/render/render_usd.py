@@ -1,13 +1,30 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
 
 import numpy as np
 
 import warp as wp
+
+UP_AXIS_TOKEN = ("X", "Y", "Z")
+UP_AXIS_VEC = (
+    np.array((1.0, 0.0, 0.0), dtype=float),
+    np.array((0.0, 1.0, 0.0), dtype=float),
+    np.array((0.0, 0.0, 1.0), dtype=float),
+)
 
 
 def _usd_add_xform(prim):
@@ -21,7 +38,13 @@ def _usd_add_xform(prim):
     prim.AddScaleOp()
 
 
-def _usd_set_xform(xform, pos: tuple, rot: tuple, scale: tuple, time):
+def _usd_set_xform(
+    xform,
+    pos: tuple | None = None,
+    rot: tuple | None = None,
+    scale: tuple | None = None,
+    time: float = 0.0,
+):
     from pxr import Gf, UsdGeom
 
     xform = UsdGeom.Xform(xform)
@@ -57,7 +80,7 @@ class UsdRenderer:
     """A USD renderer"""
 
     def __init__(self, stage, up_axis="Y", fps=60, scaling=1.0):
-        """Construct a UsdRenderer object
+        """Construct a UsdRenderer object.
 
         Args:
             model: A simulation model
@@ -100,7 +123,7 @@ class UsdRenderer:
         self.stage.SetDefaultPrim(self.root.GetPrim())
         self.stage.SetStartTimeCode(0.0)
         self.stage.SetEndTimeCode(0.0)
-        self.stage.SetTimeCodesPerSecond(self.fps)
+        self.stage.SetFramesPerSecond(self.fps)
 
         if up_axis == "X":
             UsdGeom.SetStageUpAxis(self.stage, UsdGeom.Tokens.x)
@@ -150,12 +173,13 @@ class UsdRenderer:
     def add_shape_instance(
         self,
         name: str,
-        shape,
+        shape: int,
         body,
         pos: tuple,
         rot: tuple,
         scale: tuple = (1.0, 1.0, 1.0),
-        color: tuple = (1.0, 1.0, 1.0),
+        color1=None,
+        color2=None,
         custom_index: int = -1,
         visible: bool = True,
     ):
@@ -178,12 +202,15 @@ class UsdRenderer:
         rot: tuple,
         width: float,
         length: float,
-        color: tuple = None,
-        parent_body: str = None,
+        color: tuple[float, float, float] = (1.0, 1.0, 1.0),
+        color2=None,
+        parent_body: str | None = None,
         is_template: bool = False,
+        u_scaling: float = 1.0,
+        v_scaling: float = 1.0,
+        visible: bool = True,
     ):
-        """
-        Render a plane with the given dimensions.
+        """Render a plane with the given dimensions.
 
         Args:
             name: Name of the plane
@@ -231,6 +258,7 @@ class UsdRenderer:
         if not is_template:
             _usd_set_xform(plane, pos, rot, (1.0, 1.0, 1.0), 0.0)
 
+        plane.GetVisibilityAttr().Set("inherited" if visible else "invisible", self.time)
         return prim_path
 
     def render_ground(self, size: float = 100.0, plane=None):
@@ -279,9 +307,10 @@ class UsdRenderer:
         pos: tuple,
         rot: tuple,
         radius: float,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
-        color: tuple = None,
+        color: tuple[float, float, float] | None = None,
+        visible: bool = True,
     ):
         """Debug helper to add a sphere for visualization
 
@@ -320,6 +349,7 @@ class UsdRenderer:
         if not is_template:
             _usd_set_xform(sphere, pos, rot, (1.0, 1.0, 1.0), self.time)
 
+        sphere.GetVisibilityAttr().Set("inherited" if visible else "invisible", self.time)
         return prim_path
 
     def render_capsule(
@@ -329,12 +359,13 @@ class UsdRenderer:
         rot: tuple,
         radius: float,
         half_height: float,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
-        color: tuple = None,
+        up_axis: int = 1,
+        color: tuple[float, float, float] | None = None,
+        visible: bool = True,
     ):
-        """
-        Debug helper to add a capsule for visualization
+        """Debug helper to add a capsule for visualization
 
         Args:
             pos: The position of the capsule
@@ -364,7 +395,7 @@ class UsdRenderer:
 
         capsule.GetRadiusAttr().Set(float(radius))
         capsule.GetHeightAttr().Set(float(half_height * 2.0))
-        capsule.GetAxisAttr().Set("Y")
+        capsule.GetAxisAttr().Set(UP_AXIS_TOKEN[up_axis])
 
         if color is not None:
             capsule.GetDisplayColorAttr().Set([Gf.Vec3f(color)], self.time)
@@ -374,6 +405,7 @@ class UsdRenderer:
         if not is_template:
             _usd_set_xform(capsule, pos, rot, (1.0, 1.0, 1.0), self.time)
 
+        capsule.GetVisibilityAttr().Set("inherited" if visible else "invisible", self.time)
         return prim_path
 
     def render_cylinder(
@@ -383,12 +415,13 @@ class UsdRenderer:
         rot: tuple,
         radius: float,
         half_height: float,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
-        color: tuple = None,
+        up_axis: int = 1,
+        color: tuple[float, float, float] | None = None,
+        visible: bool = True,
     ):
-        """
-        Debug helper to add a cylinder for visualization
+        """Debug helper to add a cylinder for visualization
 
         Args:
             pos: The position of the cylinder
@@ -418,7 +451,7 @@ class UsdRenderer:
 
         cylinder.GetRadiusAttr().Set(float(radius))
         cylinder.GetHeightAttr().Set(float(half_height * 2.0))
-        cylinder.GetAxisAttr().Set("Y")
+        cylinder.GetAxisAttr().Set(UP_AXIS_TOKEN[up_axis])
 
         if color is not None:
             cylinder.GetDisplayColorAttr().Set([Gf.Vec3f(color)], self.time)
@@ -428,6 +461,7 @@ class UsdRenderer:
         if not is_template:
             _usd_set_xform(cylinder, pos, rot, (1.0, 1.0, 1.0), self.time)
 
+        cylinder.GetVisibilityAttr().Set("inherited" if visible else "invisible", self.time)
         return prim_path
 
     def render_cone(
@@ -437,12 +471,13 @@ class UsdRenderer:
         rot: tuple,
         radius: float,
         half_height: float,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
-        color: tuple = None,
+        up_axis: int = 1,
+        color: tuple[float, float, float] | None = None,
+        visible: bool = True,
     ):
-        """
-        Debug helper to add a cone for visualization
+        """Debug helper to add a cone for visualization
 
         Args:
             pos: The position of the cone
@@ -472,7 +507,7 @@ class UsdRenderer:
 
         cone.GetRadiusAttr().Set(float(radius))
         cone.GetHeightAttr().Set(float(half_height * 2.0))
-        cone.GetAxisAttr().Set("Y")
+        cone.GetAxisAttr().Set(UP_AXIS_TOKEN[up_axis])
 
         if color is not None:
             cone.GetDisplayColorAttr().Set([Gf.Vec3f(color)], self.time)
@@ -482,6 +517,7 @@ class UsdRenderer:
         if not is_template:
             _usd_set_xform(cone, pos, rot, (1.0, 1.0, 1.0), self.time)
 
+        cone.GetVisibilityAttr().Set("inherited" if visible else "invisible", self.time)
         return prim_path
 
     def render_box(
@@ -490,9 +526,10 @@ class UsdRenderer:
         pos: tuple,
         rot: tuple,
         extents: tuple,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
-        color: tuple = None,
+        color: tuple[float, float, float] | None = None,
+        visible: bool = True,
     ):
         """Debug helper to add a box for visualization
 
@@ -530,9 +567,10 @@ class UsdRenderer:
         if not is_template:
             _usd_set_xform(cube, pos, rot, extents, self.time)
 
+        cube.GetVisibilityAttr().Set("inherited" if visible else "invisible", self.time)
         return prim_path
 
-    def render_ref(self, name: str, path: str, pos: tuple, rot: tuple, scale: tuple, color: tuple = None):
+    def render_ref(self, name: str, path: str, pos: tuple, rot: tuple, scale: tuple, color: tuple | None = None):
         from pxr import Gf, Usd, UsdGeom
 
         ref_path = "/root/" + name
@@ -563,8 +601,10 @@ class UsdRenderer:
         rot=(0.0, 0.0, 0.0, 1.0),
         scale=(1.0, 1.0, 1.0),
         update_topology=False,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
+        smooth_shading: bool = True,
+        visible: bool = True,
     ):
         from pxr import Sdf, UsdGeom
 
@@ -612,9 +652,85 @@ class UsdRenderer:
         if not is_template:
             _usd_set_xform(mesh, pos, rot, scale, self.time)
 
+        mesh.GetVisibilityAttr().Set("inherited" if visible else "invisible", self.time)
         return prim_path
 
-    def render_line_list(self, name, vertices, indices, color, radius):
+    def render_arrow(
+        self,
+        name: str,
+        pos: tuple,
+        rot: tuple,
+        base_radius: float,
+        base_height: float,
+        cap_radius: float | None = None,
+        cap_height: float | None = None,
+        parent_body: str | None = None,
+        is_template: bool = False,
+        up_axis: int = 1,
+        color: tuple[float, float, float] | None = None,
+        visible: bool = True,
+    ):
+        from pxr import Gf, Sdf, UsdGeom
+
+        if is_template:
+            prim_path = self._resolve_path(name, parent_body, is_template)
+            blueprint = UsdGeom.Scope.Define(self.stage, prim_path)
+            blueprint_prim = blueprint.GetPrim()
+            blueprint_prim.SetInstanceable(True)
+            blueprint_prim.SetSpecifier(Sdf.SpecifierClass)
+            arrow_path = prim_path.AppendChild("arrow")
+        else:
+            arrow_path = self._resolve_path(name, parent_body)
+            prim_path = arrow_path
+
+        arrow = UsdGeom.Xform.Get(self.stage, arrow_path)
+        if not arrow:
+            arrow = UsdGeom.Xform.Define(self.stage, arrow_path)
+            _usd_add_xform(arrow)
+
+        base_path = arrow_path.AppendChild("base")
+        base = UsdGeom.Xform.Get(self.stage, base_path)
+        if not base:
+            base = UsdGeom.Cylinder.Define(self.stage, base_path)
+            _usd_add_xform(base)
+
+        base.GetRadiusAttr().Set(float(base_radius))
+        base.GetHeightAttr().Set(float(base_height))
+        base.GetAxisAttr().Set(UP_AXIS_TOKEN[up_axis])
+        _usd_set_xform(base, UP_AXIS_VEC[up_axis] * base_height * 0.5)
+
+        cap_path = arrow_path.AppendChild("cap")
+        cap = UsdGeom.Xform.Get(self.stage, cap_path)
+        if not cap:
+            cap = UsdGeom.Cone.Define(self.stage, arrow_path.AppendChild("cap"))
+            _usd_add_xform(cap)
+
+        cap.GetRadiusAttr().Set(float(cap_radius))
+        cap.GetHeightAttr().Set(float(cap_height))
+        cap.GetAxisAttr().Set(UP_AXIS_TOKEN[up_axis])
+        _usd_set_xform(cap, UP_AXIS_VEC[up_axis] * (base_height + cap_height * 0.5))
+
+        if color is not None:
+            base.GetDisplayColorAttr().Set([Gf.Vec3f(color)], self.time)
+            cap.GetDisplayColorAttr().Set([Gf.Vec3f(color)], self.time)
+
+        self._shape_constructors[name] = UsdGeom.Xform
+
+        if not is_template:
+            _usd_set_xform(arrow, pos, rot, (1.0, 1.0, 1.0), self.time)
+
+        arrow.GetVisibilityAttr().Set("inherited" if visible else "invisible", self.time)
+        return prim_path
+
+    def render_line_list(
+        self,
+        name: str,
+        vertices,
+        indices,
+        color: tuple[float, float, float] | None = None,
+        radius: float = 0.01,
+        visible: bool = True,
+    ):
         """Debug helper to add a line list as a set of capsules
 
         Args:
@@ -664,9 +780,18 @@ class UsdRenderer:
         instancer.GetScalesAttr().Set(line_scales, self.time)
         instancer.GetProtoIndicesAttr().Set([0] * num_lines, self.time)
 
-    #      instancer.GetPrimvar("displayColor").Set(line_colors, time)
+        # instancer.GetPrimvar("displayColor").Set(line_colors, time)
 
-    def render_line_strip(self, name: str, vertices, color: tuple, radius: float = 0.01):
+        instancer.GetVisibilityAttr().Set("inherited" if visible else "invisible", self.time)
+
+    def render_line_strip(
+        self,
+        name: str,
+        vertices,
+        color: tuple[float, float, float] | None = None,
+        radius: float = 0.01,
+        visible: bool = True,
+    ):
         from pxr import Gf, UsdGeom
 
         num_lines = int(len(vertices) - 1)
@@ -709,44 +834,80 @@ class UsdRenderer:
         instancer_capsule = UsdGeom.Capsule.Get(self.stage, instancer.GetPath().AppendChild("capsule"))
         instancer_capsule.GetDisplayColorAttr().Set([Gf.Vec3f(color)], self.time)
 
-    def render_points(self, name: str, points, radius, colors=None):
-        from pxr import Gf, UsdGeom
+        instancer.GetVisibilityAttr().Set("inherited" if visible else "invisible", self.time)
 
-        instancer_path = self.root.GetPath().AppendChild(name)
-        instancer = UsdGeom.PointInstancer.Get(self.stage, instancer_path)
-        radius_is_scalar = np.isscalar(radius)
-        if not instancer:
-            if colors is None or len(colors) == 3:
+    def render_points(self, name: str, points, radius, colors=None, as_spheres: bool = True, visible: bool = True):
+        from pxr import Sdf, UsdGeom, Vt
+
+        instancer_path = self._resolve_path(name)
+
+        if np.isscalar(radius):
+            radius_interp = "constant"
+        else:
+            radius_interp = "vertex"
+
+        if colors is None:
+            color_interp = "constant"
+        elif len(colors) == 3 and all(np.isscalar(x) for x in colors):
+            color_interp = "constant"
+            is_single_color = True
+        else:
+            color_interp = "vertex"
+            is_single_color = False
+
+        if as_spheres:
+            instancer = UsdGeom.PointInstancer.Get(self.stage, instancer_path)
+            if not instancer:
                 instancer = UsdGeom.PointInstancer.Define(self.stage, instancer_path)
-                instancer_sphere = UsdGeom.Sphere.Define(self.stage, instancer.GetPath().AppendChild("sphere"))
-                if radius_is_scalar:
-                    instancer_sphere.GetRadiusAttr().Set(radius)
-                else:
-                    instancer_sphere.GetRadiusAttr().Set(1.0)
-                    instancer.GetScalesAttr().Set(np.tile(radius, (3, 1)).T)
+                sphere = UsdGeom.Sphere.Define(self.stage, instancer.GetPath().AppendChild("sphere"))
+                primvar_api = UsdGeom.PrimvarsAPI(instancer)
+
+                instancer.CreatePrototypesRel().SetTargets((sphere.GetPath(),))
+                instancer.CreateProtoIndicesAttr().Set(Vt.IntArray((0,) * len(points)))
 
                 if colors is not None:
-                    instancer_sphere.GetDisplayColorAttr().Set([Gf.Vec3f(colors)], self.time)
+                    primvar_api.CreatePrimvar("displayColor", Sdf.ValueTypeNames.Color3fArray, color_interp, 1)
 
-                instancer.CreatePrototypesRel().SetTargets([instancer_sphere.GetPath()])
-                instancer.CreateProtoIndicesAttr().Set([0] * len(points))
+            instancer.GetPositionsAttr().Set(points, self.time)
 
-                # set identity rotations
-                quats = [Gf.Quath(1.0, 0.0, 0.0, 0.0)] * len(points)
-                instancer.GetOrientationsAttr().Set(quats, self.time)
+            if radius_interp == "constant":
+                radius = np.tile(radius, (3, len(points))).T
             else:
+                radius = np.tile(radius, (3, 1)).T
+
+            instancer.GetScalesAttr().Set(radius, self.time)
+
+            if colors is not None:
+                if is_single_color:
+                    colors = (colors,)
+
+                primvar_api = UsdGeom.PrimvarsAPI(instancer)
+                primvar_api.GetPrimvar("displayColor").Set(colors, self.time)
+        else:
+            instancer = UsdGeom.Points.Get(self.stage, instancer_path)
+            if not instancer:
                 instancer = UsdGeom.Points.Define(self.stage, instancer_path)
 
-                if radius_is_scalar:
-                    instancer.GetWidthsAttr().Set([radius * 2.0] * len(points))
-                else:
-                    instancer.GetWidthsAttr().Set(radius * 2.0)
+                UsdGeom.Primvar(instancer.GetWidthsAttr()).SetInterpolation(radius_interp)
+                UsdGeom.Primvar(instancer.GetDisplayColorAttr()).SetInterpolation(color_interp)
 
-        if colors is None or len(colors) == 3:
-            instancer.GetPositionsAttr().Set(points, self.time)
-        else:
             instancer.GetPointsAttr().Set(points, self.time)
-            instancer.GetDisplayColorAttr().Set(colors, self.time)
+
+            if np.isscalar(radius):
+                widths = (radius * 2.0,)
+            else:
+                widths = np.array(radius) * 2.0
+
+            instancer.GetWidthsAttr().Set(widths, self.time)
+
+            if colors is not None:
+                if len(colors) == 3:
+                    colors = (colors,)
+
+                instancer.GetDisplayColorAttr().Set(colors, self.time)
+
+        instancer.GetVisibilityAttr().Set("inherited" if visible else "invisible", self.time)
+        return instancer.GetPath()
 
     def update_body_transforms(self, body_q):
         from pxr import Sdf, UsdGeom

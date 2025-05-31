@@ -1,15 +1,25 @@
-# Copyright (c) 2022 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
 
 import ctypes
 import sys
 import time
 from collections import defaultdict
-from typing import List, Optional, Tuple, Union
+from typing import List, Union
 
 import numpy as np
 
@@ -681,7 +691,7 @@ class ShapeInstancer:
             cls.gl = gl
 
     def __new__(cls, *args, **kwargs):
-        instance = super(ShapeInstancer, cls).__new__(cls)
+        instance = super().__new__(cls)
         instance.instance_transform_gl_buffer = None
         instance.vao = None
         return instance
@@ -1492,16 +1502,16 @@ class OpenGLRenderer:
 
     def setup_tiled_rendering(
         self,
-        instances: List[List[int]],
+        instances: list[list[int]],
         rescale_window: bool = False,
-        tile_width: Optional[int] = None,
-        tile_height: Optional[int] = None,
-        tile_ncols: Optional[int] = None,
-        tile_nrows: Optional[int] = None,
-        tile_positions: Optional[List[Tuple[int]]] = None,
-        tile_sizes: Optional[List[Tuple[int]]] = None,
-        projection_matrices: Optional[List[Mat44]] = None,
-        view_matrices: Optional[List[Mat44]] = None,
+        tile_width: int | None = None,
+        tile_height: int | None = None,
+        tile_ncols: int | None = None,
+        tile_nrows: int | None = None,
+        tile_positions: list[tuple[int]] | None = None,
+        tile_sizes: list[tuple[int]] | None = None,
+        projection_matrices: list[Mat44] | None = None,
+        view_matrices: list[Mat44] | None = None,
     ):
         """
         Set up tiled rendering where the render buffer is split into multiple tiles that can visualize
@@ -1594,11 +1604,11 @@ class OpenGLRenderer:
     def update_tile(
         self,
         tile_id,
-        instances: Optional[List[int]] = None,
-        projection_matrix: Optional[Mat44] = None,
-        view_matrix: Optional[Mat44] = None,
-        tile_size: Optional[Tuple[int]] = None,
-        tile_position: Optional[Tuple[int]] = None,
+        instances: list[int] | None = None,
+        projection_matrix: Mat44 | None = None,
+        view_matrix: Mat44 | None = None,
+        tile_size: tuple[int] | None = None,
+        tile_position: tuple[int] | None = None,
     ):
         """
         Update the shape instances, projection matrix, view matrix, tile size, or tile position
@@ -1798,7 +1808,7 @@ class OpenGLRenderer:
 
         return np.array((scaling, 0, 0, 0, 0, scaling, 0, 0, 0, 0, scaling, 0, 0, 0, 0, 1), dtype=np.float32)
 
-    def update_model_matrix(self, model_matrix: Optional[Mat44] = None):
+    def update_model_matrix(self, model_matrix: Mat44 | None = None):
         gl = OpenGLRenderer.gl
 
         self._switch_context()
@@ -1848,7 +1858,7 @@ class OpenGLRenderer:
         self._scaling = scaling
         self.update_model_matrix()
 
-    def begin_frame(self, t: float = None):
+    def begin_frame(self, t: float | None = None):
         self._last_begin_frame_time = time.time()
         self.time = t or self.clock_time
 
@@ -1980,6 +1990,10 @@ class OpenGLRenderer:
             gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
             gl.glEnable(gl.GL_BLEND)
 
+            # disable depth test to fix text rendering
+            # https://github.com/pyglet/pyglet/issues/1302
+            gl.glDisable(gl.GL_DEPTH_TEST)
+
             text = f"""Sim Time: {self.time:.1f}
 Update FPS: {self._fps_update:.1f}
 Render FPS: {self._fps_render:.1f}
@@ -1992,6 +2006,8 @@ Instances: {len(self._instances)}"""
             self._info_label.text = text
             self._info_label.y = self.screen_height - 5
             self._info_label.draw()
+
+            gl.glEnable(gl.GL_DEPTH_TEST)
 
         for cb in self.render_2d_callbacks:
             cb()
@@ -2279,9 +2295,9 @@ Instances: {len(self._instances)}"""
         name: str,
         shape: int,
         body,
-        pos,
-        rot,
-        scale=(1.0, 1.0, 1.0),
+        pos: tuple,
+        rot: tuple,
+        scale: tuple = (1.0, 1.0, 1.0),
         color1=None,
         color2=None,
         custom_index: int = -1,
@@ -2331,6 +2347,14 @@ Instances: {len(self._instances)}"""
         colors1 = np.array(colors1, dtype=np.float32)
         colors2 = np.array(colors2, dtype=np.float32)
 
+        # create color buffers
+        if self._instance_color1_buffer is None:
+            self._instance_color1_buffer = gl.GLuint()
+            gl.glGenBuffers(1, self._instance_color1_buffer)
+        if self._instance_color2_buffer is None:
+            self._instance_color2_buffer = gl.GLuint()
+            gl.glGenBuffers(1, self._instance_color2_buffer)
+
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._instance_color1_buffer)
         gl.glBufferData(gl.GL_ARRAY_BUFFER, colors1.nbytes, colors1.ctypes.data, gl.GL_STATIC_DRAW)
 
@@ -2354,14 +2378,10 @@ Instances: {len(self._instances)}"""
         )
 
         gl.glUseProgram(self._shape_shader.id)
-        if self._instance_transform_gl_buffer is not None:
-            gl.glDeleteBuffers(1, self._instance_transform_gl_buffer)
-            gl.glDeleteBuffers(1, self._instance_color1_buffer)
-            gl.glDeleteBuffers(1, self._instance_color2_buffer)
-
-        # create instance buffer and bind it as an instanced array
-        self._instance_transform_gl_buffer = gl.GLuint()
-        gl.glGenBuffers(1, self._instance_transform_gl_buffer)
+        if self._instance_transform_gl_buffer is None:
+            # create instance buffer and bind it as an instanced array
+            self._instance_transform_gl_buffer = gl.GLuint()
+            gl.glGenBuffers(1, self._instance_transform_gl_buffer)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._instance_transform_gl_buffer)
 
         transforms = np.tile(np.diag(np.ones(4, dtype=np.float32)), (len(self._instances), 1, 1))
@@ -2371,12 +2391,6 @@ Instances: {len(self._instances)}"""
         self._instance_transform_cuda_buffer = wp.RegisteredGLBuffer(
             int(self._instance_transform_gl_buffer.value), self._device
         )
-
-        # create color buffers
-        self._instance_color1_buffer = gl.GLuint()
-        gl.glGenBuffers(1, self._instance_color1_buffer)
-        self._instance_color2_buffer = gl.GLuint()
-        gl.glGenBuffers(1, self._instance_color2_buffer)
 
         self.update_instance_colors()
 
@@ -2432,7 +2446,7 @@ Instances: {len(self._instances)}"""
         gl.glBindVertexArray(0)
 
     def update_shape_instance(self, name, pos=None, rot=None, color1=None, color2=None, visible=None):
-        """Update the instance transform of the shape
+        """Update the instance properties of the shape
 
         Args:
             name: The name of the shape
@@ -2706,10 +2720,11 @@ Instances: {len(self._instances)}"""
         length: float,
         color: tuple = (1.0, 1.0, 1.0),
         color2=None,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
         u_scaling=1.0,
         v_scaling=1.0,
+        visible: bool = True,
     ):
         """Add a plane for visualization
 
@@ -2775,8 +2790,9 @@ Instances: {len(self._instances)}"""
                 q = (0.0, 0.0, 0.0, 1.0)
             else:
                 c = np.cross(normal, (0.0, 1.0, 0.0))
-                angle = np.arcsin(np.linalg.norm(c))
-                axis = np.abs(c) / np.linalg.norm(c)
+                angle = wp.float32(np.arcsin(np.linalg.norm(c)))
+                axis = wp.vec3(np.abs(c))
+                axis = wp.normalize(axis)
                 q = wp.quat_from_axis_angle(axis, angle)
         return self.render_plane(
             "ground",
@@ -2796,9 +2812,10 @@ Instances: {len(self._instances)}"""
         pos: tuple,
         rot: tuple,
         radius: float,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
-        color=None,
+        color: tuple[float, float, float] | None = None,
+        visible: bool = True,
     ):
         """Add a sphere for visualization
 
@@ -2828,10 +2845,11 @@ Instances: {len(self._instances)}"""
         rot: tuple,
         radius: float,
         half_height: float,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
         up_axis: int = 1,
-        color: tuple = None,
+        color: tuple[float, float, float] | None = None,
+        visible: bool = True,
     ):
         """Add a capsule for visualization
 
@@ -2863,10 +2881,11 @@ Instances: {len(self._instances)}"""
         rot: tuple,
         radius: float,
         half_height: float,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
         up_axis: int = 1,
-        color: tuple = None,
+        color: tuple[float, float, float] | None = None,
+        visible: bool = True,
     ):
         """Add a cylinder for visualization
 
@@ -2898,10 +2917,11 @@ Instances: {len(self._instances)}"""
         rot: tuple,
         radius: float,
         half_height: float,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
         up_axis: int = 1,
-        color: tuple = None,
+        color: tuple[float, float, float] | None = None,
+        visible: bool = True,
     ):
         """Add a cone for visualization
 
@@ -2932,9 +2952,10 @@ Instances: {len(self._instances)}"""
         pos: tuple,
         rot: tuple,
         extents: tuple,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
-        color: tuple = None,
+        color: tuple[float, float, float] | None = None,
+        visible: bool = True,
     ):
         """Add a box for visualization
 
@@ -2967,9 +2988,10 @@ Instances: {len(self._instances)}"""
         rot=(0.0, 0.0, 0.0, 1.0),
         scale=(1.0, 1.0, 1.0),
         update_topology=False,
-        parent_body: str = None,
+        parent_body: str | None = None,
         is_template: bool = False,
         smooth_shading: bool = True,
+        visible: bool = True,
     ):
         """Add a mesh for visualization
 
@@ -3079,12 +3101,13 @@ Instances: {len(self._instances)}"""
         rot: tuple,
         base_radius: float,
         base_height: float,
-        cap_radius: float = None,
-        cap_height: float = None,
-        parent_body: str = None,
+        cap_radius: float | None = None,
+        cap_height: float | None = None,
+        parent_body: str | None = None,
         is_template: bool = False,
         up_axis: int = 1,
-        color: Tuple[float, float, float] = None,
+        color: tuple[float, float, float] | None = None,
+        visible: bool = True,
     ):
         """Add a arrow for visualization
 
@@ -3112,10 +3135,16 @@ Instances: {len(self._instances)}"""
             self.add_shape_instance(name, shape, body, pos, rot, color1=color, color2=color)
         return shape
 
-    def render_ref(self, name: str, path: str, pos: tuple, rot: tuple, scale: tuple, color: tuple = None):
-        """
-        Create a reference (instance) with the given name to the given path.
-        """
+    def render_ref(
+        self,
+        name: str,
+        path: str,
+        pos: tuple,
+        rot: tuple,
+        scale: tuple,
+        color: tuple[float, float, float] | None = None,
+    ):
+        """Create a reference (instance) with the given name to the given path."""
 
         if path in self._instances:
             _, body, shape, _, original_scale, color1, color2 = self._instances[path]
@@ -3126,7 +3155,7 @@ Instances: {len(self._instances)}"""
 
         raise Exception("Cannot create reference to path: " + path)
 
-    def render_points(self, name: str, points, radius, colors=None):
+    def render_points(self, name: str, points, radius, colors=None, as_spheres: bool = True, visible: bool = True):
         """Add a set of points
 
         Args:
@@ -3184,7 +3213,7 @@ Instances: {len(self._instances)}"""
         if name not in self._shape_instancers:
             instancer = ShapeInstancer(self._shape_shader, self._device)
             vertices, indices = self._create_capsule_mesh(radius, 0.5)
-            if color is None or isinstance(color, list) and len(color) > 0 and isinstance(color[0], list):
+            if color is None or (isinstance(color, list) and len(color) > 0 and isinstance(color[0], list)):
                 color = tab10_color_map(len(self._shape_geo_hash))
             instancer.register_shape(vertices, indices, color, color)
             instancer.allocate_instances(np.zeros((len(lines), 3)))
@@ -3205,7 +3234,15 @@ Instances: {len(self._instances)}"""
                 device=self._device,
             )
 
-    def render_line_list(self, name: str, vertices, indices, color: tuple = None, radius: float = 0.01):
+    def render_line_list(
+        self,
+        name: str,
+        vertices,
+        indices,
+        color: tuple[float, float, float] | None = None,
+        radius: float = 0.01,
+        visible: bool = True,
+    ):
         """Add a line list as a set of capsules
 
         Args:
@@ -3220,7 +3257,14 @@ Instances: {len(self._instances)}"""
         lines = np.array(lines)
         self._render_lines(name, lines, color, radius)
 
-    def render_line_strip(self, name: str, vertices, color: tuple = None, radius: float = 0.01):
+    def render_line_strip(
+        self,
+        name: str,
+        vertices,
+        color: tuple[float, float, float] | None = None,
+        radius: float = 0.01,
+        visible: bool = True,
+    ):
         """Add a line strip as a set of capsules
 
         Args:

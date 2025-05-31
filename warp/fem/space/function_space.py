@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from typing import Any
 
 import warp as wp
@@ -107,13 +122,13 @@ class FunctionSpace:
         raise NotImplementedError
 
     def gradient_valid(self) -> bool:
-        """Whether gradient operator can be computed. Only for scalar and vector fields as higher-order tensors are not support yet"""
+        """Whether gradient operator can be computed. Only for scalar and vector fields as higher-order tensors are not supported yet"""
         return not wp.types.type_is_matrix(self.dtype)
 
     def divergence_valid(self) -> bool:
         """Whether divergence of this field can be computed. Only for vector and tensor fields with same dimension as embedding geometry"""
         if wp.types.type_is_vector(self.dtype):
-            return wp.types.type_length(self.dtype) == self.geometry.dimension
+            return wp.types.type_size(self.dtype) == self.geometry.dimension
         if wp.types.type_is_matrix(self.dtype):
             return self.dtype._shape_[0] == self.geometry.dimension
         return False

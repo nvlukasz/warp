@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import ctypes
 import math
 from typing import Any
@@ -7,12 +22,12 @@ from warp.types import *
 
 
 class fabricbucket_t(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("index_start", ctypes.c_size_t),
         ("index_end", ctypes.c_size_t),
         ("ptr", ctypes.c_void_p),
         ("lengths", ctypes.c_void_p),
-    ]
+    )
 
     def __init__(self, index_start=0, index_end=0, ptr=None, lengths=None):
         self.index_start = index_start
@@ -22,11 +37,11 @@ class fabricbucket_t(ctypes.Structure):
 
 
 class fabricarray_t(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("buckets", ctypes.c_void_p),  # array of fabricbucket_t on the correct device
         ("nbuckets", ctypes.c_size_t),
         ("size", ctypes.c_size_t),
-    ]
+    )
 
     def __init__(self, buckets=None, nbuckets=0, size=0):
         self.buckets = ctypes.c_void_p(buckets)
@@ -35,11 +50,11 @@ class fabricarray_t(ctypes.Structure):
 
 
 class indexedfabricarray_t(ctypes.Structure):
-    _fields_ = [
+    _fields_ = (
         ("fa", fabricarray_t),
         ("indices", ctypes.c_void_p),
         ("size", ctypes.c_size_t),
-    ]
+    )
 
     def __init__(self, fa=None, indices=None):
         if fa is None:
@@ -106,7 +121,7 @@ class fabricarray(noncontiguous_array_base[T]):
     _vars = None
 
     def __new__(cls, *args, **kwargs):
-        instance = super(fabricarray, cls).__new__(cls)
+        instance = super().__new__(cls)
         instance.deleter = None
         return instance
 

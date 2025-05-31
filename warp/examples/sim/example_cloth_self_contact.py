@@ -1,9 +1,17 @@
-# Copyright (c) 2024 NVIDIA CORPORATION.  All rights reserved.
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 ###########################################################################
 # Example Sim Cloth Self Contact
@@ -120,6 +128,10 @@ class Example:
         self.num_substeps = 10
         self.iterations = 4
         self.dt = self.frame_dt / self.num_substeps
+        # the BVH used by VBDIntegrator will be rebuilt every self.bvh_rebuild_frames
+        # When the simulated object deforms significantly, simply refitting the BVH can lead to deterioration of the BVH's
+        # quality, in this case we need to completely rebuild the tree to achieve better query efficiency.
+        self.bvh_rebuild_frames = 10
 
         self.num_frames = num_frames
         self.sim_time = 0.0
@@ -219,69 +231,62 @@ class Example:
         self.cuda_graph = None
         if self.use_cuda_graph:
             with wp.ScopedCapture() as capture:
-                for _ in range(self.num_substeps):
-                    wp.launch(
-                        kernel=apply_rotation,
-                        dim=self.rot_point_indices.shape[0],
-                        inputs=[
-                            self.rot_point_indices,
-                            self.rot_axes,
-                            self.roots,
-                            self.roots_to_ps,
-                            self.t,
-                            self.rot_angular_velocity,
-                            self.dt,
-                            self.rot_end_time,
-                        ],
-                        outputs=[
-                            self.state0.particle_q,
-                            self.state1.particle_q,
-                        ],
-                    )
-
-                    self.integrator.simulate(self.model, self.state0, self.state1, self.dt, None)
-                    (self.state0, self.state1) = (self.state1, self.state0)
+                self.integrate_frame_substeps()
 
             self.cuda_graph = capture.graph
 
-    def step(self):
+    def integrate_frame_substeps(self):
+        for _ in range(self.num_substeps):
+            wp.launch(
+                kernel=apply_rotation,
+                dim=self.rot_point_indices.shape[0],
+                inputs=[
+                    self.rot_point_indices,
+                    self.rot_axes,
+                    self.roots,
+                    self.roots_to_ps,
+                    self.t,
+                    self.rot_angular_velocity,
+                    self.dt,
+                    self.rot_end_time,
+                ],
+                outputs=[
+                    self.state0.particle_q,
+                    self.state1.particle_q,
+                ],
+            )
+
+            self.integrator.simulate(self.model, self.state0, self.state1, self.dt, None)
+            (self.state0, self.state1) = (self.state1, self.state0)
+
+    def advance_frame(self):
         with wp.ScopedTimer("step", print=False, dict=self.profiler):
             if self.use_cuda_graph:
                 wp.capture_launch(self.cuda_graph)
             else:
-                for _ in range(self.num_substeps):
-                    wp.launch(
-                        kernel=apply_rotation,
-                        dim=self.rot_point_indices.shape[0],
-                        inputs=[
-                            self.rot_point_indices,
-                            self.rot_axes,
-                            self.roots,
-                            self.roots_to_ps,
-                            self.t,
-                            self.rot_angular_velocity,
-                            self.dt,
-                            self.rot_end_time,
-                        ],
-                        outputs=[
-                            self.state0.particle_q,
-                            self.state1.particle_q,
-                        ],
-                    )
-                    self.integrator.simulate(self.model, self.state0, self.state1, self.dt)
-
-                    (self.state0, self.state1) = (self.state1, self.state0)
+                self.integrate_frame_substeps()
 
             self.sim_time += self.dt
+
+    def run(self):
+        for i in range(self.num_frames):
+            self.advance_frame()
+            self.render()
+            print(f"[{i:4d}/{self.num_frames}]")
+
+            if i != 0 and not i % self.bvh_rebuild_frames and self.use_cuda_graph:
+                self.integrator.rebuild_bvh(self.state0)
+                with wp.ScopedCapture() as capture:
+                    self.integrate_frame_substeps()
+                self.cuda_graph = capture.graph
 
     def render(self):
         if self.renderer is None:
             return
 
-        with wp.ScopedTimer("render", print=False):
-            self.renderer.begin_frame(self.sim_time)
-            self.renderer.render(self.state0)
-            self.renderer.end_frame()
+        self.renderer.begin_frame(self.sim_time)
+        self.renderer.render(self.state0)
+        self.renderer.end_frame()
 
 
 if __name__ == "__main__":
@@ -302,13 +307,10 @@ if __name__ == "__main__":
     with wp.ScopedDevice(args.device):
         example = Example(stage_path=args.stage_path, num_frames=args.num_frames)
 
-        for i in range(example.num_frames):
-            example.step()
-            example.render()
-            print(f"[{i:4d}/{example.num_frames}]")
+        example.run()
 
         frame_times = example.profiler["step"]
-        print("\nAverage frame sim time: {:.2f} ms".format(sum(frame_times) / len(frame_times)))
+        print(f"\nAverage frame sim time: {sum(frame_times) / len(frame_times):.2f} ms")
 
         if example.renderer:
             example.renderer.save()

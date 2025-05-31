@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import numpy as np
 
 import warp as wp
@@ -25,6 +40,9 @@ class Grid2DSpaceTopology(SpaceTopology):
 
     def topo_arg_value(self, device):
         return self.geometry.side_arg_value(device)
+
+    def fill_topo_arg(self, arg: Grid2D.SideArg, device):
+        self.geometry.fill_side_arg(arg, device)
 
     def node_count(self) -> int:
         return (
@@ -69,7 +87,7 @@ class Grid2DSpaceTopology(SpaceTopology):
                 axis = 1 - (node_type - SquareShapeFunction.EDGE_X)
 
                 cell = Grid2D.get_cell(cell_arg.res, element_index)
-                origin = wp.vec2i(cell[Grid2D.ROTATION[axis, 0]] + type_instance, cell[Grid2D.ROTATION[axis, 1]])
+                origin = Grid2D.orient(axis, cell) + wp.vec2i(type_instance, 0)
 
                 side = Grid2D.Side(axis, origin)
                 side_index = Grid2D.side_index(topo_arg, side)
