@@ -22,7 +22,9 @@
 #include "warp.h"
 #include "cuda_util.h"
 
+#include <cassert>
 #include <map>
+#include <climits>
 
 using namespace wp;
 
@@ -37,30 +39,69 @@ class TopDownBVHBuilder
 public:
 
     void build(BVH& bvh, const vec3* lowers, const vec3* uppers, int n, int in_constructor_type);
+    void rebuild(BVH& bvh, int in_constructor_type);
 
 private:
 
-    bounds3 calc_bounds(const vec3* lowers, const vec3* uppers, const int* indices, int start, int end);
+    void initialize_empty(BVH& bvh);
 
+    bounds3 calc_bounds(const vec3* lowers, const vec3* uppers, const int* indices, int start, int end);
+    int build_recursive(BVH& bvh, const vec3* lowers, const vec3* uppers, int start, int end, int depth, int parent);
     int partition_median(const vec3* lowers, const vec3* uppers, int* indices, int start, int end, bounds3 range_bounds);
     int partition_midpoint(const vec3* lowers, const vec3* uppers, int* indices, int start, int end, bounds3 range_bounds);
     float partition_sah(BVH& bvh, const vec3* lowers, const vec3* uppers,
        int start, int end, bounds3 range_bounds, int& split_axis);
-
-    int build_recursive(BVH& bvh, const vec3* lowers, const vec3* uppers, int start, int end, int depth, int parent);
 
     int constructor_type = -1;
 };
 
 //////////////////////////////////////////////////////////////////////
 
+void TopDownBVHBuilder::initialize_empty(BVH& bvh)
+{
+    bvh.max_depth = 0;
+    bvh.max_nodes = 0;
+    bvh.node_lowers = nullptr;
+    bvh.node_uppers = nullptr;
+    bvh.node_parents = nullptr;
+    bvh.node_counts = nullptr;
+    bvh.root = nullptr;
+    bvh.primitive_indices = nullptr;
+    bvh.num_leaf_nodes = 0;
+    bvh.num_items = 0;
+}
+
 void TopDownBVHBuilder::build(BVH& bvh, const vec3* lowers, const vec3* uppers, int n, int in_constructor_type)
 {
+    assert(n >= 0);
+    if (n > 0)
+    {
+        assert(lowers != nullptr && uppers != nullptr && "Pointers must be valid for n > 0");
+    }
+
     constructor_type = in_constructor_type;
     if (constructor_type != BVH_CONSTRUCTOR_SAH && constructor_type != BVH_CONSTRUCTOR_MEDIAN)
     {
-        printf("Unrecognized Constructor type: %d! For CPU constructor it should be either SAH (%d) or Median (%d)!\n",
+        fprintf(stderr, "Unrecognized Constructor type: %d! For CPU constructor it should be either SAH (%d) or Median (%d)!\n",
             constructor_type, BVH_CONSTRUCTOR_SAH, BVH_CONSTRUCTOR_MEDIAN);
+        return;
+    }
+
+    if (n < 0)
+    {
+        fprintf(stderr, "Error: Cannot build BVH with a negative primitive count: %d\n", n);
+        initialize_empty(bvh);
+        return;
+    }
+    else if (n == 0)
+    {
+        initialize_empty(bvh);
+        return;
+    }
+    else if (n > INT_MAX / 2)
+    {
+        fprintf(stderr, "Error: Primitive count %d is too large and would cause an integer overflow.\n", n);
+        initialize_empty(bvh);
         return;
     }
 
@@ -70,20 +111,39 @@ void TopDownBVHBuilder::build(BVH& bvh, const vec3* lowers, const vec3* uppers, 
     bvh.node_lowers = new BVHPackedNodeHalf[bvh.max_nodes];
     bvh.node_uppers = new BVHPackedNodeHalf[bvh.max_nodes];
     bvh.node_parents = new int[bvh.max_nodes];
-    bvh.node_counts = NULL;
+    bvh.node_counts = nullptr;
+    bvh.num_items = n;
 
     // root is always in first slot for top down builders
     bvh.root = new int[1];
     bvh.root[0] = 0;
-
-    if (n == 0)
-        return;
     
     bvh.primitive_indices = new int[n];
     for (int i = 0; i < n; ++i)
         bvh.primitive_indices[i] = i;
 
     build_recursive(bvh, lowers, uppers,  0, n, 0, -1);
+}
+
+void TopDownBVHBuilder::rebuild(BVH& bvh, int in_constructor_type)
+{
+    if (in_constructor_type != BVH_CONSTRUCTOR_SAH && in_constructor_type != BVH_CONSTRUCTOR_MEDIAN)
+    {
+        fprintf(stderr, "Unrecognized Constructor type: %d! For CPU constructor it should be either SAH (%d) or Median (%d)!\n",
+            in_constructor_type, BVH_CONSTRUCTOR_SAH, BVH_CONSTRUCTOR_MEDIAN);
+        return;
+    }
+    if (bvh.num_items == 0)
+        return;
+
+    constructor_type = in_constructor_type;
+    for (int i = 0; i < bvh.num_items; ++i)
+        bvh.primitive_indices[i] = i;
+
+    bvh.max_depth = 0;
+    bvh.num_nodes = 0;
+    bvh.num_leaf_nodes = 0;
+    build_recursive(bvh, bvh.item_lowers, bvh.item_uppers, 0, bvh.num_items, 0, -1);
 }
 
 
@@ -273,8 +333,6 @@ int TopDownBVHBuilder::build_recursive(BVH& bvh, const vec3* lowers, const vec3*
 {
     assert(start < end);
 
-    // printf("start %d end %d\n", start, end);
-
     const int n = end - start;
     const int node_index = bvh.num_nodes++;
 
@@ -353,8 +411,8 @@ void bvh_refit_recursive(BVH& bvh, int index)
             bound.add_bounds(bvh.item_lowers[item], bvh.item_uppers[item]);
         }
 
-        (vec3&)lower = bound.lower;
-        (vec3&)upper = bound.upper;
+        reinterpret_cast<vec3&>(lower) = bound.lower;
+        reinterpret_cast<vec3&>(upper) = bound.upper;
     }
     else
     {
@@ -365,19 +423,19 @@ void bvh_refit_recursive(BVH& bvh, int index)
         bvh_refit_recursive(bvh, right_index);
 
         // compute union of children
-        const vec3& left_lower = (vec3&)bvh.node_lowers[left_index];
-        const vec3& left_upper = (vec3&)bvh.node_uppers[left_index];
+        const vec3& left_lower = reinterpret_cast<const vec3&>(bvh.node_lowers[left_index]);
+        const vec3& left_upper = reinterpret_cast<const vec3&>(bvh.node_uppers[left_index]);
 
-        const vec3& right_lower = (vec3&)bvh.node_lowers[right_index];
-        const vec3& right_upper = (vec3&)bvh.node_uppers[right_index];
+        const vec3& right_lower = reinterpret_cast<const vec3&>(bvh.node_lowers[right_index]);
+        const vec3& right_upper = reinterpret_cast<const vec3&>(bvh.node_uppers[right_index]);
 
         // union of child bounds
         vec3 new_lower = min(left_lower, right_lower);
         vec3 new_upper = max(left_upper, right_upper);
         
         // write new BVH nodes
-        (vec3&)lower = new_lower;
-        (vec3&)upper = new_upper;
+        reinterpret_cast<vec3&>(lower) = new_lower;
+        reinterpret_cast<vec3&>(upper) = new_upper;
     }
 }
 
@@ -385,7 +443,11 @@ void bvh_refit_host(BVH& bvh)
 {
     bvh_refit_recursive(bvh, 0);
 }
-
+void bvh_rebuild_host(BVH& bvh, int constructor_type)
+{
+    TopDownBVHBuilder builder;
+    builder.rebuild(bvh, constructor_type);
+}
 
 } // namespace wp
 
@@ -448,11 +510,11 @@ void bvh_destroy_host(BVH& bvh)
     delete[] bvh.primitive_indices;
     delete[] bvh.root;
 
-    bvh.node_lowers = NULL;
-    bvh.node_uppers = NULL;
-    bvh.node_parents = NULL;
-    bvh.primitive_indices = NULL;
-    bvh.root = NULL;
+    bvh.node_lowers = nullptr;
+    bvh.node_uppers = nullptr;
+    bvh.node_parents = nullptr;
+    bvh.primitive_indices = nullptr;
+    bvh.root = nullptr;
 
     bvh.max_nodes = 0;
     bvh.num_items = 0;
@@ -460,7 +522,7 @@ void bvh_destroy_host(BVH& bvh)
 
 } // namespace wp
 
-uint64_t bvh_create_host(vec3* lowers, vec3* uppers, int num_items, int constructor_type)
+uint64_t wp_bvh_create_host(vec3* lowers, vec3* uppers, int num_items, int constructor_type)
 {
     BVH* bvh = new BVH();
     wp::bvh_create_host(lowers, uppers, num_items, constructor_type, *bvh);
@@ -468,16 +530,22 @@ uint64_t bvh_create_host(vec3* lowers, vec3* uppers, int num_items, int construc
     return (uint64_t)bvh;
 }
 
-void bvh_refit_host(uint64_t id)
+void wp_bvh_refit_host(uint64_t id)
 {
     BVH* bvh = (BVH*)(id);
-    bvh_refit_host(*bvh);
+    wp::bvh_refit_host(*bvh);
 }
 
-void bvh_destroy_host(uint64_t id)
+void wp_bvh_rebuild_host(uint64_t id, int constructor_type)
 {
     BVH* bvh = (BVH*)(id);
-    bvh_destroy_host(*bvh);
+    wp::bvh_rebuild_host(*bvh, constructor_type);
+}
+
+void wp_bvh_destroy_host(uint64_t id)
+{
+    BVH* bvh = (BVH*)(id);
+    wp::bvh_destroy_host(*bvh);
     delete bvh;
 }
 
@@ -485,8 +553,9 @@ void bvh_destroy_host(uint64_t id)
 // stubs for non-CUDA platforms
 #if !WP_ENABLE_CUDA
 
-uint64_t bvh_create_device(void* context, wp::vec3* lowers, wp::vec3* uppers, int num_items, int constructor_type) { return 0; }
-void bvh_refit_device(uint64_t id) {}
-void bvh_destroy_device(uint64_t id) {}
+uint64_t wp_bvh_create_device(void* context, wp::vec3* lowers, wp::vec3* uppers, int num_items, int constructor_type) { return 0; }
+void wp_bvh_refit_device(uint64_t id) {}
+void wp_bvh_destroy_device(uint64_t id) {}
+void wp_bvh_rebuild_device(uint64_t id) {}
 
 #endif // !WP_ENABLE_CUDA

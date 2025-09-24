@@ -124,6 +124,8 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
     from warp.tests.test_array import TestArray
     from warp.tests.test_array_reduce import TestArrayReduce
     from warp.tests.test_atomic import TestAtomic
+    from warp.tests.test_atomic_bitwise import TestAtomicBitwise
+    from warp.tests.test_atomic_cas import TestAtomicCAS
     from warp.tests.test_bool import TestBool
     from warp.tests.test_builtins_resolution import TestBuiltinsResolution
     from warp.tests.test_closest_point_edge_edge import TestClosestPointEdgeEdgeMethods
@@ -163,6 +165,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
     from warp.tests.test_linear_solvers import TestLinearSolvers
     from warp.tests.test_lvalue import TestLValue
     from warp.tests.test_mat import TestMat
+    from warp.tests.test_mat_constructors import TestMatConstructors
     from warp.tests.test_mat_lite import TestMatLite
     from warp.tests.test_mat_scalar_ops import TestMatScalarOps
     from warp.tests.test_math import TestMath
@@ -192,13 +195,20 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
     from warp.tests.test_types import TestTypes
     from warp.tests.test_utils import TestUtils
     from warp.tests.test_vec import TestVec
+    from warp.tests.test_vec_constructors import TestVecConstructors
     from warp.tests.test_vec_lite import TestVecLite
     from warp.tests.test_vec_scalar_ops import TestVecScalarOps
     from warp.tests.test_verify_fp import TestVerifyFP
     from warp.tests.tile.test_tile import TestTile
+    from warp.tests.tile.test_tile_atomic_bitwise import TestTileAtomicBitwise
+    from warp.tests.tile.test_tile_cholesky import TestTileCholesky
+    from warp.tests.tile.test_tile_load import TestTileLoad
     from warp.tests.tile.test_tile_mathdx import TestTileMathDx
+    from warp.tests.tile.test_tile_matmul import TestTileMatmul
     from warp.tests.tile.test_tile_reduce import TestTileReduce
     from warp.tests.tile.test_tile_shared_memory import TestTileSharedMemory
+    from warp.tests.tile.test_tile_sort import TestTileSort
+    from warp.tests.tile.test_tile_view import TestTileView
 
     test_classes = [
         TestAdam,
@@ -207,6 +217,8 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestArrayReduce,
         TestAsync,
         TestAtomic,
+        TestAtomicBitwise,
+        TestAtomicCAS,
         TestBool,
         TestBuiltinsResolution,
         TestBvh,
@@ -254,6 +266,7 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestLValue,
         TestMarchingCubes,
         TestMat,
+        TestMatConstructors,
         TestMatLite,
         TestMatScalarOps,
         TestMath,
@@ -291,15 +304,22 @@ def default_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader)
         TestStruct,
         TestTape,
         TestTile,
+        TestTileAtomicBitwise,
+        TestTileCholesky,
+        TestTileLoad,
         TestTileMathDx,
+        TestTileMatmul,
         TestTileReduce,
         TestTileSharedMemory,
+        TestTileSort,
+        TestTileView,
         TestTorch,
         TestTransientModule,
         TestTriangleClosestPoint,
         TestTypes,
         TestUtils,
         TestVec,
+        TestVecConstructors,
         TestVecLite,
         TestVecScalarOps,
         TestVerifyFP,
@@ -348,6 +368,7 @@ def kit_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader):
     from warp.tests.test_lvalue import TestLValue
     from warp.tests.test_mat_lite import TestMatLite
     from warp.tests.test_math import TestMath
+    from warp.tests.test_module_aot import TestModuleAOT
     from warp.tests.test_module_hashing import TestModuleHashing
     from warp.tests.test_modules_lite import TestModuleLite
     from warp.tests.test_noise import TestNoise
@@ -394,6 +415,7 @@ def kit_suite(test_loader: unittest.TestLoader = unittest.defaultTestLoader):
         TestMeshQueryAABBMethods,
         TestMeshQueryPoint,
         TestMeshQueryRay,
+        TestModuleAOT,
         TestModuleHashing,
         TestModuleLite,
         TestNoise,

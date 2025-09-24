@@ -35,6 +35,7 @@
 
 #include "warp.h"
 
+#include <climits>
 #include <iostream>
 #include <vector>
 #include <array>
@@ -209,8 +210,12 @@ float balance_color_groups(float target_max_min_ratio,
     do
     {
         int biggest_group = -1, smallest_group = -1;
-
+        float prev_max_min_ratio = max_min_ratio;
         max_min_ratio = find_largest_smallest_groups(color_groups, biggest_group, smallest_group);
+
+        if (prev_max_min_ratio > 0 && prev_max_min_ratio < max_min_ratio) {
+            return max_min_ratio;
+        }
 
         // graph is not optimizable anymore or target ratio reached
         if (color_groups[biggest_group].size() - color_groups[smallest_group].size() <= 2 
@@ -334,6 +339,10 @@ public:
 
     int get_node_weight(int node_idx) 
     {
+        if (node_idx < 0 || node_idx >= (int)node_weights.size()) {
+            fprintf(stderr, "The node_idx %d is out of range!\n", node_idx);
+            return INT_MIN;
+        }
         return node_weights[node_idx];
     }
 
@@ -535,7 +544,7 @@ using namespace wp;
 
 extern "C"
 {
-    int graph_coloring(int num_nodes, wp::array_t<int> edges, int algorithm, wp::array_t<int> node_colors)
+    int wp_graph_coloring(int num_nodes, wp::array_t<int> edges, int algorithm, wp::array_t<int> node_colors)
     {
         if (node_colors.ndim != 1 || node_colors.shape[0] != num_nodes)
         {
@@ -590,7 +599,7 @@ extern "C"
         return num_colors;
     }
 
-    float balance_coloring(int num_nodes, wp::array_t<int> edges, int num_colors, 
+    float wp_balance_coloring(int num_nodes, wp::array_t<int> edges, int num_colors, 
         float target_max_min_ratio, wp::array_t<int> node_colors)
     {
         Graph graph(num_nodes, edges);

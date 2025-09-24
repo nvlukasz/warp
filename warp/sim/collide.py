@@ -1236,8 +1236,7 @@ def handle_contact_pairs(
         p_b_body = closest_point_box(geo_scale_b, query_b)
         p_b_world = wp.transform_point(X_ws_b, p_b_body)
         diff = p_a_world - p_b_world
-        # use center of box A to query normal to make sure we are not inside B
-        query_b = wp.transform_point(X_sw_b, wp.transform_get_translation(X_ws_a))
+
         normal = wp.transform_vector(X_ws_b, box_sdf_grad(geo_scale_b, query_b))
         distance = wp.dot(diff, normal)
 
@@ -2409,7 +2408,7 @@ class TriMeshCollisionDetector:
             dim=self.model.tri_count,
             device=self.model.device,
         )
-        self.bvh_tris = wp.Bvh(self.lower_bounds_tris, self.upper_bounds_tris)
+        self.bvh_tris.rebuild()
 
         wp.launch(
             kernel=compute_edge_aabbs,
@@ -2418,7 +2417,7 @@ class TriMeshCollisionDetector:
             dim=self.model.edge_count,
             device=self.model.device,
         )
-        self.bvh_edges = wp.Bvh(self.lower_bounds_edges, self.upper_bounds_edges)
+        self.bvh_edges.rebuild()
 
     def refit(self, new_pos=None):
         if new_pos is not None:

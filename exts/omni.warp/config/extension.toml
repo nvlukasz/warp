@@ -1,6 +1,6 @@
 [package]
 # Semantic Versioning is used: https://semver.org/
-version = "1.7.2"
+version = "1.10.0.dev0"
 authors = ["NVIDIA"]
 title = "Warp"
 description="Warp OmniGraph Nodes and Sample Scenes"
@@ -79,10 +79,14 @@ args = [
     "--/app/renderer/resolution/width=640",
     "--/app/isTestRun=1",
     "--/app/updateOrder/checkForHydraRenderComplete=1000",
+    "--/persistent/rtx/modes/pt/enabled=false",
+    "--/persistent/rtx/modes/rt/enabled=true",
+    "--/persistent/rtx/modes/rt2/enabled=false",
     "--/renderer/enabled=rtx",
     "--/renderer/active=rtx",
     "--/rtx/hydra/materialSyncLoads=true",
     "--/rtx/materialDb/syncLoads=true",
+    "--/rtx/rendermode=RayTracedLighting",
     "--/rtx-transient/dldenoiser/enabled=false",
     "--/rtx-transient/dlssg/enabled=false",
     "--/rtx-transient/post/aa/limitedOps=false",

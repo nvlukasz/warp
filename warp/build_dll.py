@@ -13,15 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+import concurrent.futures
 import os
 import platform
 import subprocess
 import sys
-from typing import List, Optional
+import time
 
 from warp.utils import ScopedTimer
 
 verbose_cmd = True  # print command lines before executing them
+
+MIN_CTK_VERSION = (12, 0)
 
 
 def machine_architecture() -> str:
@@ -120,7 +125,7 @@ def find_host_compiler():
         return run_cmd("which g++").decode()
 
 
-def get_cuda_toolkit_version(cuda_home):
+def get_cuda_toolkit_version(cuda_home) -> tuple[int, int]:
     try:
         # the toolkit version can be obtained by running "nvcc --version"
         nvcc_path = os.path.join(cuda_home, "bin", "nvcc")
@@ -128,14 +133,16 @@ def get_cuda_toolkit_version(cuda_home):
         # search for release substring (e.g., "release 11.5")
         import re
 
-        m = re.search(r"(?<=release )\d+\.\d+", nvcc_version_output)
+        m = re.search(r"release (\d+)\.(\d+)", nvcc_version_output)
         if m is not None:
-            return tuple(int(x) for x in m.group(0).split("."))
+            major, minor = map(int, m.groups())
+            return (major, minor)
         else:
             raise Exception("Failed to parse NVCC output")
 
     except Exception as e:
-        print(f"Failed to determine CUDA Toolkit version: {e}")
+        print(f"Warning: Failed to determine CUDA Toolkit version: {e}")
+        return MIN_CTK_VERSION
 
 
 def quote(path):
@@ -169,7 +176,7 @@ def add_llvm_bin_to_path(args):
     return True
 
 
-def build_dll_for_arch(args, dll_path, cpp_paths, cu_path, arch, libs: Optional[List[str]] = None, mode=None):
+def build_dll_for_arch(args, dll_path, cpp_paths, cu_paths, arch, libs: list[str] | None = None, mode=None):
     mode = args.mode if (mode is None) else mode
     cuda_home = args.cuda_path
     cuda_cmd = None
@@ -177,7 +184,7 @@ def build_dll_for_arch(args, dll_path, cpp_paths, cu_path, arch, libs: Optional[
     # Add LLVM bin directory to PATH
     add_llvm_bin_to_path(args)
 
-    if args.quick or cu_path is None:
+    if args.quick or cu_paths is None:
         cuda_compat_enabled = "WP_ENABLE_CUDA_COMPATIBILITY=0"
     else:
         cuda_compat_enabled = "WP_ENABLE_CUDA_COMPATIBILITY=1"
@@ -195,18 +202,13 @@ def build_dll_for_arch(args, dll_path, cpp_paths, cu_path, arch, libs: Optional[
 
     native_dir = os.path.join(warp_home, "native")
 
-    if cu_path:
+    if cu_paths:
         # check CUDA Toolkit version
-        min_ctk_version = (11, 5)
-        ctk_version = get_cuda_toolkit_version(cuda_home) or min_ctk_version
-        if ctk_version < min_ctk_version:
+        ctk_version = get_cuda_toolkit_version(cuda_home)
+        if ctk_version < MIN_CTK_VERSION:
             raise Exception(
-                f"CUDA Toolkit version {min_ctk_version[0]}.{min_ctk_version[1]}+ is required (found {ctk_version[0]}.{ctk_version[1]} in {cuda_home})"
+                f"CUDA Toolkit version {MIN_CTK_VERSION[0]}.{MIN_CTK_VERSION[1]}+ is required (found {ctk_version[0]}.{ctk_version[1]} in {cuda_home})"
             )
-
-        if ctk_version[0] < 12 and args.libmathdx_path:
-            print("MathDx support requires at least CUDA 12, skipping")
-            args.libmathdx_path = None
 
         # NVCC gencode options
         gencode_opts = []
@@ -216,86 +218,86 @@ def build_dll_for_arch(args, dll_path, cpp_paths, cu_path, arch, libs: Optional[
 
         if args.quick:
             # minimum supported architectures (PTX)
-            gencode_opts += ["-gencode=arch=compute_52,code=compute_52", "-gencode=arch=compute_75,code=compute_75"]
-            clang_arch_flags += ["--cuda-gpu-arch=sm_52", "--cuda-gpu-arch=sm_75"]
+            if ctk_version >= (13, 0):
+                gencode_opts += ["-gencode=arch=compute_75,code=compute_75"]
+                clang_arch_flags += ["--cuda-gpu-arch=sm_75"]
+            else:
+                gencode_opts += ["-gencode=arch=compute_52,code=compute_52", "-gencode=arch=compute_75,code=compute_75"]
+                clang_arch_flags += ["--cuda-gpu-arch=sm_52", "--cuda-gpu-arch=sm_75"]
         else:
+            if ctk_version < (13, 0):
+                # Add targets that were removed in CUDA 13
+                gencode_opts += [
+                    "-gencode=arch=compute_52,code=sm_52",  # Maxwell
+                    "-gencode=arch=compute_60,code=sm_60",  # Pascal
+                    "-gencode=arch=compute_61,code=sm_61",
+                    "-gencode=arch=compute_70,code=sm_70",  # Volta
+                ]
+                clang_arch_flags += [
+                    "--cuda-gpu-arch=sm_52",
+                    "--cuda-gpu-arch=sm_60",
+                    "--cuda-gpu-arch=sm_61",
+                    "--cuda-gpu-arch=sm_70",  # Volta
+                ]
+
             # generate code for all supported architectures
             gencode_opts += [
                 # SASS for supported desktop/datacenter architectures
-                "-gencode=arch=compute_52,code=sm_52",  # Maxwell
-                "-gencode=arch=compute_60,code=sm_60",  # Pascal
-                "-gencode=arch=compute_61,code=sm_61",
-                "-gencode=arch=compute_70,code=sm_70",  # Volta
                 "-gencode=arch=compute_75,code=sm_75",  # Turing
+                "-gencode=arch=compute_75,code=compute_75",  # Turing (PTX)
                 "-gencode=arch=compute_80,code=sm_80",  # Ampere
                 "-gencode=arch=compute_86,code=sm_86",
+                "-gencode=arch=compute_89,code=sm_89",  # Ada
+                "-gencode=arch=compute_90,code=sm_90",  # Hopper
             ]
 
-            # TODO: Get this working with sm_52, sm_60, sm_61
             clang_arch_flags += [
                 # SASS for supported desktop/datacenter architectures
-                "--cuda-gpu-arch=sm_52",
-                "--cuda-gpu-arch=sm_60",
-                "--cuda-gpu-arch=sm_61",
-                "--cuda-gpu-arch=sm_70",  # Volta
                 "--cuda-gpu-arch=sm_75",  # Turing
                 "--cuda-gpu-arch=sm_80",  # Ampere
                 "--cuda-gpu-arch=sm_86",
+                "--cuda-gpu-arch=sm_89",  # Ada
+                "--cuda-gpu-arch=sm_90",  # Hopper
             ]
 
             if arch == "aarch64" and sys.platform == "linux":
-                gencode_opts += [
-                    # SASS for supported mobile architectures (e.g. Tegra/Jetson)
-                    "-gencode=arch=compute_53,code=sm_53",  # X1
-                    "-gencode=arch=compute_62,code=sm_62",  # X2
-                    "-gencode=arch=compute_72,code=sm_72",  # Xavier
-                    "-gencode=arch=compute_87,code=sm_87",  # Orin
-                ]
+                # SASS for supported mobile architectures (e.g. Tegra/Jetson)
+                gencode_opts += ["-gencode=arch=compute_87,code=sm_87"]  # Orin
+                clang_arch_flags += ["--cuda-gpu-arch=sm_87"]
 
-                clang_arch_flags += [
-                    # SASS for supported mobile architectures
-                    "--cuda-gpu-arch=sm_53",  # X1
-                    "--cuda-gpu-arch=sm_62",  # X2
-                    "--cuda-gpu-arch=sm_72",  # Xavier
-                    "--cuda-gpu-arch=sm_87",  # Orin
-                ]
+                if ctk_version >= (13, 0):
+                    gencode_opts += ["-gencode=arch=compute_110,code=sm_110"]  # Thor
+                    clang_arch_flags += ["--cuda-gpu-arch=sm_110"]
+                else:
+                    gencode_opts += [
+                        "-gencode=arch=compute_53,code=sm_53",  # X1
+                        "-gencode=arch=compute_62,code=sm_62",  # X2
+                        "-gencode=arch=compute_72,code=sm_72",  # Xavier
+                    ]
+                    clang_arch_flags += [
+                        "--cuda-gpu-arch=sm_53",
+                        "--cuda-gpu-arch=sm_62",
+                        "--cuda-gpu-arch=sm_72",
+                    ]
+
+                    if ctk_version >= (12, 8):
+                        gencode_opts += ["-gencode=arch=compute_101,code=sm_101"]  # Thor (CUDA 12 numbering)
+                        clang_arch_flags += ["--cuda-gpu-arch=sm_101"]
 
             if ctk_version >= (12, 8):
                 # Support for Blackwell is available with CUDA Toolkit 12.8+
                 gencode_opts += [
-                    "-gencode=arch=compute_89,code=sm_89",  # Ada
-                    "-gencode=arch=compute_90,code=sm_90",  # Hopper
                     "-gencode=arch=compute_100,code=sm_100",  # Blackwell
                     "-gencode=arch=compute_120,code=sm_120",  # Blackwell
                     "-gencode=arch=compute_120,code=compute_120",  # PTX for future hardware
                 ]
 
                 clang_arch_flags += [
-                    "--cuda-gpu-arch=sm_89",  # Ada
-                    "--cuda-gpu-arch=sm_90",  # Hopper
                     "--cuda-gpu-arch=sm_100",  # Blackwell
                     "--cuda-gpu-arch=sm_120",  # Blackwell
                 ]
-            elif ctk_version >= (11, 8):
-                # Support for Ada and Hopper is available with CUDA Toolkit 11.8+
-                gencode_opts += [
-                    "-gencode=arch=compute_89,code=sm_89",  # Ada
-                    "-gencode=arch=compute_90,code=sm_90",  # Hopper
-                    "-gencode=arch=compute_90,code=compute_90",  # PTX for future hardware
-                ]
-
-                clang_arch_flags += [
-                    "--cuda-gpu-arch=sm_89",  # Ada
-                    "--cuda-gpu-arch=sm_90",  # Hopper
-                ]
             else:
-                gencode_opts += [
-                    "-gencode=arch=compute_86,code=compute_86",  # PTX for future hardware
-                ]
-
-                clang_arch_flags += [
-                    "--cuda-gpu-arch=sm_86",  # PTX for future hardware
-                ]
+                gencode_opts += ["-gencode=arch=compute_90,code=compute_90"]  # PTX for future hardware
 
         nvcc_opts = [
             *gencode_opts,
@@ -313,7 +315,7 @@ def build_dll_for_arch(args, dll_path, cpp_paths, cu_path, arch, libs: Optional[
 
         if args.compile_time_trace:
             if ctk_version >= (12, 8):
-                nvcc_opts.append("--fdevice-time-trace=build_lib_compile-time-trace")
+                nvcc_opts.append("--fdevice-time-trace=_build/build_lib_@filename@_compile-time-trace")
             else:
                 print("Warp warning: CUDA version is less than 12.8, compile_time_trace is not supported")
 
@@ -321,7 +323,7 @@ def build_dll_for_arch(args, dll_path, cpp_paths, cu_path, arch, libs: Optional[
             nvcc_opts.append("--use_fast_math")
 
     # is the library being built with CUDA enabled?
-    cuda_enabled = "WP_ENABLE_CUDA=1" if (cu_path is not None) else "WP_ENABLE_CUDA=0"
+    cuda_enabled = "WP_ENABLE_CUDA=1" if (cu_paths is not None) else "WP_ENABLE_CUDA=0"
 
     if args.libmathdx_path:
         libmathdx_includes = f' -I"{args.libmathdx_path}/include"'
@@ -338,11 +340,11 @@ def build_dll_for_arch(args, dll_path, cpp_paths, cu_path, arch, libs: Optional[
 
         cpp_includes = f' /I"{warp_home_path.parent}/external/llvm-project/out/install/{mode}-{arch}/include"'
         cpp_includes += f' /I"{warp_home_path.parent}/_build/host-deps/llvm-project/release-{arch}/include"'
-        cuda_includes = f' /I"{cuda_home}/include"' if cu_path else ""
+        cuda_includes = f' /I"{cuda_home}/include"' if cu_paths else ""
         includes = cpp_includes + cuda_includes
 
         # nvrtc_static.lib is built with /MT and _ITERATOR_DEBUG_LEVEL=0 so if we link it in we must match these options
-        if cu_path or mode != "debug":
+        if cu_paths or mode != "debug":
             runtime = "/MT"
             iter_dbg = "_ITERATOR_DEBUG_LEVEL=0"
             debug = "NDEBUG"
@@ -368,32 +370,64 @@ def build_dll_for_arch(args, dll_path, cpp_paths, cu_path, arch, libs: Optional[
         if args.fast_math:
             cpp_flags += " /fp:fast"
 
-        with ScopedTimer("build", active=args.verbose):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
+            futures, wall_clock = [], time.perf_counter_ns()
+
+            cpp_cmds = []
             for cpp_path in cpp_paths:
                 cpp_out = cpp_path + ".obj"
                 linkopts.append(quote(cpp_out))
-
                 cpp_cmd = f'"{args.host_compiler}" {cpp_flags} -c "{cpp_path}" /Fo"{cpp_out}"'
-                run_cmd(cpp_cmd)
+                cpp_cmds.append(cpp_cmd)
 
-        if cu_path:
-            cu_out = cu_path + ".o"
+            if args.jobs <= 1:
+                with ScopedTimer("build", active=args.verbose):
+                    for cpp_cmd in cpp_cmds:
+                        run_cmd(cpp_cmd)
+            else:
+                futures = [executor.submit(run_cmd, cmd=cpp_cmd) for cpp_cmd in cpp_cmds]
 
-            if mode == "debug":
-                cuda_cmd = f'"{cuda_home}/bin/nvcc" --std=c++17 --compiler-options=/MT,/Zi,/Od -g -G -O0 -DNDEBUG -D_ITERATOR_DEBUG_LEVEL=0 -I"{native_dir}" -line-info {" ".join(nvcc_opts)} -DWP_ENABLE_CUDA=1 -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
+            cuda_cmds = []
+            if cu_paths:
+                for cu_path in cu_paths:
+                    cu_out = cu_path + ".o"
 
-            elif mode == "release":
-                cuda_cmd = f'"{cuda_home}/bin/nvcc" --std=c++17 -O3 {" ".join(nvcc_opts)} -I"{native_dir}" -DNDEBUG -DWP_ENABLE_CUDA=1 -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
+                    _nvcc_opts = [
+                        opt.replace("@filename@", os.path.basename(cu_path).replace(".", "_")) for opt in nvcc_opts
+                    ]
 
-            with ScopedTimer("build_cuda", active=args.verbose):
-                run_cmd(cuda_cmd)
-                linkopts.append(quote(cu_out))
+                    if mode == "debug":
+                        cuda_cmd = f'"{cuda_home}/bin/nvcc" --std=c++17 --compiler-options=/MT,/Zi,/Od -g -G -O0 -DNDEBUG -D_ITERATOR_DEBUG_LEVEL=0 -I"{native_dir}" -line-info {" ".join(_nvcc_opts)} -DWP_ENABLE_CUDA=1 -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
+                    elif mode == "release":
+                        cuda_cmd = f'"{cuda_home}/bin/nvcc" --std=c++17 -O3 {" ".join(_nvcc_opts)} -I"{native_dir}" -DNDEBUG -DWP_ENABLE_CUDA=1 -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
+
+                    cuda_cmds.append(cuda_cmd)
+
+                    linkopts.append(quote(cu_out))
+
                 linkopts.append(
                     f'cudart_static.lib nvrtc_static.lib nvrtc-builtins_static.lib nvptxcompiler_static.lib ws2_32.lib user32.lib /LIBPATH:"{cuda_home}/lib/x64"'
                 )
 
                 if args.libmathdx_path:
-                    linkopts.append(f'nvJitLink_static.lib /LIBPATH:"{args.libmathdx_path}/lib" mathdx_static.lib')
+                    linkopts.append(f'nvJitLink_static.lib /LIBPATH:"{args.libmathdx_path}/lib/x64" mathdx_static.lib')
+
+            if args.jobs <= 1:
+                with ScopedTimer("build_cuda", active=args.verbose):
+                    for cuda_cmd in cuda_cmds:
+                        run_cmd(cuda_cmd)
+            else:
+                futures.extend([executor.submit(run_cmd, cmd=cuda_cmd) for cuda_cmd in cuda_cmds])
+
+            if futures:
+                done, pending = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_EXCEPTION)
+                for d in done:
+                    if e := d.exception():
+                        for f in pending:
+                            f.cancel()
+                        raise e
+                elapsed = (time.perf_counter_ns() - wall_clock) / 1000000.0
+                print(f"build took {elapsed:.2f} ms ({args.jobs:d} workers)")
 
         with ScopedTimer("link", active=args.verbose):
             link_cmd = f'"{host_linker}" {" ".join(linkopts + libs)} /out:"{dll_path}"'
@@ -406,7 +440,7 @@ def build_dll_for_arch(args, dll_path, cpp_paths, cu_path, arch, libs: Optional[
 
         cpp_includes = f' -I"{warp_home_path.parent}/external/llvm-project/out/install/{mode}-{arch}/include"'
         cpp_includes += f' -I"{warp_home_path.parent}/_build/host-deps/llvm-project/release-{arch}/include"'
-        cuda_includes = f' -I"{cuda_home}/include"' if cu_path else ""
+        cuda_includes = f' -I"{cuda_home}/include"' if cu_paths else ""
         includes = cpp_includes + cuda_includes
 
         if sys.platform == "darwin":
@@ -433,39 +467,71 @@ def build_dll_for_arch(args, dll_path, cpp_paths, cu_path, arch, libs: Optional[
 
         ld_inputs = []
 
-        with ScopedTimer("build", active=args.verbose):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
+            futures, wall_clock = [], time.perf_counter_ns()
+
+            cpp_cmds = []
             for cpp_path in cpp_paths:
                 cpp_out = cpp_path + ".o"
                 ld_inputs.append(quote(cpp_out))
+                cpp_cmd = f'{cpp_compiler} {cpp_flags} -c "{cpp_path}" -o "{cpp_out}"'
+                cpp_cmds.append(cpp_cmd)
 
-                build_cmd = f'{cpp_compiler} {cpp_flags} -c "{cpp_path}" -o "{cpp_out}"'
-                run_cmd(build_cmd)
-
-        if cu_path:
-            cu_out = cu_path + ".o"
-
-            if cuda_compiler == "nvcc":
-                if mode == "debug":
-                    cuda_cmd = f'"{cuda_home}/bin/nvcc" --std=c++17 -g -G -O0 --compiler-options -fPIC,-fvisibility=hidden,-D_GLIBCXX_USE_CXX11_ABI=0  -D_DEBUG -D_ITERATOR_DEBUG_LEVEL=0 -line-info {" ".join(nvcc_opts)} -DWP_ENABLE_CUDA=1 -I"{native_dir}" -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
-                elif mode == "release":
-                    cuda_cmd = f'"{cuda_home}/bin/nvcc" --std=c++17 -O3 --compiler-options -fPIC,-fvisibility=hidden,-D_GLIBCXX_USE_CXX11_ABI=0  {" ".join(nvcc_opts)} -DNDEBUG -DWP_ENABLE_CUDA=1 -I"{native_dir}" -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
+            if args.jobs <= 1:
+                with ScopedTimer("build", active=args.verbose):
+                    for cpp_cmd in cpp_cmds:
+                        run_cmd(cpp_cmd)
             else:
-                # Use Clang compiler
-                if mode == "debug":
-                    cuda_cmd = f'clang++ -Werror -Wuninitialized -Wno-unknown-cuda-version {" ".join(clang_opts)} -g -O0 -fPIC -fvisibility=hidden -D_DEBUG -D_ITERATOR_DEBUG_LEVEL=0 -DWP_ENABLE_CUDA=1 -I"{native_dir}" -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
-                elif mode == "release":
-                    cuda_cmd = f'clang++ -Werror -Wuninitialized -Wno-unknown-cuda-version {" ".join(clang_opts)} -O3 -fPIC -fvisibility=hidden -DNDEBUG -DWP_ENABLE_CUDA=1 -I"{native_dir}" -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
+                futures = [executor.submit(run_cmd, cmd=cpp_cmd) for cpp_cmd in cpp_cmds]
 
-            with ScopedTimer("build_cuda", active=args.verbose):
-                run_cmd(cuda_cmd)
+            cuda_cmds = []
+            if cu_paths:
+                for cu_path in cu_paths:
+                    cu_out = cu_path + ".o"
 
-                ld_inputs.append(quote(cu_out))
+                    _nvcc_opts = [
+                        opt.replace("@filename@", os.path.basename(cu_path).replace(".", "_")) for opt in nvcc_opts
+                    ]
+
+                    if cuda_compiler == "nvcc":
+                        if mode == "debug":
+                            cuda_cmd = f'"{cuda_home}/bin/nvcc" --std=c++17 -g -G -O0 --compiler-options -fPIC,-fvisibility=hidden,-D_GLIBCXX_USE_CXX11_ABI=0 -D_DEBUG -D_ITERATOR_DEBUG_LEVEL=0 -line-info {" ".join(_nvcc_opts)} -DWP_ENABLE_CUDA=1 -I"{native_dir}" -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
+                        elif mode == "release":
+                            cuda_cmd = f'"{cuda_home}/bin/nvcc" --std=c++17 -O3 --compiler-options -fPIC,-fvisibility=hidden,-D_GLIBCXX_USE_CXX11_ABI=0 {" ".join(_nvcc_opts)} -DNDEBUG -DWP_ENABLE_CUDA=1 -I"{native_dir}" -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
+                    else:
+                        # Use Clang compiler
+                        if mode == "debug":
+                            cuda_cmd = f'clang++ -Werror -Wuninitialized -Wno-unknown-cuda-version {" ".join(clang_opts)} -g -O0 -fPIC -fvisibility=hidden -D_DEBUG -D_ITERATOR_DEBUG_LEVEL=0 -DWP_ENABLE_CUDA=1 -I"{native_dir}" -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
+                        elif mode == "release":
+                            cuda_cmd = f'clang++ -Werror -Wuninitialized -Wno-unknown-cuda-version {" ".join(clang_opts)} -O3 -fPIC -fvisibility=hidden -DNDEBUG -DWP_ENABLE_CUDA=1 -I"{native_dir}" -D{mathdx_enabled} {libmathdx_includes} -o "{cu_out}" -c "{cu_path}"'
+
+                    cuda_cmds.append(cuda_cmd)
+
+                    ld_inputs.append(quote(cu_out))
+
                 ld_inputs.append(
                     f'-L"{cuda_home}/lib64" -lcudart_static -lnvrtc_static -lnvrtc-builtins_static -lnvptxcompiler_static -lpthread -ldl -lrt'
                 )
 
                 if args.libmathdx_path:
                     ld_inputs.append(f"-lnvJitLink_static -L{args.libmathdx_path}/lib -lmathdx_static")
+
+            if args.jobs <= 1:
+                with ScopedTimer("build_cuda", active=args.verbose):
+                    for cuda_cmd in cuda_cmds:
+                        run_cmd(cuda_cmd)
+            else:
+                futures.extend([executor.submit(run_cmd, cmd=cuda_cmd) for cuda_cmd in cuda_cmds])
+
+            if futures:
+                done, pending = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_EXCEPTION)
+                for d in done:
+                    if e := d.exception():
+                        for f in pending:
+                            f.cancel()
+                        raise e
+                elapsed = (time.perf_counter_ns() - wall_clock) / 1000000.0
+                print(f"build took {elapsed:.2f} ms ({args.jobs:d} workers)")
 
         if sys.platform == "darwin":
             opt_no_undefined = "-Wl,-undefined,error"
@@ -490,15 +556,15 @@ def build_dll_for_arch(args, dll_path, cpp_paths, cu_path, arch, libs: Optional[
                     )
 
 
-def build_dll(args, dll_path, cpp_paths, cu_path, libs=None):
+def build_dll(args, dll_path, cpp_paths, cu_paths, libs=None):
     if sys.platform == "darwin":
         # create a universal binary by combining x86-64 and AArch64 builds
-        build_dll_for_arch(args, dll_path + "-x86_64", cpp_paths, cu_path, "x86_64", libs)
-        build_dll_for_arch(args, dll_path + "-aarch64", cpp_paths, cu_path, "aarch64", libs)
+        build_dll_for_arch(args, dll_path + "-x86_64", cpp_paths, cu_paths, "x86_64", libs)
+        build_dll_for_arch(args, dll_path + "-aarch64", cpp_paths, cu_paths, "aarch64", libs)
 
         run_cmd(f"lipo -create -output {dll_path} {dll_path}-x86_64 {dll_path}-aarch64")
         os.remove(f"{dll_path}-x86_64")
         os.remove(f"{dll_path}-aarch64")
 
     else:
-        build_dll_for_arch(args, dll_path, cpp_paths, cu_path, machine_architecture(), libs)
+        build_dll_for_arch(args, dll_path, cpp_paths, cu_paths, machine_architecture(), libs)

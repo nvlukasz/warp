@@ -24,11 +24,19 @@ The following example shows a simple kernel that adds two arrays together::
 
 Kernels are launched with the :func:`wp.launch() <launch>` function on a specific device (CPU/GPU)::
 
-    wp.launch(add_kernel, dim=1024, inputs=[a, b, c], device="cuda")
+    wp.launch(add_kernel, dim=1024, inputs=[a, b], outputs=[c], device="cuda")
 
-Note that all the kernel inputs must live on the target device or a runtime exception will be raised.
-Kernels may be launched with multi-dimensional grid bounds. In this case, threads are not assigned a single index,
-but a coordinate in an n-dimensional grid, e.g.::
+Note that all the kernel inputs and outputs must live on the target device or a runtime exception will be raised.
+
+Unless you are using the :ref:`Graph visualization tool<visualizing_computation_graphs>`, the ``outputs`` argument is optional -- all kernel 
+arguments may be passed as inputs, but for readability it is sometimes useful to distinguish between the 
+kernel arguments that are read from (``inputs``) and the kernel arguments that are written to (``outputs``). 
+So in the above example, it would be equally valid to write ``inputs=[a, b, c]`` but since we are writing to ``c``,
+we list it in the ``outputs`` argument. Note that the combined ``inputs`` followed by ``outputs`` list 
+should match the ordering of the kernel arguments.
+
+Kernels may be launched with multi-dimensional grid bounds.
+In this case, threads are not assigned a single index, but a coordinate in an n-dimensional grid, e.g.::
 
     wp.launch(complex_kernel, dim=(128, 128, 3), ...)
 
@@ -149,6 +157,25 @@ Additionally, data can be copied between arrays in different memory spaces using
     # copy from source CPU buffer to GPU
     wp.copy(dest_array, src_array)
 
+When indexing an array with an array of integers, the result is an :ref:`indexed array<Indexed_Arrays>`:
+
+.. testcode::
+
+    import warp as wp
+
+    arr = wp.array((1, 2, 3, 4, 5, 6))
+    sub = arr[wp.array((0, 2, 4), dtype=wp.int32)] # advanced indexing -> wp.indexedarray
+
+    print(type(arr), arr.shape)
+    print(type(sub), sub.shape)
+    print(sub)
+
+.. testoutput::
+
+    <class 'warp.types.array'> (6,)
+    <class 'warp.types.indexedarray'> (3,)
+    [1 3 5]
+
 .. autoclass:: array
     :members:
     :undoc-members:
@@ -169,7 +196,7 @@ e.g. to pass a 2D array to a kernel the number of dims is specified using the ``
     @wp.kernel
     def test(input: wp.array(dtype=float, ndim=2)):
 
-Type-hint helpers are provided for common array sizes, e.g.: ``array2d()``, ``array3d()``, which are equivalent to calling ``array(..., ndim=2)```, etc.
+Type-hint helpers are provided for common array sizes, e.g.: ``array2d()``, ``array3d()``, which are equivalent to calling ``array(..., ndim=2)``, etc.
 To index a multi-dimensional array, use the following kernel syntax::
 
     # returns a float from the 2d array
@@ -195,6 +222,292 @@ The following construction methods are provided for allocating zero-initialized 
 .. autofunction:: empty_like
 .. autofunction:: copy
 .. autofunction:: clone
+
+
+.. _Indexed_Arrays:
+
+Indexed Arrays
+##############
+
+An indexed array is a lightweight view into an existing :class:`warp.array` instance that references elements
+through an explicit integer index list, thus allowing to run kernels on an arbitrary subset of data without any copy.
+
+.. autoclass:: indexedarray
+    :members:
+    :undoc-members:
+    :exclude-members: vars
+
+
+Creating an Indexed Array
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Pass the *data* array together with a list of ``wp.int32`` index arrays, one for each dimension:
+
+.. testcode::
+
+    import warp as wp
+
+    # Base data.
+    arr = wp.array((1.23, 2.34, 3.45, 4.56, 5.67, 6.78), device="cuda")
+
+    # Only view elements at odd indices.
+    idx = wp.array((1, 3, 5), dtype=wp.int32, device="cuda")
+    sub = wp.indexedarray(arr, [idx])  # Same as wp.indexedarray1d(...)
+    print(sub)
+
+.. testoutput::
+
+    [2.34 4.56 6.78]
+
+
+Additionally, ``None`` can be passed to select all elements for any given dimension.
+
+.. testcode::
+
+    import numpy as np
+    import warp as wp
+
+    mat = wp.array(np.arange(25, dtype=np.float32).reshape((5, 5)))
+    rows = wp.array((1, 3), dtype=wp.int32)
+
+    block = wp.indexedarray2d(mat, (rows, None))  # shape == (2, 5)
+    print(block)
+
+.. testoutput::
+
+    [[ 5.  6.  7.  8.  9.]
+     [15. 16. 17. 18. 19.]]
+
+
+The resulting view keeps the ``dtype`` of the source and has a shape given by the lengths of the supplied index arrays.
+
+Alternative constructors are available for convenience:
+
+.. autofunction:: indexedarray1d
+.. autofunction:: indexedarray2d
+.. autofunction:: indexedarray3d
+.. autofunction:: indexedarray4d
+
+
+Interoperability With Other Frameworks
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Frameworks such as PyTorch or JAX do not have a concept equivalent to
+Warp's indexed arrays. Converting an ``wp.indexedarray`` directly therefore
+raises an exception. Two common workarounds are:
+
+1. Make a contiguous copy and share that::
+
+    import warp as wp
+
+    arr = wp.array((1.0, 2.0, 3.0, 4.0), device="cuda")
+    idx = wp.array((0, 3), dtype=int, device="cuda")
+    sub = wp.indexedarray1d(arr, idx)
+    t = wp.to_torch(sub.contiguous())
+
+2. Share the underlying data and index buffers independently (zero-copy)::
+
+    import warp as wp
+
+    arr = wp.array((1.0, 2.0, 3.0, 4.0), device="cuda")
+    idx = wp.array((0, 3), dtype=int, device="cuda")
+    sub = wp.indexedarray1d(arr, idx)
+    t_data = wp.to_torch(sub.data)
+    t_ind = wp.to_torch(sub.indices[0])
+
+
+PyTorch can index with integer tensors, but doing so always copies the data.
+
+
+Structured Arrays
+#################
+
+Structured arrays in Warp allow you to work with arrays of user-defined structs,
+enabling efficient, named access to heterogeneous data fields across the CPU and GPU.
+
+Creating and Viewing Struct Arrays
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When you define a Warp struct, you can allocate a Warp array of that type on the CPU and convert it to a NumPy structured array view (zero-copy):
+
+.. testcode::
+
+    import warp as wp
+    import numpy as np
+
+    @wp.struct
+    class Foo:
+        i: int
+        f: float
+
+    # allocate a Warp array on the CPU
+    a = wp.zeros(5, dtype=Foo, device="cpu")
+
+    # view it in NumPy without copying
+    na = a.numpy()
+
+    # modify via NumPy
+    na["i"][0] = 42
+    na["f"][2] = 13.37
+
+    print(a)
+    
+.. testoutput::
+
+    [(42,  0.  ) ( 0,  0.  ) ( 0, 13.37) ( 0,  0.  ) ( 0,  0.  )]
+
+Initializing via NumPy and Converting to a Warp Array
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+You can also create a NumPy structured array first, then convert it to a Warp array, which works well for batch initialization: ::
+
+    import warp as wp
+    import numpy as np
+    import math
+
+    rng = np.random.default_rng(123)
+
+    @wp.struct
+    class Boid:
+        vel: wp.vec3f
+        wander_angles: wp.vec2f
+        mass: float
+        group: int
+
+    num_boids = 3
+    npboids = np.zeros(num_boids, dtype=Boid.numpy_dtype())
+
+    angles = math.pi - 2 * math.pi * rng.random(num_boids)
+    npboids["vel"][:, 0] = 20 * np.sin(angles)
+    npboids["vel"][:, 2] = 20 * np.cos(angles)
+
+    npboids["wander_angles"][:, 0] = math.pi * rng.random(num_boids)
+    npboids["wander_angles"][:, 1] = 2 * math.pi * rng.random(num_boids)
+
+    npboids["mass"][:] = 0.5 + 0.5 * rng.random(num_boids)
+
+    # create Warp array from prepared NumPy array
+    boids = wp.array(npboids, dtype=Boid)
+
+This approach leverages NumPy's vectorized operations to initialize all array elements efficiently, avoiding Python loops.
+
+Nested Structs and Vector Types
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Structured arrays fully support nested structs and Warp vector (and matrix) types:
+
+.. testcode::
+
+    import warp as wp
+    import numpy as np
+
+    @wp.struct
+    class Bar:
+        x: wp.vec3
+
+    @wp.struct
+    class Foo:
+        i: int
+        f: float
+        bar: Bar
+
+    na = np.zeros(5, dtype=Foo.numpy_dtype())
+
+    na["i"][0] = 42
+    na["f"][2] = 13.37
+    na["bar"]["x"][4] = wp.vec3(1.0)
+
+    a = wp.array(na, dtype=Foo, device="cuda:0")
+
+    print(a.numpy())
+
+.. testoutput::
+
+    [(42,  0.  , ([0., 0., 0.],)) ( 0,  0.  , ([0., 0., 0.],))
+     ( 0, 13.37, ([0., 0., 0.],)) ( 0,  0.  , ([0., 0., 0.],))
+     ( 0,  0.  , ([1., 1., 1.],))]
+
+
+Local Arrays
+############
+
+While arrays are typically created at the Python scope and passed to kernels as arguments,
+Warp also supports creating arrays directly inside kernels. This capability is limited to two specific approaches:
+
+1. **Creating array views from existing memory**: Initialize an array that references an existing data buffer
+   by using ``wp.array(ptr=..., shape=..., dtype=...)``. This is useful to reinterpret memory
+   with a different shape or when working with external memory pointers:
+
+    .. testcode::
+
+        @wp.kernel
+        def sum_rows_kernel(
+            flat_arr: wp.array(dtype=int),
+            out: wp.array(dtype=int),
+        ):
+            tid = wp.tid()
+
+            # Reinterpret the flat array as a 2D array of 3x4 elements.
+            arr = wp.array(ptr=flat_arr.ptr, shape=(3, 4), dtype=int)
+
+            # Compute sum of row.
+            sum = int(0)
+            for j in range(arr.shape[1]):
+                sum += arr[tid, j]
+
+            out[tid] = sum
+
+        flat_arr = wp.array(range(12), dtype=int)
+        row_sums = wp.zeros(3, dtype=int)
+        wp.launch(sum_rows_kernel, dim=3, inputs=(flat_arr, row_sums))
+        print(row_sums.numpy())
+
+    .. testoutput::
+
+        [ 6 22 38]
+
+2. **Allocating fixed-size arrays**: Allocate a new zero-initialized array with a compile-time constant shape
+   using ``wp.zeros(shape=..., dtype=...)``:
+
+    .. testcode::
+
+        N = 6
+
+        @wp.kernel
+        def find_cumsum_avg_crossing_kernel(
+            arr: wp.array2d(dtype=float),
+            out: wp.array(dtype=int),
+        ):
+            tid = wp.tid()
+
+            # Create temporary array to store cumulative sums for this column.
+            tmp = wp.zeros(shape=(N,), dtype=float)
+
+            # Compute the cumulative sum values.
+            tmp[0] = arr[0, tid]
+            for i in range(1, N):
+                tmp[i] = tmp[i - 1] + arr[i, tid]
+
+            # Calculate the average of the cumulative sum values.
+            sum = float(0)
+            for i in range(N):
+                sum += tmp[i]
+            avg = sum / float(N)
+
+            # Find the first index where `cumulative sum value >= avg`.
+            # This represents the crossing point where accumulated values exceed
+            # the average accumulation.
+            out[tid] = wp.lower_bound(tmp, avg)
+
+        arr = wp.array(np.abs(np.sin(np.arange(N * 3))).reshape(N, 3), dtype=float)
+        idx = wp.empty(shape=(3,), dtype=int)
+        wp.launch(find_cumsum_avg_crossing_kernel, dim=(3,), inputs=(arr,), outputs=(idx,))
+        print(idx.numpy())
+
+    .. testoutput::
+
+        [3 3 3]
+
 
 .. _Data_Types:
 
@@ -678,6 +991,48 @@ Example: Defining Operator Overloads
     wp.launch(kernel, dim=(1,))
     wp.synchronize()
 
+
+Indexing and Slicing
+####################
+
+Indexing and slicing for vectors, matrices, quaternions, and transforms, follow NumPy-like semantics for element access: ::
+
+    @wp.kernel
+    def compute( ... ):
+        v = wp.vec3(1.0, 2.0, 3.0)
+        wp.expect_eq(v[-1], 3.0) # negative indices wrap
+        wp.expect_eq(v[1:], wp.vec2(2.0, 3.0)) # slice returns a new vector
+
+        v[::2] = 0.0 # slice assignment
+        wp.expect_eq(v, wp.vec3(0.0, 2.0, 0.0))
+
+        m = wp.matrix_from_rows(
+            wp.vec3(1.0, 2.0, 3.0),
+            wp.vec3(4.0, 5.0, 6.0),
+            wp.vec3(7.0, 8.0, 9.0),
+        )
+        wp.expect_eq(m[:, 1], wp.vec3(2.0, 5.0, 8.0)) # column vector
+        wp.expect_eq(
+            m[:2, 1:], # 2x2 sub-matrix
+            wp.matrix_from_rows(wp.vec2(2.0, 3.0), wp.vec2(5.0, 6.0))
+        )
+
+        m[:, 0] = wp.vec3(10.0, 11.0, 12.0) # column vector assignment
+        wp.expect_eq(
+            m,
+            wp.matrix_from_rows(
+                wp.vec3(10.0, 2.0, 3.0),
+                wp.vec3(11.0, 5.0, 6.0),
+                wp.vec3(12.0, 8.0, 9.0),
+            )
+        )
+
+Negative indices are wrapped around, such that ``-1`` refers to the last element. Slices always create new copies.
+
+Inside kernels, the ``start / stop / step`` values of a slice must be **compile-time constants**.  Simple element indexing (``v[i]``, ``m[i, j]``) may use run-time
+expressions.
+
+
 Type Conversions
 ################
 
@@ -1154,12 +1509,31 @@ Graph API Reference
 .. autofunction:: capture_launch
 .. autofunction:: capture_if
 .. autofunction:: capture_while
+.. autofunction:: capture_debug_dot_print
 
 .. autoclass:: ScopedCapture
     :members:
 
+Spatial Computing Primitives
+----------------------------
+
+Spatial computing primitives provide efficient data structures for spatial queries and geometric operations.
+These include hash grids for particle neighbor searches, bounding volume hierarchies (BVHs) for ray tracing and
+collision detection, and mesh types.
+These ready-to-use implementations save significant development time compared to building spatial data structures from
+scratch, while providing high-performance on the GPU.
+
+.. caution::
+    **Object Lifetime Management**: Spatial computing primitives
+    (e.g. :class:`wp.HashGrid <HashGrid>`, :class:`wp.Bvh <Bvh>`, etc.) must remain in scope.
+    These acceleration data structures are identified by their ``id`` attribute when passed to kernels, 
+    but if the Python object is garbage collected, the memory allocated for the primitive may be
+    freed, causing crashes and undefined behavior.
+
+    See the :ref:`Object Lifetime Pitfall<object lifetime pitfall>` section below for more information.
+
 Meshes
-------
+######
 
 Warp provides a :class:`wp.Mesh <Mesh>` class to manage triangle mesh data. To create a mesh, users provide a points, indices and optionally a velocity array::
 
@@ -1209,7 +1583,7 @@ structure and ensure that queries work correctly.
     :exclude-members: vars, Var
 
 Hash Grids
-----------
+##########
 
 Many particle-based simulation methods such as the Discrete Element Method (DEM), or Smoothed Particle Hydrodynamics (SPH), involve iterating over spatial neighbors to compute force interactions. Hash grids are a well-established data structure to accelerate these nearest neighbor queries, and particularly well-suited to the GPU.
 
@@ -1265,7 +1639,7 @@ and :func:`wp.hash_grid_query_next() <hash_grid_query_next>` as follows:
     :members:
 
 Volumes
--------
+#######
 
 Sparse volumes are incredibly useful for representing grid data over large domains, such as signed distance fields
 (SDFs) for complex objects, or velocities for large-scale fluid flow. Warp supports reading sparse volumetric grids
@@ -1353,7 +1727,7 @@ NanoVDB grids may also contain embedded *blind* data arrays; those can be access
 
 
 Bounding Value Hierarchies (BVH)
---------------------------------
+################################
 
 The :class:`wp.Bvh <Bvh>` class can be used to create a BVH for a group of bounding volumes. This object can then be traversed
 to determine which parts are intersected by a ray using :func:`bvh_query_ray` and which parts overlap
@@ -1378,7 +1752,7 @@ The following snippet demonstrates how to create a :class:`wp.Bvh <Bvh>` object 
     :members:
 
 Example: BVH Ray Traversal
-##########################
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 An example of performing a ray traversal on the data structure is as follows:
 
@@ -1418,7 +1792,7 @@ A while statement is used for the actual traversal using :func:`wp.bvh_query_nex
 which returns ``True`` as long as there are intersecting bounds.
 
 Example: BVH Volume Traversal
-#############################
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Similar to the ray-traversal example, we can perform volume traversal to find the volumes that are fully contained
 within a specified bounding box.
@@ -1455,12 +1829,58 @@ within a specified bounding box.
 The kernel is nearly identical to the ray-traversal example, except we obtain ``query`` using
 :func:`wp.bvh_query_aabb() <bvh_query_aabb>`.
 
+.. _object lifetime pitfall:
+
+Object Lifetime Pitfall
+#######################
+
+When working with spatial computing primitives like :class:`wp.HashGrid <HashGrid>` and :class:`wp.Bvh <Bvh>`,
+it's crucial to understand how Python's garbage collection interacts with these objects.
+The following example demonstrate a common mistake and how to avoid it.
+
+**Common Pitfall**: Creating objects in loops and only storing their IDs
+
+.. code-block:: python
+    
+    # WRONG - objects may be garbage collected
+    hash_grids = []
+    for i in range(10):
+        grid = wp.HashGrid(dim_x=128, dim_y=128, dim_z=128)
+        grid.build(points=particle_positions[i], radius=search_radius)
+        hash_grids.append(grid.id)  # Only storing the ID
+    
+    # RIGHT - maintain references to the objects
+    hash_grid_objects = []
+    for i in range(10):
+        grid = wp.HashGrid(dim_x=128, dim_y=128, dim_z=128)
+        grid.build(points=particle_positions[i], radius=search_radius)
+        hash_grid_objects.append(grid)  # Keep the object alive
+    
+    # Create Warp array for kernel execution when needed
+    grid_ids_array = wp.array([x.id for x in hash_grid_objects], dtype=wp.uint64, device="cuda")
+    
+    wp.launch(my_kernel, dim=10, inputs=[grid_ids_array])
+
+**Why This Happens**: When you only store the ``id`` attribute (which is a ``wp.uint64`` pointer), 
+Python's garbage collector may free the original object if no other references exist. This leads to 
+undefined behavior when the kernel tries to access the freed memory.
+
+**Common Problematic Scenarios**:
+
+1. **Creating objects in loops** and only storing their IDs
+2. **Creating objects in functions** and returning only the ID  
+3. **Creating objects as temporary variables** that get overwritten
+
+Always maintain references to spatial computing primitive objects
+(like :class:`wp.HashGrid <HashGrid>`, :class:`wp.Bvh <Bvh>`, etc.) rather than just their ID values.
+This is especially important in loops, functions, and temporary variables where object scope might be unclear.
+
 Marching Cubes
 --------------
 
 The :class:`wp.MarchingCubes <MarchingCubes>` class can be used to extract a 2-D mesh approximating an
 isosurface of a 3-D scalar field. The resulting triangle mesh can be saved to a USD
-file using the :class:`warp.renderer.UsdRenderer`.
+file using the :class:`warp.render.UsdRenderer`.
 
 See :github:`warp/examples/core/example_marching_cubes.py` for a usage example.
 
@@ -1541,3 +1961,10 @@ and will remain cached even if :func:`wp.clear_kernel_cache() <clear_kernel_cach
 :func:`wp.clear_lto_cache() <clear_lto_cache>` can be used to clear the LTO cache.
 
 .. autofunction:: clear_lto_cache
+
+Module Management
+-----------------
+
+.. autofunction:: warp.compile_aot_module
+
+.. autofunction:: warp.load_aot_module

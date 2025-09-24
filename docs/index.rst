@@ -22,46 +22,71 @@ The easiest way to install Warp is from `PyPI <https://pypi.org/project/warp-lan
 
     $ pip install warp-lang
 
-You can also use ```pip install warp-lang[extras]``` to install additional dependencies for running examples
+You can also use ``pip install warp-lang[extras]`` to install additional dependencies for running examples
 and USD-related features.
 
 The binaries hosted on PyPI are currently built with the CUDA 12 runtime and therefore
 require a minimum version of the CUDA driver of 525.60.13 (Linux x86-64) or 528.33 (Windows x86-64).
 
-If you require GPU support on a system with an older CUDA driver, you can build Warp from source or
-install wheels built with the CUDA 11.8 runtime as described in :ref:`GitHub Installation`.
+If you require a version of Warp built with the CUDA 13 runtime, you can build Warp from source or
+install wheels built with the CUDA 13.0 runtime as described in :ref:`GitHub Installation`.
 
-Basic Example
--------------
+Tutorial Notebooks
+------------------
 
-An example first program that computes the lengths of random 3D vectors is given below::
+The `NVIDIA Accelerated Computing Hub <https://github.com/NVIDIA/accelerated-computing-hub>`_ contains the current,
+actively maintained set of Warp tutorials:
 
-    import warp as wp
-    import numpy as np
+.. list-table::
+   :header-rows: 1
 
-    num_points = 1024
+   * - Notebook
+     - Colab Link
+   * - `Introduction to NVIDIA Warp <https://github.com/NVIDIA/accelerated-computing-hub/blob/9c334fcfcbbaf8d0cff91d012cdb2c11bf0f3dba/Accelerated_Python_User_Guide/notebooks/Chapter_12_Intro_to_NVIDIA_Warp.ipynb>`_
+     - .. image:: https://colab.research.google.com/assets/colab-badge.svg
+          :target: https://colab.research.google.com/github/NVIDIA/accelerated-computing-hub/blob/9c334fcfcbbaf8d0cff91d012cdb2c11bf0f3dba/Accelerated_Python_User_Guide/notebooks/Chapter_12_Intro_to_NVIDIA_Warp.ipynb
+          :alt: Open In Colab
+   * - `GPU-Accelerated Ising Model Simulation in NVIDIA Warp <https://github.com/NVIDIA/accelerated-computing-hub/blob/9c334fcfcbbaf8d0cff91d012cdb2c11bf0f3dba/Accelerated_Python_User_Guide/notebooks/Chapter_12.1_IsingModel_In_Warp.ipynb>`_
+     - .. image:: https://colab.research.google.com/assets/colab-badge.svg
+          :target: https://colab.research.google.com/github/NVIDIA/accelerated-computing-hub/blob/9c334fcfcbbaf8d0cff91d012cdb2c11bf0f3dba/Accelerated_Python_User_Guide/notebooks/Chapter_12.1_IsingModel_In_Warp.ipynb
+          :alt: Open In Colab
 
-    @wp.kernel
-    def length(points: wp.array(dtype=wp.vec3),
-               lengths: wp.array(dtype=float)):
+Additionally, several notebooks in the `notebooks <https://github.com/NVIDIA/warp/tree/main/notebooks>`_ directory
+provide additional examples and cover key Warp features:
 
-        # thread index
-        tid = wp.tid()
+.. list-table::
+   :header-rows: 1
 
-        # compute distance of each point from origin
-        lengths[tid] = wp.length(points[tid])
-
-
-    # allocate an array of 3d points
-    points = wp.array(np.random.rand(num_points, 3), dtype=wp.vec3)
-    lengths = wp.zeros(num_points, dtype=float)
-
-    # launch kernel
-    wp.launch(kernel=length,
-              dim=len(points),
-              inputs=[points, lengths])
-
-    print(lengths)
+   * - Notebook
+     - Colab Link
+   * - `Warp Core Tutorial: Basics <https://github.com/NVIDIA/warp/blob/main/notebooks/core_01_basics.ipynb>`_
+     - .. image:: https://colab.research.google.com/assets/colab-badge.svg
+          :target: https://colab.research.google.com/github/NVIDIA/warp/blob/main/notebooks/core_01_basics.ipynb
+          :alt: Open In Colab
+   * - `Warp Core Tutorial: Generics <https://github.com/NVIDIA/warp/blob/main/notebooks/core_02_generics.ipynb>`_
+     - .. image:: https://colab.research.google.com/assets/colab-badge.svg
+          :target: https://colab.research.google.com/github/NVIDIA/warp/blob/main/notebooks/core_02_generics.ipynb
+          :alt: Open In Colab
+   * - `Warp Core Tutorial: Points <https://github.com/NVIDIA/warp/blob/main/notebooks/core_03_points.ipynb>`_
+     - .. image:: https://colab.research.google.com/assets/colab-badge.svg
+          :target: https://colab.research.google.com/github/NVIDIA/warp/blob/main/notebooks/core_03_points.ipynb
+          :alt: Open In Colab
+   * - `Warp Core Tutorial: Meshes <https://github.com/NVIDIA/warp/blob/main/notebooks/core_04_meshes.ipynb>`_
+     - .. image:: https://colab.research.google.com/assets/colab-badge.svg
+          :target: https://colab.research.google.com/github/NVIDIA/warp/blob/main/notebooks/core_04_meshes.ipynb
+          :alt: Open In Colab
+   * - `Warp Core Tutorial: Volumes <https://github.com/NVIDIA/warp/blob/main/notebooks/core_05_volumes.ipynb>`_
+     - .. image:: https://colab.research.google.com/assets/colab-badge.svg
+          :target: https://colab.research.google.com/github/NVIDIA/warp/blob/main/notebooks/core_05_volumes.ipynb
+          :alt: Open In Colab
+   * - `Warp PyTorch Tutorial: Basics <https://github.com/NVIDIA/warp/blob/main/notebooks/pytorch_01_basics.ipynb>`_
+     - .. image:: https://colab.research.google.com/assets/colab-badge.svg
+          :target: https://colab.research.google.com/github/NVIDIA/warp/blob/main/notebooks/pytorch_01_basics.ipynb
+          :alt: Open In Colab
+   * - `Warp PyTorch Tutorial: Custom Operators <https://github.com/NVIDIA/warp/blob/main/notebooks/pytorch_02_custom_operators.ipynb>`_
+     - .. image:: https://colab.research.google.com/assets/colab-badge.svg
+          :target: https://colab.research.google.com/github/NVIDIA/warp/blob/main/notebooks/pytorch_02_custom_operators.ipynb
+          :alt: Open In Colab
 
 Additional Examples
 -------------------
@@ -154,18 +179,30 @@ warp/examples/fem
       - mixed elasticity
       - apic fluid
       - streamlines
-    * - .. image:: ./img/examples/fem_convection_diffusion.png
-           :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/fem/example_convection_diffusion.py
+    * - .. image:: ./img/examples/fem_distortion_energy.png
+           :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/fem/example_distortion_energy.py
       - .. image:: ./img/examples/fem_navier_stokes.png
            :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/fem/example_navier_stokes.py
       - .. image:: ./img/examples/fem_burgers.png
            :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/fem/example_burgers.py
       - .. image:: ./img/examples/fem_magnetostatics.png
            :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/fem/example_magnetostatics.py
-    * - convection diffusion
+    * - distortion energy
       - navier stokes
       - burgers
       - magnetostatics
+    * - .. image:: ./img/examples/fem_adaptive_grid.png
+           :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/fem/example_adaptive_grid.py
+      - .. image:: ./img/examples/fem_nonconforming_contact.png
+           :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/fem/example_nonconforming_contact.py
+      - .. image:: ./img/examples/fem_darcy_ls_optimization.png
+           :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/fem/example_darcy_ls_optimization.py
+      - .. image:: ./img/examples/fem_elastic_shape_optimization.png
+           :target: https://github.com/NVIDIA/warp/tree/main/warp/examples/fem/example_elastic_shape_optimization.py
+    * - adaptive grid
+      - nonconforming contact
+      - darcy level-set optimization
+      - elastic shape optimization
 
 warp/examples/optim
 ^^^^^^^^^^^^^^^^^^^

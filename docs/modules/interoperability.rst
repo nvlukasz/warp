@@ -523,9 +523,12 @@ Using Warp kernels as JAX primitives
 .. note::
     This version of :func:`jax_kernel() <warp.jax_experimental.jax_kernel>` is based on JAX features that are now deprecated.
 
-    For JAX version 0.4.31 or newer, users are encouraged to switch to the new version of
+    For JAX version 0.5.0 or newer, users are encouraged to switch to the new FFI version of
     :func:`jax_kernel() <warp.jax_experimental.ffi.jax_kernel>`
     based on the new :ref:`Foreign Function Interface (FFI)<jax-ffi>`.
+
+    In Warp version 1.10, the FFI version will become the default implementation of `jax_kernel()`.
+    The older version will continue to be available as `warp.jax_experimental.custom_call.jax_kernel`.
 
 Warp kernels can be used as JAX primitives, which allows calling them inside of jitted JAX functions::
 
@@ -656,7 +659,7 @@ JAX Foreign Function Interface (FFI)
 
 .. versionadded:: 1.7
 
-JAX v0.4.31 introduced a new `foreign function interface <https://docs.jax.dev/en/latest/ffi.html>`_ that supersedes
+JAX v0.5.0 introduced a new `foreign function interface <https://docs.jax.dev/en/latest/ffi.html>`_ that supersedes
 the older custom call mechanism. One important benefit is that it allows the foreign function to be captured in a CUDA
 graph together with other JAX operations. This can lead to significant performance improvements.
 
@@ -1016,12 +1019,11 @@ just focus on the differences:
 
 - :func:`jax_callable() <warp.jax_experimental.ffi.jax_callable>` does not take a ``launch_dims`` argument,
   since the target function is responsible for launching kernels using appropriate dimensions.
-- :func:`jax_callable() <warp.jax_experimental.ffi.jax_callable>` takes an optional Boolean
-  ``graph_compatible`` argument, which defaults to ``True``.
-  This argument determines whether JAX can capture the function in a CUDA graph.
-  It is generally desirable, since CUDA graphs can greatly improve the application performance.
-  However, if the target function performs operations that are not allowed during graph capture, it may lead to errors.
-  This includes any operations that require synchronization with the host. In such cases, pass ``graph_compatible=False``.
+- :func:`jax_callable() <warp.jax_experimental.ffi.jax_callable>` takes an optional ``graph_mode`` argument, which determines how the callable can be captured in a CUDA graph.
+  Graphs are generally desirable, since they can greatly improve the application performance.
+  ``GraphMode.JAX`` (default) lets JAX capture the graph, which may be used as a subgraph in an enclosing capture for maximal benefit.
+  ``GraphMode.WARP`` lets Warp capture the graph. Use this mode when the callable cannot be used as a subgraph, such as when the callable uses conditional graph nodes.
+  ``GraphMode.NONE`` disables graph capture. Use this mode if the callable performs operations that are not allowed during graph capture, such as host synchronization.
 
 See `example_jax_callable.py <https://github.com/NVIDIA/warp/tree/main/warp/examples/interop/example_jax_callable.py>`_ for examples.
 

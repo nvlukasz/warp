@@ -318,7 +318,7 @@ def test_input_validity(test, device):
 
     with test.assertRaisesRegex(
         TypeError,
-        'Incorrect input provided for argument "i": received array of dtype float32, expected int$',
+        "Function test_input_validity__locals__int_function does not support the provided argument types float32",
     ):
         wp.map(int_function, a1)
 
@@ -475,6 +475,20 @@ add_function_test(TestMap, "test_kernel_creation", test_kernel_creation, devices
 add_function_test(TestMap, "test_graph_capture", test_graph_capture, devices=cuda_test_devices)
 add_function_test(TestMap, "test_renamed_warp_module", test_renamed_warp_module, devices=devices)
 
+
+class TestMapDebug(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._saved_mode = wp.config.mode
+        wp.config.mode = "debug"
+
+    @classmethod
+    def tearDownClass(cls):
+        wp.config.mode = cls._saved_mode
+
+
+add_function_test(TestMapDebug, "test_mixed_inputs", test_mixed_inputs, devices=devices)
+add_function_test(TestMapDebug, "test_kernel_creation", test_kernel_creation, devices=devices)
 
 if __name__ == "__main__":
     wp.clear_kernel_cache()

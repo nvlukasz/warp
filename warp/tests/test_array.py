@@ -364,6 +364,7 @@ def test_slicing(test, device):
     slice_e = arr[-1:3, :, :]  # test mixed slicing
     slice_e2 = slice_e[0, 0, :]  # test 2x slicing
     slice_f = arr[0:3:2, 0, :]  # test step
+    slice_g = arr[1:1, :0, -1:-1]  # test empty slice
 
     assert_array_equal(slice_a, wp.array(np_arr[1, :, :], dtype=float, device=device))
     assert_array_equal(slice_b, wp.array(np_arr[1:2, :, :], dtype=float, device=device))
@@ -371,6 +372,7 @@ def test_slicing(test, device):
     assert_array_equal(slice_d, wp.array(np_arr[-2:-1, :, :], dtype=float, device=device))
     assert_array_equal(slice_e, wp.array(np_arr[-1:3, :, :], dtype=float, device=device))
     assert_array_equal(slice_e2, wp.array(np_arr[2, 0, :], dtype=float, device=device))
+    assert slice_g.shape == np_arr[1:1, :0, -1:-1].shape == (0, 0, 0)
 
     # wp does not support copying from/to non-contiguous arrays
     # stepped windows must read on the device the original array was created on
@@ -2902,10 +2904,8 @@ def test_direct_from_numpy(test, device):
 
 
 @wp.kernel
-def kernel_array_from_ptr(
-    ptr: wp.uint64,
-):
-    arr = wp.array(ptr=ptr, shape=(2, 3), dtype=wp.float32)
+def kernel_array_from_ptr(arr_orig: wp.array2d(dtype=wp.float32)):
+    arr = wp.array(ptr=arr_orig.ptr, shape=(2, 3), dtype=wp.float32)
     arr[0, 0] = 1.0
     arr[0, 1] = 2.0
     arr[0, 2] = 3.0
@@ -2913,7 +2913,56 @@ def kernel_array_from_ptr(
 
 def test_kernel_array_from_ptr(test, device):
     arr = wp.zeros(shape=(2, 3), dtype=wp.float32, device=device)
-    wp.launch(kernel_array_from_ptr, dim=(1,), inputs=(arr.ptr,), device=device)
+    wp.launch(kernel_array_from_ptr, dim=(1,), inputs=(arr,), device=device)
+    assert_np_equal(arr.numpy(), np.array(((1.0, 2.0, 3.0), (0.0, 0.0, 0.0))))
+
+
+@wp.struct
+class MyStruct:
+    a: wp.float32
+    b: wp.float32
+    c: wp.float32
+
+
+@wp.kernel
+def kernel_array_from_ptr_struct(arr_orig: wp.array(dtype=MyStruct)):
+    arr = wp.array(ptr=arr_orig.ptr, shape=(2,), dtype=MyStruct)
+    arr[0].a = 1.0
+    arr[0].b = 2.0
+    arr[0].c = 3.0
+    arr[1].a = 4.0
+    arr[1].b = 5.0
+    arr[1].c = 6.0
+
+
+def test_kernel_array_from_ptr_struct(test, device):
+    arr = wp.zeros(shape=(2,), dtype=MyStruct, device=device)
+    wp.launch(kernel_array_from_ptr_struct, dim=(1,), inputs=(arr,), device=device)
+    arr_np = arr.numpy()
+    expected = np.zeros_like(arr_np)
+    expected[0] = (1.0, 2.0, 3.0)
+    expected[1] = (4.0, 5.0, 6.0)
+    assert_np_equal(arr_np, expected)
+
+
+@wp.kernel
+def kernel_array_from_ptr_variable_shape(
+    ptr: wp.uint64,
+    shape_x: int,
+    shape_y: int,
+):
+    arr = wp.array(ptr=ptr, shape=(shape_x, shape_y), dtype=wp.float32)
+    arr[0, 0] = 1.0
+    arr[0, 1] = 2.0
+    if shape_y > 2:
+        arr[0, 2] = 3.0
+
+
+def test_kernel_array_from_ptr_variable_shape(test, device):
+    arr = wp.zeros(shape=(2, 3), dtype=wp.float32, device=device)
+    wp.launch(kernel_array_from_ptr_variable_shape, dim=(1,), inputs=(arr.ptr, 2, 2), device=device)
+    assert_np_equal(arr.numpy(), np.array(((1.0, 2.0, 0.0), (0.0, 0.0, 0.0))))
+    wp.launch(kernel_array_from_ptr_variable_shape, dim=(1,), inputs=(arr.ptr, 2, 3), device=device)
     assert_np_equal(arr.numpy(), np.array(((1.0, 2.0, 3.0), (0.0, 0.0, 0.0))))
 
 
@@ -3120,6 +3169,428 @@ def test_cuda_interface_conversion(test, device):
     assert wp_array.ptr != 0
 
 
+@wp.kernel
+def test_array1d_slicing_kernel(arr: wp.array1d(dtype=int)):
+    sub = arr[:3]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 3)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 0)
+    wp.expect_eq(sub[2], 2)
+
+    sub = arr[3:5]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 3)
+    wp.expect_eq(sub[1], 4)
+
+    sub = arr[3::-1]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 4)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 3)
+    wp.expect_eq(sub[3], 0)
+
+    sub = arr[::-3]
+    sub = sub[::2]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 3)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 15)
+    wp.expect_eq(sub[2], 3)
+
+
+def test_array1d_slicing(test, device):
+    arr = wp.array(tuple(range(16)), dtype=int, device=device)
+    wp.launch(test_array1d_slicing_kernel, dim=1, inputs=(arr,), device=device)
+
+
+@wp.kernel
+def test_array2d_slicing_kernel(arr: wp.array2d(dtype=int)):
+    sub = arr[:2]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 4)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 0)
+    wp.expect_eq(sub[1, 3], 7)
+
+    sub = arr[:2, 1]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 1)
+    wp.expect_eq(sub[1], 5)
+
+    sub = arr[-4, :3]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 3)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 16)
+    wp.expect_eq(sub[2], 18)
+
+    sub = arr[3:5, 3:1:-1]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 15)
+    wp.expect_eq(sub[1, 1], 18)
+
+    sub = arr[::4]
+    sub = sub[:, ::-3]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 3)
+    wp.expect_eq(sub[1, 1], 16)
+
+
+def test_array2d_slicing(test, device):
+    arr = wp.array(tuple(range(32)), dtype=int, shape=(8, 4), device=device)
+    wp.launch(test_array2d_slicing_kernel, dim=1, inputs=(arr,), device=device)
+
+
+@wp.kernel
+def test_array3d_slicing_kernel(arr: wp.array3d(dtype=int)):
+    sub = arr[-1:]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 8)
+    wp.expect_eq(sub.shape[2], 4)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 32)
+    wp.expect_eq(sub[0, 7, 3], 63)
+
+    sub = arr[:2, -3]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 4)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 20)
+    wp.expect_eq(sub[1, 3], 55)
+
+    sub = arr[1, 2:]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 6)
+    wp.expect_eq(sub.shape[1], 4)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 40)
+    wp.expect_eq(sub[5, 3], 63)
+
+    sub = arr[:1, 3:1:-1]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 4)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 12)
+    wp.expect_eq(sub[0, 1, 3], 11)
+
+    sub = arr[::-2, 1, 3]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 39)
+
+    sub = arr[0, 2:5, -3]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 3)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 9)
+    wp.expect_eq(sub[2], 17)
+
+    sub = arr[0, -2, ::2]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 24)
+    wp.expect_eq(sub[1], 26)
+
+    sub = arr[-1:, :5:2, 0]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 3)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 32)
+    wp.expect_eq(sub[0, 2], 48)
+
+    sub = arr[:, 0, ::2]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 0)
+    wp.expect_eq(sub[1, 1], 34)
+
+    sub = arr[1, ::-4, ::-3]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 63)
+    wp.expect_eq(sub[1, 1], 44)
+
+    sub = arr[::2, :3:, -2:]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 3)
+    wp.expect_eq(sub.shape[2], 2)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 2)
+    wp.expect_eq(sub[0, 2, 1], 11)
+
+    sub = arr[:, :1]
+    sub = sub[:, :, :2]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 1)
+    wp.expect_eq(sub.shape[2], 2)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 0)
+    wp.expect_eq(sub[1, 0, 1], 33)
+
+
+def test_array3d_slicing(test, device):
+    arr = wp.array(tuple(range(64)), dtype=int, shape=(2, 8, 4), device=device)
+    wp.launch(test_array3d_slicing_kernel, dim=1, inputs=(arr,), device=device)
+
+
+@wp.kernel
+def test_array4d_slicing_kernel(arr: wp.array4d(dtype=int)):
+    sub = arr[:1]
+    wp.expect_eq(sub.ndim, 4)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 2)
+    wp.expect_eq(sub.shape[3], 4)
+    wp.expect_eq(sub[0, 0, 0, 0], 0)
+    wp.expect_eq(sub[0, 1, 1, 3], 15)
+
+    sub = arr[2:, 0]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 4)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 32)
+    wp.expect_eq(sub[1, 1, 3], 55)
+
+    sub = arr[-1, -1:]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 4)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 56)
+    wp.expect_eq(sub[0, 1, 3], 63)
+
+    sub = arr[3:4, :1]
+    wp.expect_eq(sub.ndim, 4)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 1)
+    wp.expect_eq(sub.shape[2], 2)
+    wp.expect_eq(sub.shape[3], 4)
+    wp.expect_eq(sub[0, 0, 0, 0], 48)
+    wp.expect_eq(sub[0, 0, 1, 3], 55)
+
+    sub = arr[2::, 0, -1]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 4)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 36)
+    wp.expect_eq(sub[1, 3], 55)
+
+    sub = arr[-2, ::2, -2]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 4)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 32)
+    wp.expect_eq(sub[0, 3], 35)
+
+    sub = arr[1, -1, ::-3]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 4)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 28)
+    wp.expect_eq(sub[0, 3], 31)
+
+    sub = arr[1::2, :-1, 0]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 1)
+    wp.expect_eq(sub.shape[2], 4)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 16)
+    wp.expect_eq(sub[1, 0, 3], 51)
+
+    sub = arr[:2, 1, 1:]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 1)
+    wp.expect_eq(sub.shape[2], 4)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 12)
+    wp.expect_eq(sub[1, 0, 3], 31)
+
+    sub = arr[-1, :1, ::-3]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 1)
+    wp.expect_eq(sub.shape[2], 4)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 52)
+    wp.expect_eq(sub[0, 0, 3], 55)
+
+    sub = arr[::-4, :1, 1:]
+    wp.expect_eq(sub.ndim, 4)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 1)
+    wp.expect_eq(sub.shape[2], 1)
+    wp.expect_eq(sub.shape[3], 4)
+    wp.expect_eq(sub[0, 0, 0, 0], 52)
+    wp.expect_eq(sub[0, 0, 0, 3], 55)
+
+    sub = arr[:2, 0, 1, 2]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 6)
+    wp.expect_eq(sub[1], 22)
+
+    sub = arr[-3, ::2, 0, 2]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 18)
+
+    sub = arr[2, 0, :-1, 1]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 33)
+
+    sub = arr[1, 0, 1, :]
+    wp.expect_eq(sub.ndim, 1)
+    wp.expect_eq(sub.shape[0], 4)
+    wp.expect_eq(sub.shape[1], 0)
+    wp.expect_eq(sub[0], 20)
+    wp.expect_eq(sub[3], 23)
+
+    sub = arr[1:, :2, 1, -3]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 3)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 21)
+    wp.expect_eq(sub[2, 1], 61)
+
+    sub = arr[2:, 0, :2, 1]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 33)
+    wp.expect_eq(sub[1, 1], 53)
+
+    sub = arr[::-2, 0, 0, ::3]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 48)
+    wp.expect_eq(sub[1, 1], 19)
+
+    sub = arr[-2, 1:2, ::-1, 0]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 44)
+    wp.expect_eq(sub[0, 1], 40)
+
+    sub = arr[1, :2, 0, ::-2]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 19)
+    wp.expect_eq(sub[1, 1], 25)
+
+    sub = arr[-1, 0, ::3, -4:-1]
+    wp.expect_eq(sub.ndim, 2)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 3)
+    wp.expect_eq(sub.shape[2], 0)
+    wp.expect_eq(sub[0, 0], 48)
+    wp.expect_eq(sub[0, 2], 50)
+
+    sub = arr[-2:, 1:2, ::3, 1]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 1)
+    wp.expect_eq(sub.shape[2], 1)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 41)
+    wp.expect_eq(sub[1, 0, 0], 57)
+
+    sub = arr[:1, :, 1, -2:]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 2)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 6)
+    wp.expect_eq(sub[0, 1, 1], 15)
+
+    sub = arr[:2:-1, 0, -1:, ::-1]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 1)
+    wp.expect_eq(sub.shape[2], 4)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 55)
+    wp.expect_eq(sub[0, 0, 3], 52)
+
+    sub = arr[-2, ::-1, -2:, 1:3]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 2)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 41)
+    wp.expect_eq(sub[1, 1, 1], 38)
+
+    sub = arr[:2, 1:, 1:, :-2]
+    wp.expect_eq(sub.ndim, 4)
+    wp.expect_eq(sub.shape[0], 2)
+    wp.expect_eq(sub.shape[1], 1)
+    wp.expect_eq(sub.shape[2], 1)
+    wp.expect_eq(sub.shape[3], 2)
+    wp.expect_eq(sub[0, 0, 0, 0], 12)
+    wp.expect_eq(sub[1, 0, 0, 1], 29)
+
+    sub = arr[-2:, 1, ::-1]
+    sub = sub[::2]
+    wp.expect_eq(sub.ndim, 3)
+    wp.expect_eq(sub.shape[0], 1)
+    wp.expect_eq(sub.shape[1], 2)
+    wp.expect_eq(sub.shape[2], 4)
+    wp.expect_eq(sub.shape[3], 0)
+    wp.expect_eq(sub[0, 0, 0], 44)
+    wp.expect_eq(sub[0, 1, 3], 43)
+
+
+def test_array4d_slicing(test, device):
+    arr = wp.array(tuple(range(64)), dtype=int, shape=(4, 2, 2, 4), device=device)
+    wp.launch(test_array4d_slicing_kernel, dim=1, inputs=(arr,), device=device)
+
+
 devices = get_test_devices()
 
 
@@ -3185,6 +3656,10 @@ add_function_test(TestArray, "test_array_inplace_diff_ops", test_array_inplace_d
 add_function_test(TestArray, "test_array_inplace_non_diff_ops", test_array_inplace_non_diff_ops, devices=devices)
 add_function_test(TestArray, "test_direct_from_numpy", test_direct_from_numpy, devices=["cpu"])
 add_function_test(TestArray, "test_kernel_array_from_ptr", test_kernel_array_from_ptr, devices=devices)
+add_function_test(TestArray, "test_kernel_array_from_ptr_struct", test_kernel_array_from_ptr_struct, devices=devices)
+add_function_test(
+    TestArray, "test_kernel_array_from_ptr_variable_shape", test_kernel_array_from_ptr_variable_shape, devices=devices
+)
 
 add_function_test(TestArray, "test_array_from_int32_domain", test_array_from_int32_domain, devices=devices)
 add_function_test(TestArray, "test_array_from_int64_domain", test_array_from_int64_domain, devices=devices)
@@ -3195,6 +3670,11 @@ add_function_test(TestArray, "test_casting", test_casting, devices=devices)
 add_function_test(TestArray, "test_array_len", test_array_len, devices=devices)
 add_function_test(TestArray, "test_cuda_interface_conversion", test_cuda_interface_conversion, devices=devices)
 add_function_test(TestArray, "test_array_from_data", test_array_from_data, devices=devices)
+
+add_function_test(TestArray, "test_array1d_slicing", test_array1d_slicing, devices=devices)
+add_function_test(TestArray, "test_array2d_slicing", test_array2d_slicing, devices=devices)
+add_function_test(TestArray, "test_array3d_slicing", test_array3d_slicing, devices=devices)
+add_function_test(TestArray, "test_array4d_slicing", test_array4d_slicing, devices=devices)
 
 try:
     import torch

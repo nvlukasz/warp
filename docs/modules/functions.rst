@@ -1859,7 +1859,7 @@ Tile Primitives
     :returns: A tile with ``shape=(n)`` with linearly spaced elements of specified data type
 
 
-.. py:function:: tile_load(a: Array[Any], shape: Tuple[int, ...], offset: Tuple[int, ...], storage: str) -> Tile[Any,Tuple[int, ...]]
+.. py:function:: tile_load(a: Array[Any], shape: Tuple[int, ...], offset: Tuple[int, ...], storage: str, bounds_check: bool) -> Tile[Any,Tuple[int, ...]]
 
     .. hlist::
        :columns: 8
@@ -1876,10 +1876,74 @@ Tile Primitives
     :param offset: Offset in the source array to begin reading from (optional)
     :param storage: The storage location for the tile: ``"register"`` for registers
       (default) or ``"shared"`` for shared memory.
+    :param bounds_check: Needed for unaligned tiles, but can disable for memory-aligned tiles for faster load times
     :returns: A tile with shape as specified and data type the same as the source array
 
 
-.. py:function:: tile_store(a: Array[Any], t: Tile[Any,Tuple[int, ...]], offset: Tuple[int, ...]) -> None
+.. py:function:: tile_load_indexed(a: Array[Any], indices: Tile[int32,Tuple[int]], shape: Tuple[int, ...], offset: Tuple[int, ...], axis: int32, storage: str) -> Tile[Any,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Loads a tile from a global memory array, with loads along a specified axis mapped according to a 1D tile of indices.
+
+    :param a: The source array in global memory
+    :param indices: A 1D tile of integer indices mapping to elements in ``a``.
+    :param shape: Shape of the tile to load, must have the same number of dimensions as ``a``, and along ``axis``, it must have the same number of elements as the ``indices`` tile.
+    :param offset: Offset in the source array to begin reading from (optional)
+    :param axis: Axis of ``a`` that indices refer to
+    :param storage: The storage location for the tile: ``"register"`` for registers (default) or ``"shared"`` for shared memory.
+    :returns: A tile with shape as specified and data type the same as the source array
+
+    This example shows how to select and store the even indexed rows from a 2D array:
+
+    .. code-block:: python
+
+        TILE_M = wp.constant(2)
+        TILE_N = wp.constant(2)
+        HALF_M = wp.constant(TILE_M // 2)
+        HALF_N = wp.constant(TILE_N // 2)
+
+        @wp.kernel
+        def compute(x: wp.array2d(dtype=float), y: wp.array2d(dtype=float)):
+            i, j = wp.tid()
+
+            evens = wp.tile_arange(HALF_M, dtype=int, storage="shared") * 2
+
+            t0 = wp.tile_load_indexed(x, indices=evens, shape=(HALF_M, TILE_N), offset=(i*TILE_M, j*TILE_N), axis=0, storage="register")
+            wp.tile_store(y, t0, offset=(i*HALF_M, j*TILE_N))
+
+        M = TILE_M * 2
+        N = TILE_N * 2
+
+        arr = np.arange(M * N).reshape(M, N)
+
+        x = wp.array(arr, dtype=float)
+        y = wp.zeros((M // 2, N), dtype=float)
+
+        wp.launch_tiled(compute, dim=[2,2], inputs=[x], outputs=[y], block_dim=32, device=device)
+
+        print(x.numpy())
+        print(y.numpy())
+
+    Prints:
+
+    .. code-block:: text
+
+        [[ 0.  1.  2.  3.]
+         [ 4.  5.  6.  7.]
+         [ 8.  9. 10. 11.]
+         [12. 13. 14. 15.]]
+
+        [[ 0.  1.  2.  3.]
+         [ 8.  9. 10. 11.]]
+    
+
+
+.. py:function:: tile_store(a: Array[Any], t: Tile[Any,Tuple[int, ...]], offset: Tuple[int, ...], bounds_check: bool) -> None
 
     .. hlist::
        :columns: 8
@@ -1894,9 +1958,79 @@ Tile Primitives
     :param a: The destination array in global memory
     :param t: The source tile to store data from, must have the same data type and number of dimensions as the destination array
     :param offset: Offset in the destination array (optional)
+    :param bounds_check: Needed for unaligned tiles, but can disable for memory-aligned tiles for faster write times
+    
 
 
-.. py:function:: tile_atomic_add(a: Array[Any], t: Tile[Any,Tuple[int, ...]], offset: Tuple[int, ...]) -> Tile[Any,Tuple[int, ...]]
+.. py:function:: tile_store_indexed(a: Array[Any], indices: Tile[int32,Tuple[int]], t: Tile[Any,Tuple[int, ...]], offset: Tuple[int, ...], axis: int32) -> None
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Store a tile to a global memory array, with storage along a specified axis mapped according to a 1D tile of indices.
+
+    :param a: The destination array in global memory
+    :param indices: A 1D tile of integer indices mapping to elements in ``a``.
+    :param t: The source tile to store data from, must have the same data type and number of dimensions as the destination array, and along ``axis``, it must have the same number of elements as the ``indices`` tile.
+    :param offset: Offset in the destination array (optional)
+    :param axis: Axis of ``a`` that indices refer to
+
+    This example shows how to map tile rows to the even rows of a 2D array:
+
+    .. code-block:: python
+
+        TILE_M = wp.constant(2)
+        TILE_N = wp.constant(2)
+        TWO_M = wp.constant(TILE_M * 2)
+        TWO_N = wp.constant(TILE_N * 2)
+
+        @wp.kernel
+        def compute(x: wp.array2d(dtype=float), y: wp.array2d(dtype=float)):
+            i, j = wp.tid()
+
+            t = wp.tile_load(x, shape=(TILE_M, TILE_N), offset=(i*TILE_M, j*TILE_N), storage="register")
+
+            evens_M = wp.tile_arange(TILE_M, dtype=int, storage="shared") * 2
+
+            wp.tile_store_indexed(y, indices=evens_M, t=t, offset=(i*TWO_M, j*TILE_N), axis=0)
+
+        M = TILE_M * 2
+        N = TILE_N * 2
+
+        arr = np.arange(M * N, dtype=float).reshape(M, N)
+
+        x = wp.array(arr, dtype=float, requires_grad=True, device=device)
+        y = wp.zeros((M * 2, N), dtype=float, requires_grad=True, device=device)
+
+        wp.launch_tiled(compute, dim=[2,2], inputs=[x], outputs=[y], block_dim=32, device=device)
+
+        print(x.numpy())
+        print(y.numpy())
+
+    Prints:
+
+    .. code-block:: text
+
+        [[ 0.  1.  2.  3.]
+         [ 4.  5.  6.  7.]
+         [ 8.  9. 10. 11.]
+         [12. 13. 14. 15.]]
+
+        [[ 0.  1.  2.  3.]
+         [ 0.  0.  0.  0.]
+         [ 4.  5.  6.  7.]
+         [ 0.  0.  0.  0.]
+         [ 8.  9. 10. 11.]
+         [ 0.  0.  0.  0.]
+         [12. 13. 14. 15.]
+         [ 0.  0.  0.  0.]]
+    
+
+
+.. py:function:: tile_atomic_add(a: Array[Any], t: Tile[Any,Tuple[int, ...]], offset: Tuple[int, ...], bounds_check: bool) -> Tile[Any,Tuple[int, ...]]
 
     .. hlist::
        :columns: 8
@@ -1909,7 +2043,68 @@ Tile Primitives
     :param a: Array in global memory, should have the same ``dtype`` as the input tile
     :param t: Source tile to add to the destination array
     :param offset: Offset in the destination array (optional)
+    :param bounds_check: Needed for unaligned tiles, but can disable for memory-aligned tiles for faster write times
     :returns: A tile with the same dimensions and data type as the source tile, holding the original value of the destination elements
+
+
+.. py:function:: tile_atomic_add_indexed(a: Array[Any], indices: Tile[int32,Tuple[int]], t: Tile[Any,Tuple[int, ...]], offset: Tuple[int, ...], axis: int32) -> Tile[Any,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically add a tile to a global memory array, with storage along a specified axis mapped according to a 1D tile of indices.
+
+    :param a: The destination array in global memory
+    :param indices: A 1D tile of integer indices mapping to elements in ``a``.
+    :param t: The source tile to extract data from, must have the same data type and number of dimensions as the destination array, and along ``axis``, it must have the same number of elements as the ``indices`` tile.
+    :param offset: Offset in the destination array (optional)
+    :param axis: Axis of ``a`` that indices refer to
+
+    This example shows how to compute a blocked, row-wise reduction:
+
+    .. code-block:: python
+
+        TILE_M = wp.constant(2)
+        TILE_N = wp.constant(2)
+
+        @wp.kernel
+        def tile_atomic_add_indexed(x: wp.array2d(dtype=float), y: wp.array2d(dtype=float)):
+            i, j = wp.tid()
+
+            t = wp.tile_load(x, shape=(TILE_M, TILE_N), offset=(i*TILE_M, j*TILE_N), storage="register")
+
+            zeros = wp.tile_zeros(TILE_M, dtype=int, storage="shared")
+
+            wp.tile_atomic_add_indexed(y, indices=zeros, t=t, offset=(i, j*TILE_N), axis=0)
+
+        M = TILE_M * 2
+        N = TILE_N * 2
+
+        arr = np.arange(M * N, dtype=float).reshape(M, N)
+
+        x = wp.array(arr, dtype=float, requires_grad=True, device=device)
+        y = wp.zeros((2, N), dtype=float, requires_grad=True, device=device)
+
+        wp.launch_tiled(tile_atomic_add_indexed, dim=[2,2], inputs=[x], outputs=[y], block_dim=32, device=device)
+
+        print(x.numpy())
+        print(y.numpy())
+
+    Prints:
+
+    .. code-block:: text
+
+        [[ 0.  1.  2.  3.]
+         [ 4.  5.  6.  7.]
+         [ 8.  9. 10. 11.]
+         [12. 13. 14. 15.]]
+
+        [[ 4.  6.  8. 10.]
+         [20. 22. 24. 26.]]
+    
 
 
 .. py:function:: tile_view(t: Tile[Any,Tuple[int, ...]], offset: Tuple[int, ...], shape: Tuple[int, ...]) -> Tile[Any,Tuple[int, ...]]
@@ -2332,6 +2527,76 @@ Tile Primitives
     
 
 
+.. py:function:: tile_scan_inclusive(a: Tile[Scalar,Tuple[int, ...]]) -> Tile[Scalar,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Inclusive scan (prefix sum) across the tile.
+
+    This function cooperatively performs an inclusive scan (cumulative sum) across the tile.
+
+    :param a: The input tile. Must be a tile of type float32, int32, or uint32.
+    :returns: A new tile containing the inclusive scan result.
+
+    Example:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def scan_example():
+            t = wp.tile_arange(1, 5, dtype=int)
+            s = wp.tile_scan_inclusive(t)
+            print(s)
+
+        wp.launch_tiled(scan_example, dim=[1], inputs=[], block_dim=16)
+
+    Prints:
+
+    .. code-block:: text
+
+        [1, 3, 6, 10] = tile(shape=(4), storage=register)
+    
+
+
+.. py:function:: tile_scan_exclusive(a: Tile[Scalar,Tuple[int, ...]]) -> Tile[Scalar,Tuple[int, ...]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Exclusive scan (prefix sum) across the tile.
+
+    This function cooperatively performs an exclusive scan (cumulative sum) across the tile.
+
+    :param a: The input tile. Must be a tile of type float32, int32, or uint32.
+    :returns: A new tile containing the exclusive scan result.
+
+    Example:
+
+    .. code-block:: python
+
+        @wp.kernel
+        def scan_example():
+            t = wp.tile_arange(1, 5, dtype=int)
+            s = wp.tile_scan_exclusive(t)
+            print(s)
+
+        wp.launch_tiled(scan_example, dim=[1], inputs=[], block_dim=16)
+
+    Prints:
+
+    .. code-block:: text
+
+        [0, 1, 3, 6] = tile(shape=(4), storage=register)
+    
+
+
 .. py:function:: tile_map(op: Callable, a: Tile[Scalar,Tuple[int, ...]]) -> Tile[Scalar,Tuple[int, ...]]
 
     .. hlist::
@@ -2346,7 +2611,7 @@ Tile Primitives
 
     :param op: A callable function that accepts one argument and returns one argument, may be a user function or builtin
     :param a: The input tile, the operator (or one of its overloads) must be able to accept the tile's data type
-    :returns: A tile with the same dimensions and data type as the input tile.
+    :returns: A tile with the same dimensions as the input tile. Its datatype is specified by the return type of op
 
     Example:
 
@@ -2383,12 +2648,12 @@ Tile Primitives
     Apply a binary function onto the tile.
 
     This function cooperatively applies a binary function to each element of the tiles using all threads in the block.
-    Both input tiles must have the same dimensions and datatype.
+    Both input tiles must have the same dimensions, and if using a builtin op, the same datatypes.
 
     :param op: A callable function that accepts two arguments and returns one argument, all of the same type, may be a user function or builtin
     :param a: The first input tile, the operator (or one of its overloads) must be able to accept the tile's dtype
     :param b: The second input tile, the operator (or one of its overloads) must be able to accept the tile's dtype
-    :returns: A tile with the same dimensions and datatype as the input tiles.
+    :returns: A tile with the same dimensions as the input tiles. Its datatype is specified by the return type of op
 
     Example:
 
@@ -2523,13 +2788,16 @@ Tile Primitives
     Compute the Cholesky factorization L of a matrix A.
     L is lower triangular and satisfies LL^T = A.
 
+    Only the lower triangular portion of A is used for the decomposition;
+    the upper triangular part may be left unspecified.
+
     Note that computing the adjoint is not yet supported.
 
     Supported datatypes are:
         * float32
         * float64
 
-    :param A: A square, symmetric positive-definite, matrix.
+    :param A: A square, symmetric positive-definite, matrix. Only the lower triangular part of A is needed; the upper part is ignored.
     :returns L: A square, lower triangular, matrix, such that LL^T = A
 
 
@@ -2550,8 +2818,54 @@ Tile Primitives
         * float64
 
     :param L: A square, lower triangular, matrix, such that LL^T = A
-    :param y: A 1D tile of length M
-    :returns x: A 1D tile of length M such that LL^T x = y
+    :param y: A 1D or 2D tile of length M
+    :returns x: A tile of the same shape as y such that LL^T x = y
+
+
+.. py:function:: tile_lower_solve(L: Tile[Float,Tuple[int, int]], y: Tile[Float,Tuple[int]]) -> Tile[Float,Tuple[int]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Solve for z in Lz = y, where L is a lower triangular matrix.
+
+    This performs general forward substitution for a lower triangular system.
+
+    Note that computing the adjoint is not yet supported.
+
+    Supported datatypes are:
+        * float32
+        * float64
+
+    :param L: A square, non-singular, lower triangular matrix
+    :param y: A 1D or 2D tile with compatible shape
+    :returns z: A tile of the same shape as y such that Lz = y
+
+
+.. py:function:: tile_upper_solve(U: Tile[Float,Tuple[int, int]], z: Tile[Float,Tuple[int]]) -> Tile[Float,Tuple[int]]
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Solve for x in U x = z, where U is an upper triangular matrix.
+
+    This performs general back substitution for upper triangular systems.
+
+    Note that computing the adjoint is not yet supported.
+
+    Supported datatypes are:
+        * float32
+        * float64
+
+    :param U: A square, non-singular, upper triangular matrix
+    :param z: A 1D or 2D tile with compatible shape
+    :returns x: A tile of the same shape as z such that U x = z
 
 
 
@@ -3663,6 +3977,860 @@ Utility
     Compute the maximum of ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
 
     The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_cas(arr: Array[Any], i: Int, compare: Any, value: Any) -> Any
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically compare and swap ``value`` with ``arr[i]`` if ``arr[i]`` equals ``compare``, and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_cas(arr: Array[Any], i: Int, j: Int, compare: Any, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically compare and swap ``value`` with ``arr[i,j]`` if ``arr[i,j]`` equals ``compare``, and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_cas(arr: Array[Any], i: Int, j: Int, k: Int, compare: Any, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically compare and swap ``value`` with ``arr[i,j,k]`` if ``arr[i,j,k]`` equals ``compare``, and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_cas(arr: Array[Any], i: Int, j: Int, k: Int, l: Int, compare: Any, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically compare and swap ``value`` with ``arr[i,j,k,l]`` if ``arr[i,j,k,l]`` equals ``compare``, and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_cas(arr: FabricArray[Any], i: Int, compare: Any, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically compare and swap ``value`` with ``arr[i]`` if ``arr[i]`` equals ``compare``, and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_cas(arr: FabricArray[Any], i: Int, j: Int, compare: Any, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically compare and swap ``value`` with ``arr[i,j]`` if ``arr[i,j]`` equals ``compare``, and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_cas(arr: FabricArray[Any], i: Int, j: Int, k: Int, compare: Any, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically compare and swap ``value`` with ``arr[i,j,k]`` if ``arr[i,j,k]`` equals ``compare``, and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_cas(arr: FabricArray[Any], i: Int, j: Int, k: Int, l: Int, compare: Any, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically compare and swap ``value`` with ``arr[i,j,k,l]`` if ``arr[i,j,k,l]`` equals ``compare``, and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_cas(arr: IndexedFabricArray[Any], i: Int, compare: Any, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically compare and swap ``value`` with ``arr[i]`` if ``arr[i]`` equals ``compare``, and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_cas(arr: IndexedFabricArray[Any], i: Int, j: Int, compare: Any, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically compare and swap ``value`` with ``arr[i,j]`` if ``arr[i,j]`` equals ``compare``, and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_cas(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, compare: Any, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically compare and swap ``value`` with ``arr[i,j,k]`` if ``arr[i,j,k]`` equals ``compare``, and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_cas(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, l: Int, compare: Any, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically compare and swap ``value`` with ``arr[i,j,k,l]`` if ``arr[i,j,k,l]`` equals ``compare``, and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_exch(arr: Array[Any], i: Int, value: Any) -> Any
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically exchange ``value`` with ``arr[i]`` and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_exch(arr: Array[Any], i: Int, j: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically exchange ``value`` with ``arr[i,j]`` and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_exch(arr: Array[Any], i: Int, j: Int, k: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically exchange ``value`` with ``arr[i,j,k]`` and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_exch(arr: Array[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically exchange ``value`` with ``arr[i,j,k,l]`` and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_exch(arr: FabricArray[Any], i: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically exchange ``value`` with ``arr[i]`` and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_exch(arr: FabricArray[Any], i: Int, j: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically exchange ``value`` with ``arr[i,j]`` and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_exch(arr: FabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically exchange ``value`` with ``arr[i,j,k]`` and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_exch(arr: FabricArray[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically exchange ``value`` with ``arr[i,j,k,l]`` and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_exch(arr: IndexedFabricArray[Any], i: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically exchange ``value`` with ``arr[i]`` and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_exch(arr: IndexedFabricArray[Any], i: Int, j: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically exchange ``value`` with ``arr[i,j]`` and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_exch(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically exchange ``value`` with ``arr[i,j,k]`` and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_exch(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically exchange ``value`` with ``arr[i,j,k,l]`` and return the old value.
+
+    The operation is only atomic on a per-component basis for vectors and matrices.
+
+
+.. py:function:: atomic_and(arr: Array[Any], i: Int, value: Any) -> Any
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise AND between ``value`` and ``arr[i]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i] &= value``.
+
+
+.. py:function:: atomic_and(arr: Array[Any], i: Int, j: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise AND between ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j] &= value``.
+
+
+.. py:function:: atomic_and(arr: Array[Any], i: Int, j: Int, k: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise AND between ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] &= value``.
+
+
+.. py:function:: atomic_and(arr: Array[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise AND between ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] &= value``.
+
+
+.. py:function:: atomic_and(arr: FabricArray[Any], i: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise AND between ``value`` and ``arr[i]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i] &= value``.
+
+
+.. py:function:: atomic_and(arr: FabricArray[Any], i: Int, j: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise AND between ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j] &= value``.
+
+
+.. py:function:: atomic_and(arr: FabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise AND between ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] &= value``.
+
+
+.. py:function:: atomic_and(arr: FabricArray[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise AND between ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] &= value``.
+
+
+.. py:function:: atomic_and(arr: IndexedFabricArray[Any], i: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise AND between ``value`` and ``arr[i]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i] &= value``.
+
+
+.. py:function:: atomic_and(arr: IndexedFabricArray[Any], i: Int, j: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise AND between ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j] &= value``.
+
+
+.. py:function:: atomic_and(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise AND between ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] &= value``.
+
+
+.. py:function:: atomic_and(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise AND between ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] &= value``.
+
+
+.. py:function:: atomic_or(arr: Array[Any], i: Int, value: Any) -> Any
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise OR between ``value`` and ``arr[i]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i] |= value``.
+
+
+.. py:function:: atomic_or(arr: Array[Any], i: Int, j: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise OR between ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j] |= value``.
+
+
+.. py:function:: atomic_or(arr: Array[Any], i: Int, j: Int, k: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise OR between ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] |= value``.
+
+
+.. py:function:: atomic_or(arr: Array[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise OR between ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] |= value``.
+
+
+.. py:function:: atomic_or(arr: FabricArray[Any], i: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise OR between ``value`` and ``arr[i]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i] |= value``.
+
+
+.. py:function:: atomic_or(arr: FabricArray[Any], i: Int, j: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise OR between ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j] |= value``.
+
+
+.. py:function:: atomic_or(arr: FabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise OR between ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] |= value``.
+
+
+.. py:function:: atomic_or(arr: FabricArray[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise OR between ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] |= value``.
+
+
+.. py:function:: atomic_or(arr: IndexedFabricArray[Any], i: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise OR between ``value`` and ``arr[i]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i] |= value``.
+
+
+.. py:function:: atomic_or(arr: IndexedFabricArray[Any], i: Int, j: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise OR between ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j] |= value``.
+
+
+.. py:function:: atomic_or(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise OR between ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] |= value``.
+
+
+.. py:function:: atomic_or(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise OR between ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] |= value``.
+
+
+.. py:function:: atomic_xor(arr: Array[Any], i: Int, value: Any) -> Any
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise XOR between ``value`` and ``arr[i]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i] ^= value``.
+
+
+.. py:function:: atomic_xor(arr: Array[Any], i: Int, j: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise XOR between ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j] ^= value``.
+
+
+.. py:function:: atomic_xor(arr: Array[Any], i: Int, j: Int, k: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise XOR between ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] ^= value``.
+
+
+.. py:function:: atomic_xor(arr: Array[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise XOR between ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] ^= value``.
+
+
+.. py:function:: atomic_xor(arr: FabricArray[Any], i: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise XOR between ``value`` and ``arr[i]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i] ^= value``.
+
+
+.. py:function:: atomic_xor(arr: FabricArray[Any], i: Int, j: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise XOR between ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j] ^= value``.
+
+
+.. py:function:: atomic_xor(arr: FabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise XOR between ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] ^= value``.
+
+
+.. py:function:: atomic_xor(arr: FabricArray[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise XOR between ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] ^= value``.
+
+
+.. py:function:: atomic_xor(arr: IndexedFabricArray[Any], i: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise XOR between ``value`` and ``arr[i]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i] ^= value``.
+
+
+.. py:function:: atomic_xor(arr: IndexedFabricArray[Any], i: Int, j: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise XOR between ``value`` and ``arr[i,j]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j] ^= value``.
+
+
+.. py:function:: atomic_xor(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise XOR between ``value`` and ``arr[i,j,k]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k] ^= value``.
+
+
+.. py:function:: atomic_xor(arr: IndexedFabricArray[Any], i: Int, j: Int, k: Int, l: Int, value: Any) -> Any
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Differentiable
+
+    Atomically performs a bitwise XOR between ``value`` and ``arr[i,j,k,l]``, atomically update the array, and return the old value.
+        This function is automatically invoked when using the syntax ``arr[i,j,k,l] ^= value``.
 
 
 .. py:function:: lerp(a: Float, b: Float, t: Float) -> Float
@@ -4951,66 +6119,6 @@ Other
     Search a sorted array ``arr`` in the range [arr_begin, arr_end) for the closest element greater than or equal to ``value``.
 
 
-.. py:function:: bit_and(a: Int, b: Int) -> Int
-
-    .. hlist::
-       :columns: 8
-
-       * Kernel
-       * Python
-       * Differentiable
-
-
-.. py:function:: bit_or(a: Int, b: Int) -> Int
-
-    .. hlist::
-       :columns: 8
-
-       * Kernel
-       * Python
-       * Differentiable
-
-
-.. py:function:: bit_xor(a: Int, b: Int) -> Int
-
-    .. hlist::
-       :columns: 8
-
-       * Kernel
-       * Python
-       * Differentiable
-
-
-.. py:function:: lshift(a: Int, b: Int) -> Int
-
-    .. hlist::
-       :columns: 8
-
-       * Kernel
-       * Python
-       * Differentiable
-
-
-.. py:function:: rshift(a: Int, b: Int) -> Int
-
-    .. hlist::
-       :columns: 8
-
-       * Kernel
-       * Python
-       * Differentiable
-
-
-.. py:function:: invert(a: Int) -> Int
-
-    .. hlist::
-       :columns: 8
-
-       * Kernel
-       * Python
-       * Differentiable
-
-
 
 
 Operators
@@ -5157,6 +6265,252 @@ Operators
        * Differentiable
 
     Subtract each element b from a
+
+
+.. py:function:: bit_and(a: Int, b: Int) -> Int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: bit_and(a: Vector[Any,Int], b: Vector[Any,Int]) -> Vector[Any,Int]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: bit_and(a: Matrix[Any,Any,Int], b: Matrix[Any,Any,Int]) -> Matrix[Any,Any,Int]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: bit_and(a: Tile[Any,Tuple[int, ...]], b: Tile[Any,Tuple[int, ...]]) -> Tile[Scalar,Tuple[int, ...]]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+    Bitwise AND each element of two tiles together
+
+
+.. py:function:: bit_or(a: Int, b: Int) -> Int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: bit_or(a: Vector[Any,Int], b: Vector[Any,Int]) -> Vector[Any,Int]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: bit_or(a: Matrix[Any,Any,Int], b: Matrix[Any,Any,Int]) -> Matrix[Any,Any,Int]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: bit_or(a: Tile[Any,Tuple[int, ...]], b: Tile[Any,Tuple[int, ...]]) -> Tile[Scalar,Tuple[int, ...]]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+    Bitwise OR each element of two tiles together
+
+
+.. py:function:: bit_xor(a: Int, b: Int) -> Int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: bit_xor(a: Vector[Any,Int], b: Vector[Any,Int]) -> Vector[Any,Int]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: bit_xor(a: Matrix[Any,Any,Int], b: Matrix[Any,Any,Int]) -> Matrix[Any,Any,Int]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: bit_xor(a: Tile[Any,Tuple[int, ...]], b: Tile[Any,Tuple[int, ...]]) -> Tile[Scalar,Tuple[int, ...]]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+    Bitwise XOR each element of two tiles together
+
+
+.. py:function:: lshift(a: Int, b: Int) -> Int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: lshift(a: Vector[Any,Int], b: Vector[Any,Int]) -> Vector[Any,Int]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: lshift(a: Matrix[Any,Any,Int], b: Matrix[Any,Any,Int]) -> Matrix[Any,Any,Int]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: rshift(a: Int, b: Int) -> Int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: rshift(a: Vector[Any,Int], b: Vector[Any,Int]) -> Vector[Any,Int]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: rshift(a: Matrix[Any,Any,Int], b: Matrix[Any,Any,Int]) -> Matrix[Any,Any,Int]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: invert(a: Int) -> Int
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: invert(a: Vector[Any,Int]) -> Vector[Any,Int]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
+
+
+.. py:function:: invert(a: Matrix[Any,Any,Int]) -> Matrix[Any,Any,Int]
+    :noindex:
+    :nocontentsentry:
+
+    .. hlist::
+       :columns: 8
+
+       * Kernel
+       * Python
+       * Differentiable
 
 
 .. py:function:: mul(a: Scalar, b: Scalar) -> Scalar
@@ -5365,7 +6719,7 @@ Operators
     Modulo operation using truncated division.
 
 
-.. py:function:: mod(a: Vector[Any,Scalar], b: Vector[Any,Scalar]) -> Scalar
+.. py:function:: mod(a: Vector[Any,Scalar], b: Vector[Any,Scalar]) -> Vector[Any,Scalar]
     :noindex:
     :nocontentsentry:
 

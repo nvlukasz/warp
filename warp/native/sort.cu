@@ -23,7 +23,7 @@
 
 #include <cub/cub.cuh>
 
-#include <map>
+#include <unordered_map>
 
 // temporary buffer for radix sort
 struct RadixSortTemp
@@ -32,8 +32,8 @@ struct RadixSortTemp
     size_t size = 0;
 };
 
-// map temp buffers to CUDA contexts
-static std::map<void*, RadixSortTemp> g_radix_sort_temp_map;
+// use unique temp buffers per CUDA stream to avoid race conditions
+static std::unordered_map<void*, RadixSortTemp> g_radix_sort_temp_map;
 
 
 template <typename KeyType>
@@ -44,6 +44,8 @@ void radix_sort_reserve_internal(void* context, int n, void** mem_out, size_t* s
     cub::DoubleBuffer<KeyType> d_keys;
 	cub::DoubleBuffer<int> d_values;
 
+    CUstream stream = static_cast<CUstream>(wp_cuda_stream_get_current());
+
     // compute temporary memory required
 	size_t sort_temp_size;
     check_cuda(cub::DeviceRadixSort::SortPairs(
@@ -52,17 +54,14 @@ void radix_sort_reserve_internal(void* context, int n, void** mem_out, size_t* s
         d_keys,
         d_values,
         n, 0, sizeof(KeyType)*8,
-        (cudaStream_t)cuda_stream_get_current()));
+        stream));
 
-    if (!context)
-        context = cuda_context_get_current();
-
-    RadixSortTemp& temp = g_radix_sort_temp_map[context];
+    RadixSortTemp& temp = g_radix_sort_temp_map[stream];
 
     if (sort_temp_size > temp.size)
     {
-	    free_device(WP_CURRENT_CONTEXT, temp.mem);
-        temp.mem = alloc_device(WP_CURRENT_CONTEXT, sort_temp_size);
+	    wp_free_device(WP_CURRENT_CONTEXT, temp.mem);
+        temp.mem = wp_alloc_device(WP_CURRENT_CONTEXT, sort_temp_size);
         temp.size = sort_temp_size;
     }
     
@@ -75,6 +74,17 @@ void radix_sort_reserve_internal(void* context, int n, void** mem_out, size_t* s
 void radix_sort_reserve(void* context, int n, void** mem_out, size_t* size_out)
 {
     radix_sort_reserve_internal<int>(context, n, mem_out, size_out);
+}
+
+void radix_sort_release(void* context, void* stream)
+{
+    // release temporary buffer for the given stream, if it exists
+    auto it = g_radix_sort_temp_map.find(stream);
+    if (it != g_radix_sort_temp_map.end())
+    {
+        wp_free_device(context, it->second.mem);
+        g_radix_sort_temp_map.erase(it);
+    }
 }
 
 template <typename KeyType>
@@ -95,13 +105,13 @@ void radix_sort_pairs_device(void* context, KeyType* keys, int* values, int n)
         d_keys, 
         d_values, 
         n, 0, sizeof(KeyType)*8, 
-        (cudaStream_t)cuda_stream_get_current()));
+        (cudaStream_t)wp_cuda_stream_get_current()));
 
 	if (d_keys.Current() != keys)
-		memcpy_d2d(WP_CURRENT_CONTEXT, keys, d_keys.Current(), sizeof(KeyType)*n);
+		wp_memcpy_d2d(WP_CURRENT_CONTEXT, keys, d_keys.Current(), sizeof(KeyType)*n);
 
 	if (d_values.Current() != values)
-		memcpy_d2d(WP_CURRENT_CONTEXT, values, d_values.Current(), sizeof(int)*n);
+		wp_memcpy_d2d(WP_CURRENT_CONTEXT, values, d_values.Current(), sizeof(int)*n);
 }
 
 void radix_sort_pairs_device(void* context, int* keys, int* values, int n)
@@ -119,7 +129,7 @@ void radix_sort_pairs_device(void* context, int64_t* keys, int* values, int n)
     radix_sort_pairs_device<int64_t>(context, keys, values, n);
 }
 
-void radix_sort_pairs_int_device(uint64_t keys, uint64_t values, int n)
+void wp_radix_sort_pairs_int_device(uint64_t keys, uint64_t values, int n)
 {
     radix_sort_pairs_device(
         WP_CURRENT_CONTEXT,
@@ -127,7 +137,7 @@ void radix_sort_pairs_int_device(uint64_t keys, uint64_t values, int n)
         reinterpret_cast<int *>(values), n);
 }
 
-void radix_sort_pairs_float_device(uint64_t keys, uint64_t values, int n)
+void wp_radix_sort_pairs_float_device(uint64_t keys, uint64_t values, int n)
 {
     radix_sort_pairs_device(
         WP_CURRENT_CONTEXT,
@@ -135,7 +145,7 @@ void radix_sort_pairs_float_device(uint64_t keys, uint64_t values, int n)
         reinterpret_cast<int *>(values), n);
 }
 
-void radix_sort_pairs_int64_device(uint64_t keys, uint64_t values, int n)
+void wp_radix_sort_pairs_int64_device(uint64_t keys, uint64_t values, int n)
 {
     radix_sort_pairs_device(
         WP_CURRENT_CONTEXT,
@@ -153,6 +163,8 @@ void segmented_sort_reserve(void* context, int n, int num_segments, void** mem_o
     int* start_indices = NULL;
     int* end_indices = NULL;
 
+    CUstream stream = static_cast<CUstream>(wp_cuda_stream_get_current());
+
     // compute temporary memory required
 	size_t sort_temp_size;
     check_cuda(cub::DeviceSegmentedRadixSort::SortPairs(
@@ -166,17 +178,14 @@ void segmented_sort_reserve(void* context, int n, int num_segments, void** mem_o
         end_indices,
         0,
         32,
-        (cudaStream_t)cuda_stream_get_current()));
+        stream));
 
-    if (!context)
-        context = cuda_context_get_current();
-
-    RadixSortTemp& temp = g_radix_sort_temp_map[context];
+    RadixSortTemp& temp = g_radix_sort_temp_map[stream];
 
     if (sort_temp_size > temp.size)
     {
-	    free_device(WP_CURRENT_CONTEXT, temp.mem);
-        temp.mem = alloc_device(WP_CURRENT_CONTEXT, sort_temp_size);
+	    wp_free_device(WP_CURRENT_CONTEXT, temp.mem);
+        temp.mem = wp_alloc_device(WP_CURRENT_CONTEXT, sort_temp_size);
         temp.size = sort_temp_size;
     }
     
@@ -211,16 +220,16 @@ void segmented_sort_pairs_device(void* context, float* keys, int* values, int n,
         segment_end_indices,
         0,
         32,
-        (cudaStream_t)cuda_stream_get_current()));
+        (cudaStream_t)wp_cuda_stream_get_current()));
 
 	if (d_keys.Current() != keys)
-		memcpy_d2d(WP_CURRENT_CONTEXT, keys, d_keys.Current(), sizeof(float)*n);
+		wp_memcpy_d2d(WP_CURRENT_CONTEXT, keys, d_keys.Current(), sizeof(float)*n);
 
 	if (d_values.Current() != values)
-		memcpy_d2d(WP_CURRENT_CONTEXT, values, d_values.Current(), sizeof(int)*n);
+		wp_memcpy_d2d(WP_CURRENT_CONTEXT, values, d_values.Current(), sizeof(int)*n);
 }
 
-void segmented_sort_pairs_float_device(uint64_t keys, uint64_t values, int n, uint64_t segment_start_indices, uint64_t segment_end_indices, int num_segments)
+void wp_segmented_sort_pairs_float_device(uint64_t keys, uint64_t values, int n, uint64_t segment_start_indices, uint64_t segment_end_indices, int num_segments)
 {
     segmented_sort_pairs_device(
         WP_CURRENT_CONTEXT,
@@ -256,16 +265,16 @@ void segmented_sort_pairs_device(void* context, int* keys, int* values, int n, i
         segment_end_indices,
         0,
         32,
-        (cudaStream_t)cuda_stream_get_current()));
+        (cudaStream_t)wp_cuda_stream_get_current()));
 
 	if (d_keys.Current() != keys)
-		memcpy_d2d(WP_CURRENT_CONTEXT, keys, d_keys.Current(), sizeof(float)*n);
+		wp_memcpy_d2d(WP_CURRENT_CONTEXT, keys, d_keys.Current(), sizeof(float)*n);
 
 	if (d_values.Current() != values)
-		memcpy_d2d(WP_CURRENT_CONTEXT, values, d_values.Current(), sizeof(int)*n);
+		wp_memcpy_d2d(WP_CURRENT_CONTEXT, values, d_values.Current(), sizeof(int)*n);
 }
 
-void segmented_sort_pairs_int_device(uint64_t keys, uint64_t values, int n, uint64_t segment_start_indices, uint64_t segment_end_indices, int num_segments)
+void wp_segmented_sort_pairs_int_device(uint64_t keys, uint64_t values, int n, uint64_t segment_start_indices, uint64_t segment_end_indices, int num_segments)
 {
     segmented_sort_pairs_device(
         WP_CURRENT_CONTEXT,

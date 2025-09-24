@@ -43,9 +43,6 @@ Conda packages for Warp are also available on the `conda-forge <https://anaconda
     # Install warp-lang specifically built against CUDA Toolkit 12.6
     $ conda install conda-forge::warp-lang=*=*cuda126*
 
-    # Install warp-lang specifically built against CUDA Toolkit 11.8
-    $ conda install conda-forge::warp-lang=*=*cuda118*
-
 For more information, see the community-maintained feedstock for Warp
 `here <https://github.com/conda-forge/warp-lang-feedstock>`__.
 
@@ -53,8 +50,8 @@ Installing from GitHub Releases
 -------------------------------
 
 The binaries hosted on PyPI are currently built with the CUDA 12 runtime.
-We also provide binaries built with the CUDA 11.8 runtime on the `GitHub Releases <https://github.com/NVIDIA/warp/releases>`_ page.
-Copy the URL of the appropriate wheel file (``warp-lang-{ver}+cu11-py3-none-{platform}.whl``) and pass it to
+We also provide binaries built with the CUDA 13.0 runtime on the `GitHub Releases <https://github.com/NVIDIA/warp/releases>`_ page.
+Copy the URL of the appropriate wheel file (``warp-lang-{ver}+cu13-py3-none-{platform}.whl``) and pass it to
 the ``pip install`` command, e.g.
 
 .. list-table:: 
@@ -63,19 +60,19 @@ the ``pip install`` command, e.g.
    * - Platform
      - Install Command
    * - Linux aarch64
-     - ``pip install https://github.com/NVIDIA/warp/releases/download/v1.7.2/warp_lang-1.7.2+cu11-py3-none-manylinux2014_aarch64.whl``
+     - ``pip install https://github.com/NVIDIA/warp/releases/download/v1.9.0/warp_lang-1.9.0+cu13-py3-none-manylinux2014_aarch64.whl``
    * - Linux x86-64
-     - ``pip install https://github.com/NVIDIA/warp/releases/download/v1.7.2/warp_lang-1.7.2+cu11-py3-none-manylinux2014_x86_64.whl``
+     - ``pip install https://github.com/NVIDIA/warp/releases/download/v1.9.0/warp_lang-1.9.0+cu13-py3-none-manylinux2014_x86_64.whl``
    * - Windows x86-64
-     - ``pip install https://github.com/NVIDIA/warp/releases/download/v1.7.2/warp_lang-1.7.2+cu11-py3-none-win_amd64.whl``
+     - ``pip install https://github.com/NVIDIA/warp/releases/download/v1.9.0/warp_lang-1.9.0+cu13-py3-none-win_amd64.whl``
 
 The ``--force-reinstall`` option may need to be used to overwrite a previous installation.
 
 CUDA Requirements
 -----------------
 
-* Warp packages built with CUDA Toolkit 11.x require NVIDIA driver 470 or newer.
 * Warp packages built with CUDA Toolkit 12.x require NVIDIA driver 525 or newer.
+* Warp packages built with CUDA Toolkit 13.x require NVIDIA driver 580 or newer.
 
 This applies to pre-built packages distributed on PyPI and GitHub and also when building Warp from source.
 
@@ -83,7 +80,7 @@ Note that building Warp with the ``--quick`` flag changes the driver requirement
 The quick build skips CUDA backward compatibility, so the minimum required driver is determined by the CUDA Toolkit version.
 Refer to the `latest CUDA Toolkit release notes <https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html>`_
 to find the minimum required driver for different CUDA Toolkit versions
-(e.g., `this table from CUDA Toolkit 12.6 <https://docs.nvidia.com/cuda/archive/12.6.0/cuda-toolkit-release-notes/index.html#id5>`_).
+(e.g., `this table from CUDA Toolkit 12.9 <https://docs.nvidia.com/cuda/archive/12.9.0/cuda-toolkit-release-notes/index.html#id7>`_).
 
 Warp checks the installed driver during initialization and will report a warning if the driver is not suitable, e.g.:
 
@@ -101,6 +98,8 @@ To remedy the situation there are a few options:
 * Update the driver.
 * Install a compatible pre-built Warp package.
 * Build Warp from source using a CUDA Toolkit that's compatible with the installed driver.
+
+Also note that full support for tile-based MathDx features requires CUDA version 12.6.3 or later. See :ref:`mathdx` for more information.
 
 Dependencies
 ------------
@@ -124,7 +123,7 @@ For developers who want to build the library themselves the following tools are 
 
 * Microsoft Visual Studio (Windows), minimum version 2019
 * GCC (Linux), minimum version 9.4
-* `CUDA Toolkit <https://developer.nvidia.com/cuda-toolkit>`_, minimum version 11.5
+* `CUDA Toolkit <https://developer.nvidia.com/cuda-toolkit>`_, minimum version 12.0
 * `Git Large File Storage <https://git-lfs.com>`_
 
 After cloning the repository, users should run:
@@ -173,3 +172,178 @@ make use of an environment management system such as
     Alternatively, the build environment's C++ toolchain can be downgraded using
     ``conda install -c conda-forge libstdcxx-ng=8.5``. Or, one can ``activate`` or
     ``deactivate`` Conda environments as needed for building vs. running Warp.
+
+Using Warp in Docker
+--------------------
+
+Docker containers can be useful for developing and deploying applications that use Warp.
+They provide build environment isolation and consistency benefits.
+
+In order to have Warp detect GPUs from inside a Docker container, the
+`NVIDIA Container Toolkit <https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/index.html>`__
+should be installed.
+Pass the ``--gpus all`` flag to the ``docker run`` command to make all GPUs available to the container.
+
+Building Warp from source in Docker
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To build Warp from source in Docker, you should ensure that the container has either ``curl`` or ``wget`` installed.
+This is required so that Packman can download dependencies like libmathdx and LLVM/Clang from the internet
+when building Warp.
+
+We recommend using one of the NVIDIA CUDA images from `nvidia/cuda <https://hub.docker.com/r/nvidia/cuda>`__ as a base
+image.
+Choose a ``devel`` flavor that matches your desired CUDA Toolkit version.
+
+The following Dockerfile clones the Warp repository, builds Warp, and installs it into the system Python
+environment:
+
+.. code-block:: dockerfile
+
+    FROM nvidia/cuda:13.0.0-devel-ubuntu24.04
+
+    RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        git-lfs \
+        curl \
+        python3 \
+        python3-pip \
+        && rm -rf /var/lib/apt/lists/*
+
+    WORKDIR /warp
+
+    RUN git clone https://github.com/NVIDIA/warp.git . && \
+        git lfs pull && \
+        python3 -m pip install --break-system-packages numpy && \
+        python3 build_lib.py && \
+        python3 -m pip install --break-system-packages .
+
+If we put the contents of this file in a file called ``Dockerfile``, we can build an image using a command like:
+
+.. code-block:: sh
+
+    docker build -t warp-github-clone:example .
+
+After building the image, you can test it with:
+
+.. code-block:: sh
+
+    docker run --rm --gpus all warp-github-clone:example python3 -c "import warp as wp; wp.init()"
+
+The ``--rm`` flag tells Docker to remove the container after the command finishes.
+This will output something like:
+
+.. code-block:: text
+
+    ==========
+    == CUDA ==
+    ==========
+
+    CUDA Version 13.0.0
+
+    Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+    This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+    By pulling and using the container, you accept the terms and conditions of this license:
+    https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+    A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+    Warp 1.10.0.dev0 initialized:
+    CUDA Toolkit 13.0, Driver 13.0
+    Devices:
+        "cpu"      : "x86_64"
+        "cuda:0"   : "NVIDIA L40S" (47 GiB, sm_89, mempool enabled)
+    Kernel cache:
+      /root/.cache/warp/1.10.0.dev0
+
+An interactive session can be started with:
+
+.. code-block:: sh
+
+    docker run -it --rm --gpus all warp-github-clone:example
+
+To build a modified version of Warp from your local repository, you can use the following Dockerfile as a starting
+point.
+Place it at the root of your repository.
+
+.. code-block:: dockerfile
+
+    FROM nvidia/cuda:13.0.0-devel-ubuntu24.04
+
+    # Install dependencies
+    RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        python3 \
+        python3-pip \
+        && rm -rf /var/lib/apt/lists/*
+
+    COPY warp /warp/warp
+    COPY deps /warp/deps
+    COPY tools/packman /warp/tools/packman
+    COPY build_lib.py build_llvm.py pyproject.toml setup.py VERSION.md /warp/
+
+    WORKDIR /warp
+
+    RUN python3 -m pip install --break-system-packages numpy && \
+        python3 build_lib.py && \
+        python3 -m pip install --break-system-packages .
+
+The resulting image produced by either of the above Dockerfile examples can be quite large due to the inclusion of
+various dependencies that are no longer needed once Warp has been built.
+
+For production use, consider a multi-stage build employing both the ``devel`` and ``runtime`` CUDA container images
+to reduce the image size significantly by excluding unnecessary build tools and development dependencies from the
+runtime environment.
+
+In the builder stage, we compile Warp similar to the previous examples, but we also build a wheel file.
+The runtime stage uses the lighter ``nvidia/cuda:13.0.0-runtime-ubuntu24.04`` base image and installs the wheel
+produced by the builder stage into a Python virtual environment.
+
+The following example also uses `uv <https://docs.astral.sh/uv/>`__ for Python package management, creating virtual
+environments, and building the wheel file.
+
+.. code-block:: dockerfile
+
+    # Build stage
+    FROM nvidia/cuda:13.0.0-devel-ubuntu24.04 AS builder
+
+    COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+    RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        && rm -rf /var/lib/apt/lists/*
+
+    COPY warp /warp/warp
+    COPY deps /warp/deps
+    COPY tools/packman /warp/tools/packman
+    COPY build_lib.py build_llvm.py pyproject.toml setup.py VERSION.md /warp/
+
+    WORKDIR /warp
+
+    RUN uv venv && \
+        uv pip install numpy && \
+        uv run --no-project build_lib.py && \
+        uv build --wheel --out-dir /wheels
+
+    # Runtime stage
+    FROM nvidia/cuda:13.0.0-runtime-ubuntu24.04
+
+    COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+    RUN uv venv /opt/venv
+    # Use the virtual environment automatically
+    ENV VIRTUAL_ENV=/opt/venv
+    # Place entry points in the environment at the front of the path
+    ENV PATH="/opt/venv/bin:$PATH"
+
+    RUN uv pip install numpy
+
+    # Copy and install the wheel from builder stage
+    COPY --from=builder /wheels/*.whl /tmp/
+    RUN uv pip install /tmp/*.whl && \
+        rm -rf /tmp/*.whl
+
+After building the image with ``docker build -t warp-prod:example .``, we can use ``docker image ls`` to compare the
+image sizes.
+``warp-prod:example`` is about 3.18 GB, while ``warp-github-clone:example`` is 9.03 GB!

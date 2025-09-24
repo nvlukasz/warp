@@ -18,6 +18,8 @@
 #include "warp.h"
 #include "scan.h"
 
+#include "cuda_util.h"
+
 #define THRUST_IGNORE_CUB_VERSION_CHECK
 
 #include <cub/device/device_scan.cuh>
@@ -25,9 +27,9 @@
 template<typename T>
 void scan_device(const T* values_in, T* values_out, int n, bool inclusive)
 {
-    ContextGuard guard(cuda_context_get_current());
+    ContextGuard guard(wp_cuda_context_get_current());
 
-    cudaStream_t stream = static_cast<cudaStream_t>(cuda_stream_get_current());
+    cudaStream_t stream = static_cast<cudaStream_t>(wp_cuda_stream_get_current());
 
     // compute temporary memory required
 	size_t scan_temp_size;
@@ -37,7 +39,7 @@ void scan_device(const T* values_in, T* values_out, int n, bool inclusive)
         check_cuda(cub::DeviceScan::ExclusiveSum(NULL, scan_temp_size, values_in, values_out, n));
     }
 
-    void* temp_buffer = alloc_device(WP_CURRENT_CONTEXT, scan_temp_size);
+    void* temp_buffer = wp_alloc_device(WP_CURRENT_CONTEXT, scan_temp_size);
 
     // scan
     if (inclusive) {
@@ -46,7 +48,7 @@ void scan_device(const T* values_in, T* values_out, int n, bool inclusive)
         check_cuda(cub::DeviceScan::ExclusiveSum(temp_buffer, scan_temp_size, values_in, values_out, n, stream));
     }
 
-    free_device(WP_CURRENT_CONTEXT, temp_buffer);
+    wp_free_device(WP_CURRENT_CONTEXT, temp_buffer);
 }
 
 template void scan_device(const int*, int*, int, bool);

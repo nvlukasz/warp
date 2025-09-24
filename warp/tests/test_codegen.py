@@ -463,7 +463,7 @@ def test_error_unmatched_arguments(test, device):
     kernel = wp.Kernel(func=kernel_2_fn)
     with test.assertRaisesRegex(
         RuntimeError,
-        r"Input types must be exactly the same, got \['vec2f', 'vector\(length=2, dtype=float16\)'\]",
+        r"Input types must be exactly the same, got \['vec2f', 'vec2h'\]",
     ):
         wp.launch(kernel, dim=1, device=device)
 
@@ -756,6 +756,7 @@ def test_multiple_return_values(test, device):
         test_multiple_return_values_quat_to_axis_angle_kernel,
         dim=1,
         inputs=(q, expected_axis, expected_angle),
+        device=device,
     )
 
     # fmt: off
@@ -791,9 +792,9 @@ def test_multiple_return_values(test, device):
 
     test.assertAlmostEqual(V[0][0], expected_V[0][0], places=5)
     test.assertAlmostEqual(V[0][1], expected_V[0][1], places=5)
-    test.assertAlmostEqual(V[0][2], expected_V[0][2], places=5)
+    test.assertAlmostEqual(V[0][2], expected_V[0][2], places=4)  # precision issue on ARM64 (GH-905)
     test.assertAlmostEqual(V[1][0], expected_V[1][0], places=5)
-    test.assertAlmostEqual(V[1][1], expected_V[1][1], places=5)
+    test.assertAlmostEqual(V[1][1], expected_V[1][1], places=4)  # precision issue on ARM64 (GH-905)
     test.assertAlmostEqual(V[1][2], expected_V[1][2], places=5)
     test.assertAlmostEqual(V[2][0], expected_V[2][0], places=5)
     test.assertAlmostEqual(V[2][1], expected_V[2][1], places=5)

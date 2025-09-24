@@ -58,6 +58,7 @@ struct Mesh
         context = nullptr;
         solid_angle_props = nullptr;	
         average_edge_length = 0.0f;
+        bvh = BVH{};
     }
 
     inline CUDA_CALLABLE Mesh(
@@ -73,6 +74,7 @@ struct Mesh
         uppers = nullptr;
         solid_angle_props = nullptr;
         average_edge_length = 0.0f;
+        bvh = BVH{};
     }
 };
 
@@ -1357,7 +1359,7 @@ CUDA_CALLABLE inline void adj_mesh_query_point_sign_normal(uint64_t id, const ve
                                                            uint64_t adj_id, vec3& adj_point, float& adj_max_dist, float& adj_epsilon, mesh_query_point_t& adj_ret)
 {
     adj_mesh_query_point_sign_normal(id, point, max_dist, ret.sign, ret.face, ret.u, ret.v, epsilon,
-                                     adj_id, adj_point, adj_max_dist, adj_ret.sign, adj_ret.face, adj_ret.u, adj_ret.v, epsilon, adj_ret.result);
+                                     adj_id, adj_point, adj_max_dist, adj_ret.sign, adj_ret.face, adj_ret.u, adj_ret.v, adj_epsilon, adj_ret.result);
 }
 
 CUDA_CALLABLE inline void adj_mesh_query_point_sign_winding_number(uint64_t id, const vec3& point, float max_dist, float accuracy, float winding_number_threshold, const mesh_query_point_t& ret,
@@ -1620,8 +1622,6 @@ CUDA_CALLABLE inline mesh_query_aabb_t mesh_query_aabb(
     query.count = 1;
     query.input_lower = lower;
     query.input_upper = upper;
-
-    wp::bounds3 input_bounds(query.input_lower, query.input_upper);
     
     // Navigate through the bvh, find the first overlapping leaf node.
     while (query.count)
@@ -1630,7 +1630,7 @@ CUDA_CALLABLE inline mesh_query_aabb_t mesh_query_aabb(
         BVHPackedNodeHalf node_lower = bvh_load_node(mesh.bvh.node_lowers, nodeIndex);
         BVHPackedNodeHalf node_upper = bvh_load_node(mesh.bvh.node_uppers, nodeIndex);
 
-        if (!input_bounds.overlaps((vec3&)node_lower, (vec3&)node_upper))
+        if (!intersect_aabb_aabb(query.input_lower, query.input_upper, reinterpret_cast<vec3&>(node_lower), reinterpret_cast<vec3&>(node_upper)))
         {
             // Skip this box, it doesn't overlap with our target box.
             continue;
@@ -1644,7 +1644,7 @@ CUDA_CALLABLE inline mesh_query_aabb_t mesh_query_aabb(
         {
             // Reached a leaf node, point to its first primitive
             // Back up one level and return 
-            query.primitive_counter = left_index;
+            query.primitive_counter = 0;
             query.stack[query.count++] = nodeIndex;
             return query;
         }
@@ -1669,45 +1669,6 @@ CUDA_CALLABLE inline bool mesh_query_aabb_next(mesh_query_aabb_t& query, int& in
 {
     Mesh mesh = query.mesh;
 
-    wp::bounds3 input_bounds(query.input_lower, query.input_upper);
-
-    if (query.primitive_counter != -1)
-        // currently in a leaf node which is the last node in the stack
-    {
-        const int node_index = query.stack[query.count - 1];
-        BVHPackedNodeHalf node_lower = bvh_load_node(mesh.bvh.node_lowers, node_index);
-        BVHPackedNodeHalf node_upper = bvh_load_node(mesh.bvh.node_uppers, node_index);
-
-        const int end = node_upper.i;
-        for (int primitive_counter = query.primitive_counter; primitive_counter < end; primitive_counter++)
-        {
-            int primitive_index = mesh.bvh.primitive_indices[primitive_counter];
-            if (input_bounds.overlaps(mesh.lowers[primitive_index], mesh.uppers[primitive_index]))
-            {
-                if (primitive_counter < end - 1)
-                    // still need to come back to this leaf node for the leftover primitives
-                {
-                    query.primitive_counter = primitive_counter + 1;
-                }
-                else
-                    // no need to come back to this leaf node
-                {
-                    query.count--;
-                    query.primitive_counter = -1;
-                }
-                index = primitive_index;
-                query.face = primitive_index;
-
-                return true;
-            }
-        }
-        // if we reach here it means we have finished the current leaf node without finding intersections
-        query.primitive_counter = -1;
-        // remove the leaf node from the back of the stack because it is finished
-        // and continue the bvh traversal
-        query.count--;
-    }
-    
     // Navigate through the bvh, find the first overlapping leaf node.
     while (query.count)
     {
@@ -1715,7 +1676,7 @@ CUDA_CALLABLE inline bool mesh_query_aabb_next(mesh_query_aabb_t& query, int& in
         BVHPackedNodeHalf node_lower = bvh_load_node(mesh.bvh.node_lowers, node_index);
         BVHPackedNodeHalf node_upper = bvh_load_node(mesh.bvh.node_uppers, node_index);
 
-        if (!input_bounds.overlaps((vec3&)node_lower, (vec3&)node_upper))
+        if (!intersect_aabb_aabb(query.input_lower, query.input_upper, reinterpret_cast<vec3&>(node_lower), reinterpret_cast<vec3&>(node_upper)))
         {
             // Skip this box, it doesn't overlap with our target box.
             continue;
@@ -1731,31 +1692,30 @@ CUDA_CALLABLE inline bool mesh_query_aabb_next(mesh_query_aabb_t& query, int& in
             const int start = left_index;
             const int end = right_index;
 
-            for (int primitive_counter = start; primitive_counter < end; primitive_counter++)
+            int primitive_index = mesh.bvh.primitive_indices[start + (query.primitive_counter++)];
+            // if already visited the last primitive in the leaf node
+            // move to the next node and reset the primitive counter to 0
+            if (start + query.primitive_counter == end)
             {
-                int primitive_index = mesh.bvh.primitive_indices[primitive_counter];
-                if (input_bounds.overlaps(mesh.lowers[primitive_index], mesh.uppers[primitive_index]))
-                {
-                    if (primitive_counter < end - 1)
-                        // still need to come back to this leaf node for the leftover primitives
-                    {
-                        query.primitive_counter = primitive_counter + 1;
-                        query.stack[query.count++] = node_index;
-                    }
-                    else
-                        // no need to come back to this leaf node
-                    {
-                        query.primitive_counter = -1;
-                    }
-                    index = primitive_index;
-                    query.face = primitive_index;
+                query.primitive_counter = 0;
+            }
+            // otherwise we need to keep this leaf node in stack for a future visit
+            else
+            {
+                query.count++;
+            }
+            
+            if (intersect_aabb_aabb(query.input_lower, query.input_upper, mesh.lowers[primitive_index], mesh.uppers[primitive_index]))
+            {
+                index = primitive_index;
+                query.face = primitive_index;
 
-                    return true;
-                }
+                return true;
             }
         }
         else
         {
+            query.primitive_counter = 0;
             query.stack[query.count++] = left_index;
             query.stack[query.count++] = right_index;
         }
