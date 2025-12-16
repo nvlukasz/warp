@@ -690,7 +690,7 @@ class FfiCallable:
                     if capture is not None:
                         graph_exec = capture.graph.graph_exec
                         if not wp._src.context.runtime.core.wp_cuda_graph_launch(graph_exec, cuda_stream):
-                            raise RuntimeError(f"Graph launch error: {wp.context.runtime.get_error_string()}")
+                            raise RuntimeError(f"Graph launch error: {wp._src.context.runtime.get_error_string()}")
 
                         # update the graph cache to keep recently used graphs alive
                         self.captures.move_to_end(capture_key)
@@ -718,12 +718,12 @@ class FfiCallable:
                             cuda_stream,
                         ):
                             raise RuntimeError(
-                                f"Failed to run input memcpy batch: {wp.context.runtime.get_error_string()}"
+                                f"Failed to run input memcpy batch: {wp._src.context.runtime.get_error_string()}"
                             )
 
                         # launch existing graph
                         if not wp._src.context.runtime.core.wp_cuda_graph_launch(graph_exec, cuda_stream):
-                            raise RuntimeError(f"Graph launch error: {wp.context.runtime.get_error_string()}")
+                            raise RuntimeError(f"Graph launch error: {wp._src.context.runtime.get_error_string()}")
 
                         # set destination pointers for output memcopies
                         for memcpy_idx, output_idx in enumerate(call_desc.output_memcpy_indices):
@@ -739,7 +739,7 @@ class FfiCallable:
                             cuda_stream,
                         ):
                             raise RuntimeError(
-                                f"Failed to run output memcpy batch: {wp.context.runtime.get_error_string()}"
+                                f"Failed to run output memcpy batch: {wp._src.context.runtime.get_error_string()}"
                             )
 
                         # early out
@@ -771,12 +771,12 @@ class FfiCallable:
                             len(call_desc.memcpy_nodes),
                         ):
                             raise RuntimeError(
-                                f"Failed to update graph memcpy batch: {wp.context.runtime.get_error_string()}"
+                                f"Failed to update graph memcpy batch: {wp._src.context.runtime.get_error_string()}"
                             )
 
                         # launch existing graph
                         if not wp._src.context.runtime.core.wp_cuda_graph_launch(graph_exec, cuda_stream):
-                            raise RuntimeError(f"Graph launch error: {wp.context.runtime.get_error_string()}")
+                            raise RuntimeError(f"Graph launch error: {wp._src.context.runtime.get_error_string()}")
 
                         # early out
                         return
@@ -847,7 +847,7 @@ class FfiCallable:
                             cuda_stream,
                         ):
                             raise RuntimeError(
-                                f"Failed to run input memcpy batch: {wp.context.runtime.get_error_string()}"
+                                f"Failed to run input memcpy batch: {wp._src.context.runtime.get_error_string()}"
                             )
 
                         # capture callback using staging arrays
@@ -866,7 +866,7 @@ class FfiCallable:
                             cuda_stream,
                         ):
                             raise RuntimeError(
-                                f"Failed to run output memcpy batch: {wp.context.runtime.get_error_string()}"
+                                f"Failed to run output memcpy batch: {wp._src.context.runtime.get_error_string()}"
                             )
 
                         # save the capture for replays
@@ -902,7 +902,7 @@ class FfiCallable:
                                 input_memcpy_nodes,
                             ):
                                 raise RuntimeError(
-                                    f"Failed to insert input memcpy batch: {wp.context.runtime.get_error_string()}"
+                                    f"Failed to insert input memcpy batch: {wp._src.context.runtime.get_error_string()}"
                                 )
 
                             # run the callback
@@ -920,7 +920,7 @@ class FfiCallable:
                                 output_memcpy_nodes,
                             ):
                                 raise RuntimeError(
-                                    f"Failed to insert output memcpy batch: {wp.context.runtime.get_error_string()}"
+                                    f"Failed to insert output memcpy batch: {wp._src.context.runtime.get_error_string()}"
                                 )
 
                         wp.capture_launch(capture.graph)
