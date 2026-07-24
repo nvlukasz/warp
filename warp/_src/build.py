@@ -158,15 +158,15 @@ def build_cpu(
 
 
 def add_include_directory(dir: str):
-    warp._src.context.runtime.core.build_add_include_directory(dir.encode("utf-8"))
+    warp._src.context.runtime.core.wp_build_add_include_directory(dir.encode("utf-8"))
 
 
 def add_preprocessor_macro_definition(dir: str):
-    warp._src.context.runtime.core.build_add_preprocessor_macro_definition(dir.encode("utf-8"))
+    warp._src.context.runtime.core.wp_build_add_preprocessor_macro_definition(dir.encode("utf-8"))
 
 
 def set_cpp_standard(cpp_standard: str):
-    warp._src.context.runtime.core.build_set_cpp_standard(cpp_standard.encode("utf-8"))
+    warp._src.context.runtime.core.wp_build_set_cpp_standard(cpp_standard.encode("utf-8"))
 
 
 def init_kernel_cache(path=None):

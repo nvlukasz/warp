@@ -1030,7 +1030,7 @@ WP_API void wp_array_fill_host(void* arr_ptr, int arr_type, const void* value_pt
     }
 }
 
-WP_API void build_add_include_directory(const char* dir)
+WP_API void wp_build_add_include_directory(const char* dir)
 {
     if (dir)
     {
@@ -1038,7 +1038,7 @@ WP_API void build_add_include_directory(const char* dir)
     }
 }
 
-WP_API void build_add_preprocessor_macro_definition(const char* macro_definition)
+WP_API void wp_build_add_preprocessor_macro_definition(const char* macro_definition)
 {
     if (macro_definition)
     {
@@ -1046,7 +1046,7 @@ WP_API void build_add_preprocessor_macro_definition(const char* macro_definition
     }
 }
 
-WP_API void build_set_cpp_standard(const char* version)
+WP_API void wp_build_set_cpp_standard(const char* version)
 {
     if (version)
     {

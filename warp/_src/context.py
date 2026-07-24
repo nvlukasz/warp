@@ -7377,14 +7377,14 @@ class Runtime:
             self.core.wp_cuda_timing_end.argtypes = [ctypes.POINTER(timing_result_t), ctypes.c_int]
             self.core.wp_cuda_timing_end.restype = None
 
-            self.core.build_add_include_directory.argtypes = [ctypes.c_char_p]
-            self.core.build_add_include_directory.restype = None
+            self.core.wp_build_add_include_directory.argtypes = [ctypes.c_char_p]
+            self.core.wp_build_add_include_directory.restype = None
 
-            self.core.build_add_preprocessor_macro_definition.argtypes = [ctypes.c_char_p]
-            self.core.build_add_preprocessor_macro_definition.restype = None
+            self.core.wp_build_add_preprocessor_macro_definition.argtypes = [ctypes.c_char_p]
+            self.core.wp_build_add_preprocessor_macro_definition.restype = None
 
-            self.core.build_set_cpp_standard.argtypes = [ctypes.c_char_p]
-            self.core.build_set_cpp_standard.restype = None
+            self.core.wp_build_set_cpp_standard.argtypes = [ctypes.c_char_p]
+            self.core.wp_build_set_cpp_standard.restype = None
 
             self.core.wp_graph_coloring.argtypes = [
                 ctypes.c_int,

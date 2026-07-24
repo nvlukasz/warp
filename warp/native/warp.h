@@ -931,13 +931,13 @@ WP_API void wp_cuda_timing_begin(int flags);
 WP_API int wp_cuda_timing_get_result_count();
 WP_API void wp_cuda_timing_end(timing_result_t* results, int size);
 
-WP_API void build_add_include_directory(const char* dir);
+WP_API void wp_build_add_include_directory(const char* dir);
 // Adds a c++ pre-processor macro definition to the build system
 // Examples:
 // #define MY_MACRO 1 => macro_definition="MY_MACRO=1" => -DMY_MACRO=1
 // #define MY_MACRO  => macro_definition="MY_MACRO" => -DMY_MACRO
-WP_API void build_add_preprocessor_macro_definition(const char* macro_definition);
-WP_API void build_set_cpp_standard(const char* version);
+WP_API void wp_build_add_preprocessor_macro_definition(const char* macro_definition);
+WP_API void wp_build_set_cpp_standard(const char* version);
 
 // graph coloring
 WP_API int wp_graph_coloring(int num_nodes, wp::array_t<int> edges, int algorithm, wp::array_t<int> node_colors);
