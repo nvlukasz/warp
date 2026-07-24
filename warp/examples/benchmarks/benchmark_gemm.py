@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Compare GEMM performance between Torch and Warp (Tiled).
 
@@ -21,7 +9,6 @@ matrix multiplication.
 
 from itertools import product
 from statistics import mean, stdev
-from typing import List
 
 import numpy as np
 import torch
@@ -36,7 +23,7 @@ def create_gemm_kernel(m, n, k):
     TILE_K = k
 
     @wp.kernel
-    def gemm(A: wp.array2d(dtype=float), B: wp.array2d(dtype=float), output: wp.array2d(dtype=float)):
+    def gemm(A: wp.array2d[float], B: wp.array2d[float], output: wp.array2d[float]):
         i, j = wp.tid()
         sum = wp.tile_zeros(shape=(TILE_M, TILE_N), dtype=wp.float32)
 
@@ -76,7 +63,7 @@ def benchmark_torch(A: torch.Tensor, B: torch.Tensor, warm_up: int, iterations: 
     return mean(timing_results), stdev(timing_results)
 
 
-def benchmark_warp(A: wp.array, B: wp.array, config: List[int], warm_up: int, iterations: int):
+def benchmark_warp(A: wp.array, B: wp.array, config: list[int], warm_up: int, iterations: int):
     TILE_M = config[0]
     TILE_N = config[1]
     TILE_K = config[2]
@@ -149,7 +136,7 @@ if __name__ == "__main__":
 
     configs = list(product(tile_m, tile_n, tile_k, block))
 
-    wp.config.quiet = True
+    wp.config.log_level = wp.LOG_WARNING
 
     # header
     print(

@@ -1,39 +1,33 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import importlib
+import importlib as imp
 import os
 import unittest
 
 import numpy as np
 
 import warp as wp
+import warp.tests.aux_test_class_kernel
 
 # dummy modules used for testing reload with dependencies
 import warp.tests.aux_test_dependent as test_dependent
+import warp.tests.aux_test_dependent_local as test_dependent_local
+import warp.tests.aux_test_module_unload as aux_module_unload
 import warp.tests.aux_test_reference as test_reference
 import warp.tests.aux_test_reference_reference as test_reference_reference
-
-# dummy module used for testing reload
 import warp.tests.aux_test_square as test_square
+from warp.tests.aux_test_class_kernel import ClassKernelTest
 from warp.tests.unittest_utils import *
 
 
 def reload_module(module):
-    # Clearing the .pyc file associated with a module is a necessary workaround
-    # for `importlib.reload` to work as expected when run from within Kit.
+    """Reload ``module`` after clearing its cached ``.pyc`` file.
+
+    Clearing the ``.pyc`` file is a necessary workaround for ``importlib.reload`` to work as expected when run from
+    within Kit.
+    """
     cache_file = importlib.util.cache_from_source(module.__file__)
     if os.path.exists(cache_file):
         os.remove(cache_file)
@@ -45,7 +39,7 @@ def test_redefine(test, device):
     # first pass
 
     @wp.kernel
-    def basic(x: wp.array(dtype=float)):
+    def basic(x: wp.array[float]):
         tid = wp.tid()
 
         x[tid] = float(tid) * 1.0
@@ -60,7 +54,7 @@ def test_redefine(test, device):
     # redefine kernel, should trigger a recompile
 
     @wp.kernel
-    def basic(x: wp.array(dtype=float)):
+    def basic(x: wp.array[float]):
         tid = wp.tid()
 
         x[tid] = float(tid) * 2.0
@@ -74,9 +68,10 @@ def test_redefine(test, device):
 
 
 def test_redefine_command(test, device):
-    # Test whether executable modules are retained correctly.
-    # A module can have multiple executable versions in use if something
-    # still holds a reference to them.
+    """Verify executable modules are retained correctly.
+
+    A module can have multiple executable versions in use if something still holds a reference to them.
+    """
 
     @wp.kernel
     def k(value: int):
@@ -99,7 +94,9 @@ def test_redefine_command(test, device):
     cmd1.launch()
 
 
-square_two = """import warp as wp
+square_two = """# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+import warp as wp
 
 
 @wp.func
@@ -117,7 +114,9 @@ def run(expect, device):
     wp.synchronize_device(device)
 """
 
-square_four = """import warp as wp
+square_four = """# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+import warp as wp
 
 
 @wp.func
@@ -158,11 +157,6 @@ def test_reload(test, device):
 
 def test_reload_class(test, device):
     def test_func():
-        import importlib as imp
-
-        import warp.tests.aux_test_class_kernel
-        from warp.tests.aux_test_class_kernel import ClassKernelTest
-
         imp.reload(warp.tests.aux_test_class_kernel)
 
         ctest = ClassKernelTest(device)
@@ -174,7 +168,9 @@ def test_reload_class(test, device):
     test_func()
 
 
-template_ref = """# This file is used to test reloading module references.
+template_ref = """# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# This file is used to test reloading module references.
 
 import warp as wp
 import warp.tests.aux_test_reference_reference as refref
@@ -185,7 +181,9 @@ def magic():
     return {} * refref.more_magic()
 """
 
-template_refref = """# This file is used to test reloading module references.
+template_refref = """# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# This file is used to test reloading module references.
 
 import warp as wp
 
@@ -226,9 +224,29 @@ def test_reload_references(test, device):
     test_dependent.run(expect=4.0, device=device)  # 2 * 2 = 4
 
 
+def test_reference_through_local(test, device):
+    """Verify a kernel-local function binding registers a module dependency for reload invalidation.
+
+    A function bound to a kernel-local (``f = ref.magic``) or to several locals via tuple unpacking
+    (``f, g = ref.a, ref.b``) must still register a dependency on the module(s) that define them, so reloading those
+    modules invalidates this kernel just as a direct call would. See ``Module._find_references``.
+    """
+
+    # Building the dependent module scans its kernels for references.
+    test_dependent_local.kern.module.get_module_hash()
+
+    references = test_dependent_local.kern.module.references
+    ref_module = test_reference.magic.module
+    refref_module = test_reference_reference.more_magic.module
+    # `f = ref.magic` records the single-binding dependency.
+    test.assertIn(ref_module, references, "single local-bound function should register its module dependency")
+    # `f, g = ref.magic, refref.more_magic` records the tuple-binding dependency on the second module.
+    test.assertIn(refref_module, references, "tuple local-bound functions should register each module dependency")
+
+
 def test_graph_launch_after_module_reload(test, device):
     @wp.kernel
-    def foo(a: wp.array(dtype=int)):
+    def foo(a: wp.array[int]):
         a[0] = 42
 
     with wp.ScopedDevice(device):
@@ -252,14 +270,17 @@ def test_graph_launch_after_module_reload(test, device):
 
 def test_module_unload_during_graph_capture(test, device):
     @wp.kernel
-    def foo(a: wp.array(dtype=int)):
+    def foo(a: wp.array[int]):
         a[0] = 42
 
     # preload module before graph capture
     wp.load_module(device=device)
 
-    # load another module to test unloading during graph capture
-    other_module = wp.get_module("warp.tests.aux_test_module_unload")
+    # Load another module whose kernel is also captured, so unloading it
+    # during capture exercises the retention path (on CPU, the APIC state
+    # holds raw function pointers into the module's loaded object; on CUDA,
+    # the captured graph retains the module_exec).
+    other_module = wp.get_module(aux_module_unload.__name__)
     other_module.load(device)
 
     with wp.ScopedDevice(device):
@@ -267,8 +288,10 @@ def test_module_unload_during_graph_capture(test, device):
 
         with wp.ScopedCapture(force_module_load=False) as capture:
             wp.launch(foo, dim=1, inputs=[a])
+            wp.launch(aux_module_unload.k, dim=1, inputs=[])
 
-            # unloading a module during graph capture should be fine (deferred until capture completes)
+            # Unloading a module whose kernel was captured should be deferred
+            # until the graph is destroyed. The graph retains module_execs.
             other_module.unload()
 
         wp.capture_launch(capture.graph)
@@ -278,6 +301,7 @@ def test_module_unload_during_graph_capture(test, device):
 
 devices = get_test_devices()
 cuda_devices = get_cuda_test_devices()
+devices_with_cuda_graph_module_load = get_test_devices_with_cuda_graph_module_load()
 
 
 class TestReload(unittest.TestCase):
@@ -291,13 +315,21 @@ add_function_test(TestReload, "test_reload_class", test_reload_class, devices=de
 # TODO: test_reload_references sometimes has issues running on cuda:1
 add_function_test(TestReload, "test_reload_references", test_reload_references, devices=get_test_devices("basic"))
 add_function_test(
-    TestReload, "test_graph_launch_after_module_reload", test_graph_launch_after_module_reload, devices=cuda_devices
+    TestReload, "test_reference_through_local", test_reference_through_local, devices=get_test_devices("basic")
 )
 add_function_test(
-    TestReload, "test_module_unload_during_graph_capture", test_module_unload_during_graph_capture, devices=cuda_devices
+    TestReload,
+    "test_graph_launch_after_module_reload",
+    test_graph_launch_after_module_reload,
+    devices=devices_with_cuda_graph_module_load,
+)
+add_function_test(
+    TestReload,
+    "test_module_unload_during_graph_capture",
+    test_module_unload_during_graph_capture,
+    devices=devices_with_cuda_graph_module_load,
 )
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2, failfast=False)

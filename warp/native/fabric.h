@@ -1,29 +1,13 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 #pragma once
 
 #include "builtin.h"
 
-namespace wp
-{
+namespace wp {
 
-struct fabricbucket_t
-{
+struct fabricbucket_t {
     size_t index_start;
     size_t index_end;
     void* ptr;
@@ -31,14 +15,13 @@ struct fabricbucket_t
 };
 
 
-template <typename T>
-struct fabricarray_t
-{
+template <typename T> struct fabricarray_t {
     CUDA_CALLABLE inline fabricarray_t()
-        : buckets(nullptr),
-          nbuckets(0),
-          size(0)
-    {}
+        : buckets(nullptr)
+        , nbuckets(0)
+        , size(0)
+    {
+    }
 
     CUDA_CALLABLE inline bool empty() const { return !size; }
 
@@ -49,13 +32,12 @@ struct fabricarray_t
 };
 
 
-template <typename T>
-struct indexedfabricarray_t
-{
+template <typename T> struct indexedfabricarray_t {
     CUDA_CALLABLE inline indexedfabricarray_t()
-        : indices(),
-          size(0)
-    {}
+        : indices()
+        , size(0)
+    {
+    }
 
     CUDA_CALLABLE inline bool empty() const { return !size; }
 
@@ -80,8 +62,7 @@ CUDA_CALLABLE inline const fabricbucket_t* fabricarray_find_bucket(const fabrica
     const fabricbucket_t* bucket = nullptr;
     size_t lo = 0;
     size_t hi = fa.nbuckets - 1;
-    while (hi >= lo)
-    {
+    while (hi >= lo) {
         size_t mid = (lo + hi) >> 1;
         bucket = fa.buckets + mid;
         if (i >= bucket->index_end)
@@ -96,8 +77,7 @@ CUDA_CALLABLE inline const fabricbucket_t* fabricarray_find_bucket(const fabrica
     // use linear search to find the right bucket
     const fabricbucket_t* bucket = fa.buckets;
     const fabricbucket_t* bucket_end = bucket + fa.nbuckets;
-    for (; bucket < bucket_end; ++bucket)
-    {
+    for (; bucket < bucket_end; ++bucket) {
         if (i < bucket->index_end)
             return bucket;
     }
@@ -118,8 +98,7 @@ CUDA_CALLABLE inline void* fabricarray_element_ptr(const fabricarray_t<void>& fa
 }
 
 
-template <typename T>
-CUDA_CALLABLE inline T& index(const fabricarray_t<T>& fa, size_t i)
+template <typename T> CUDA_CALLABLE inline T& index(const fabricarray_t<T>& fa, size_t i)
 {
     const fabricbucket_t* bucket = fabricarray_find_bucket(fa, i);
     assert(bucket && "Fabric array index out of range");
@@ -135,8 +114,7 @@ CUDA_CALLABLE inline T& index(const fabricarray_t<T>& fa, size_t i)
 
 
 // indexing for fabric array of arrays
-template <typename T>
-CUDA_CALLABLE inline T& index(const fabricarray_t<T>& fa, size_t i, size_t j)
+template <typename T> CUDA_CALLABLE inline T& index(const fabricarray_t<T>& fa, size_t i, size_t j)
 {
     const fabricbucket_t* bucket = fabricarray_find_bucket(fa, i);
     assert(bucket && "Fabric array index out of range");
@@ -158,8 +136,7 @@ CUDA_CALLABLE inline T& index(const fabricarray_t<T>& fa, size_t i, size_t j)
 }
 
 
-template <typename T>
-CUDA_CALLABLE inline array_t<T> view(fabricarray_t<T>& fa, size_t i)
+template <typename T> CUDA_CALLABLE inline array_t<T> view(fabricarray_t<T>& fa, size_t i)
 {
     const fabricbucket_t* bucket = fabricarray_find_bucket(fa, i);
     assert(bucket && "Fabric array index out of range");
@@ -175,8 +152,7 @@ CUDA_CALLABLE inline array_t<T> view(fabricarray_t<T>& fa, size_t i)
 }
 
 
-template <typename T>
-CUDA_CALLABLE inline T& index(const indexedfabricarray_t<T>& ifa, size_t i)
+template <typename T> CUDA_CALLABLE inline T& index(const indexedfabricarray_t<T>& ifa, size_t i)
 {
     // index lookup
     assert(i < ifa.size);
@@ -196,8 +172,7 @@ CUDA_CALLABLE inline T& index(const indexedfabricarray_t<T>& ifa, size_t i)
 
 
 // indexing for fabric array of arrays
-template <typename T>
-CUDA_CALLABLE inline T& index(const indexedfabricarray_t<T>& ifa, size_t i, size_t j)
+template <typename T> CUDA_CALLABLE inline T& index(const indexedfabricarray_t<T>& ifa, size_t i, size_t j)
 {
     // index lookup
     assert(i < ifa.size);
@@ -223,8 +198,7 @@ CUDA_CALLABLE inline T& index(const indexedfabricarray_t<T>& ifa, size_t i, size
 }
 
 
-template <typename T>
-CUDA_CALLABLE inline array_t<T> view(indexedfabricarray_t<T>& ifa, size_t i)
+template <typename T> CUDA_CALLABLE inline array_t<T> view(indexedfabricarray_t<T>& ifa, size_t i)
 {
     // index lookup
     assert(i < ifa.size);
@@ -243,4 +217,4 @@ CUDA_CALLABLE inline array_t<T> view(indexedfabricarray_t<T>& ifa, size_t i)
     return array_t<T>((T*)ptr, int(length));
 }
 
-} // namespace wp
+}  // namespace wp

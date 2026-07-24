@@ -1,19 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+import itertools
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -76,7 +65,7 @@ FACE_COUNT = 12
 @wp.kernel(enable_backward=False)
 def read_points_kernel(
     mesh_id: wp.uint64,
-    out_points: wp.array(dtype=wp.vec3),
+    out_points: wp.array[wp.vec3],
 ):
     tid = wp.tid()
     mesh = wp.mesh_get(mesh_id)
@@ -86,7 +75,7 @@ def read_points_kernel(
 @wp.kernel(enable_backward=False)
 def read_indices_kernel(
     mesh_id: wp.uint64,
-    out_indices: wp.array(dtype=int),
+    out_indices: wp.array[int],
 ):
     tid = wp.tid()
     mesh = wp.mesh_get(mesh_id)
@@ -198,17 +187,56 @@ def query_ray_kernel(
     wp.expect_near(wp.length(pos - expected_pos), 0.0, 1e-6)
 
 
+@wp.kernel(enable_backward=False)
+def query_ray_group_kernel(
+    mesh_id: wp.uint64,
+):
+    start = wp.vec3(0.1, 0.2, 0.3)
+    dir = wp.normalize(wp.vec3(-1.2, 2.3, -3.4))
+    expected_t = 0.557828
+
+    t = float(0.0)
+    bary_u = float(0.0)
+    bary_v = float(0.0)
+    sign = float(0.0)
+    normal = wp.vec3(0.0, 0.0, 0.0)
+    face = int(0)
+    root = -1
+
+    hit = wp.mesh_query_ray(
+        mesh_id,
+        start,
+        dir,
+        1e6,
+        t,
+        bary_u,
+        bary_v,
+        sign,
+        normal,
+        face,
+        root,
+    )
+
+    wp.expect_eq(hit, True)
+    wp.expect_near(t, expected_t)
+
+
 def test_mesh_query_ray(test, device):
     if device.is_cpu:
         constructors = ["sah", "median"]
     else:
         constructors = ["sah", "median", "lbvh"]
 
-    for constructor in constructors:
+    if wp.is_cubql_available():
+        constructors.append("cubql")
+
+    leaf_sizes = [1, 2, 4]
+
+    for leaf_size, constructor in itertools.product(leaf_sizes, constructors):
         points = wp.array(POINT_POSITIONS, dtype=wp.vec3, device=device)
 
         indices = wp.array(RIGHT_HANDED_FACE_VERTEX_INDICES, dtype=int, device=device)
-        mesh = wp.Mesh(points=points, indices=indices, bvh_constructor=constructor)
+        mesh = wp.Mesh(points=points, indices=indices, bvh_constructor=constructor, bvh_leaf_size=leaf_size)
         expected_sign = -1.0
         wp.launch(
             query_ray_kernel,
@@ -232,6 +260,101 @@ def test_mesh_query_ray(test, device):
             ],
             device=device,
         )
+
+
+def test_grouped_mesh_query_ray(test, device):
+    if device.is_cpu:
+        constructors = ["sah", "median"]
+    else:
+        constructors = ["sah", "median", "lbvh"]
+
+    leaf_sizes = [1, 2, 4]
+
+    points = wp.array(POINT_POSITIONS, dtype=wp.vec3, device=device)
+    indices = wp.array(RIGHT_HANDED_FACE_VERTEX_INDICES, dtype=int, device=device)
+    same_group = wp.zeros(FACE_COUNT, dtype=int, device=device)
+    different_group = np.ones(FACE_COUNT)
+    different_group[: FACE_COUNT // 2] = 0
+    different_group = wp.array(different_group, dtype=int, device=device)
+
+    # Test that group construction maintains the same behavior as non-grouped construction
+    for leaf_size, constructor in itertools.product(leaf_sizes, constructors):
+        mesh = wp.Mesh(points=points, indices=indices, bvh_constructor=constructor, bvh_leaf_size=leaf_size)
+        wp.launch(query_ray_group_kernel, dim=1, inputs=[mesh.id], device=device)
+
+        mesh = wp.Mesh(
+            points=points, indices=indices, groups=same_group, bvh_constructor=constructor, bvh_leaf_size=leaf_size
+        )
+        wp.launch(query_ray_group_kernel, dim=1, inputs=[mesh.id], device=device)
+
+        mesh = wp.Mesh(
+            points=points, indices=indices, groups=different_group, bvh_constructor=constructor, bvh_leaf_size=leaf_size
+        )
+        wp.launch(query_ray_group_kernel, dim=1, inputs=[mesh.id], device=device)
+
+        wp.synchronize_device(device)
+
+
+@wp.kernel(enable_backward=False)
+def query_ray_hit_kernel(
+    mesh_id: wp.uint64,
+    origin: wp.vec3,
+    direction: wp.vec3,
+    hit_result: wp.array[wp.int32],
+):
+    t = float(0.0)
+    bary_u = float(0.0)
+    bary_v = float(0.0)
+    sign = float(0.0)
+    normal = wp.vec3(0.0, 0.0, 0.0)
+    face = int(0)
+
+    hit = wp.mesh_query_ray(mesh_id, origin, direction, 1e6, t, bary_u, bary_v, sign, normal, face)
+    if hit:
+        hit_result[0] = 1
+    else:
+        hit_result[0] = 0
+
+
+def test_mesh_refit(test, device):
+    if device.is_cpu:
+        constructors = ["sah", "median"]
+    else:
+        constructors = ["sah", "median", "lbvh"]
+
+    if wp.is_cubql_available():
+        constructors.append("cubql")
+
+    # Ray aimed at the origin — hits the unit cube centered there
+    origin = wp.vec3(0.0, 5.0, 0.0)
+    direction = wp.vec3(0.0, -1.0, 0.0)
+    offset = wp.vec3(10.0, 0.0, 0.0)
+
+    for constructor in constructors:
+        points_np = np.array(POINT_POSITIONS, dtype=np.float32)
+        points = wp.array(points_np, dtype=wp.vec3, device=device)
+        indices = wp.array(RIGHT_HANDED_FACE_VERTEX_INDICES, dtype=int, device=device)
+        mesh = wp.Mesh(points=points, indices=indices, bvh_constructor=constructor)
+
+        hit_result = wp.zeros(1, dtype=wp.int32, device=device)
+
+        # Ray should hit the original mesh at the origin
+        wp.launch(query_ray_hit_kernel, dim=1, inputs=[mesh.id, origin, direction, hit_result], device=device)
+        test.assertEqual(hit_result.numpy()[0], 1, f"Expected hit at origin ({constructor})")
+
+        # Move the mesh, refit, and shoot at the new location
+        moved_origin = wp.vec3(origin.x + offset.x, origin.y + offset.y, origin.z + offset.z)
+        points_np += np.array([offset.x, offset.y, offset.z], dtype=np.float32)
+        wp.copy(points, wp.array(points_np, dtype=wp.vec3, device=device))
+        mesh.refit()
+
+        # Ray at the new location should hit
+        wp.launch(query_ray_hit_kernel, dim=1, inputs=[mesh.id, moved_origin, direction, hit_result], device=device)
+        test.assertEqual(hit_result.numpy()[0], 1, f"Expected hit at moved location after refit ({constructor})")
+
+        # Ray at the old location should miss
+        wp.launch(query_ray_hit_kernel, dim=1, inputs=[mesh.id, origin, direction, hit_result], device=device)
+        test.assertEqual(hit_result.numpy()[0], 0, f"Expected miss at origin after move ({constructor})")
 
 
 def test_mesh_refit_graph(test, device):
@@ -293,8 +416,28 @@ def test_mesh_exceptions(test, device):
         indices = indices.reshape((3, -1))
         wp.Mesh(points=points, indices=indices)
 
+    # grouped queries are not supported with the cuBQL constructor
+    with test.assertRaises(RuntimeError):
+        points = wp.array(POINT_POSITIONS, dtype=wp.vec3, device=device)
+        indices = wp.array(RIGHT_HANDED_FACE_VERTEX_INDICES, dtype=int, device=device)
+        groups = wp.zeros(FACE_COUNT, dtype=int, device=device)
+        wp.Mesh(points=points, indices=indices, groups=groups, bvh_constructor="cubql")
+
+    # winding number support is not available with the cuBQL constructor
+    with test.assertRaises(RuntimeError):
+        points = wp.array(POINT_POSITIONS, dtype=wp.vec3, device=device)
+        indices = wp.array(RIGHT_HANDED_FACE_VERTEX_INDICES, dtype=int, device=device)
+        wp.Mesh(points=points, indices=indices, support_winding_number=True, bvh_constructor="cubql")
+
+    # unknown bvh_constructor string raises ValueError
+    with test.assertRaises(ValueError):
+        points = wp.array(POINT_POSITIONS, dtype=wp.vec3, device=device)
+        indices = wp.array(RIGHT_HANDED_FACE_VERTEX_INDICES, dtype=int, device=device)
+        wp.Mesh(points=points, indices=indices, bvh_constructor="cuqbl")
+
 
 devices = get_test_devices()
+cuda_devices_with_mempool = get_selected_cuda_test_devices_with_mempool()
 
 
 class TestMesh(unittest.TestCase):
@@ -303,14 +446,53 @@ class TestMesh(unittest.TestCase):
         instance = wp.Mesh.__new__(wp.Mesh)
         instance.__del__()
 
+    def test_mesh_create_raises_on_native_failure(self):
+        points = wp.array(POINT_POSITIONS, dtype=wp.vec3, device="cpu")
+        indices = wp.array(RIGHT_HANDED_FACE_VERTEX_INDICES, dtype=int, device="cpu")
+        runtime = wp._src.context.runtime
+
+        with (
+            mock.patch.object(runtime.core, "wp_mesh_create_host", return_value=0),
+            mock.patch.object(runtime, "get_error_string", return_value="native failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Failed to create mesh: native failure"):
+                wp.Mesh(points=points, indices=indices)
+
+    def test_mesh_refit_raises_on_native_device_failure(self):
+        mesh = wp.Mesh.__new__(wp.Mesh)
+        mesh.id = 123
+        mesh.device = mock.Mock(is_cpu=False)
+        mesh.runtime = mock.Mock()
+        mesh.runtime.core.wp_mesh_refit_device.return_value = 0
+        mesh.runtime.get_error_string.return_value = "native refit failure"
+
+        with self.assertRaisesRegex(RuntimeError, "Failed to refit mesh: native refit failure"):
+            mesh.refit()
+
+    def test_mesh_points_setter_raises_on_native_device_failure(self):
+        points = wp.array(POINT_POSITIONS, dtype=wp.vec3, device="cpu")
+        points_new = wp.array(POINT_POSITIONS, dtype=wp.vec3, device="cpu")
+
+        mesh = wp.Mesh.__new__(wp.Mesh)
+        mesh.id = 123
+        mesh.device = mock.Mock(is_cpu=False)
+        mesh._points = points
+        mesh.runtime = mock.Mock()
+        mesh.runtime.core.wp_mesh_set_points_device.return_value = 0
+        mesh.runtime.get_error_string.return_value = "native refit failure"
+
+        with self.assertRaisesRegex(RuntimeError, "Failed to set mesh points: native refit failure"):
+            mesh.points = points_new
+
 
 add_function_test(TestMesh, "test_mesh_read_properties", test_mesh_read_properties, devices=devices)
 add_function_test(TestMesh, "test_mesh_query_point", test_mesh_query_point, devices=devices)
 add_function_test(TestMesh, "test_mesh_query_ray", test_mesh_query_ray, devices=devices)
-add_function_test(TestMesh, "test_mesh_refit_graph", test_mesh_refit_graph, devices=get_selected_cuda_test_devices())
+add_function_test(TestMesh, "test_grouped_mesh_query_ray", test_grouped_mesh_query_ray, devices=devices)
+add_function_test(TestMesh, "test_mesh_refit", test_mesh_refit, devices=devices)
+add_function_test(TestMesh, "test_mesh_refit_graph", test_mesh_refit_graph, devices=cuda_devices_with_mempool)
 add_function_test(TestMesh, "test_mesh_exceptions", test_mesh_exceptions, devices=get_selected_cuda_test_devices())
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 from functools import partial
@@ -94,6 +82,26 @@ def test_runlength_encode_error_run_count_unsupported_dtype(test, device):
         r"run_count array must be of type int32$",
     ):
         runlength_encode(values, run_values, run_lengths, run_count=run_count)
+
+
+def test_runlength_encode_error_negative_value_count(test, device):
+    """Reject a negative ``value_count`` in Python before reaching the native path.
+
+    The native path would otherwise leave outputs untouched, and in host-return mode return a
+    stale or uninitialized count.
+    """
+    values = wp.zeros(8, dtype=int, device=device)
+    run_values = wp.empty(8, dtype=int, device=device)
+    run_lengths = wp.empty(8, dtype=int, device=device)
+    run_count = wp.empty(shape=(1,), dtype=int, device=device)
+
+    # Explicit run_count.
+    with test.assertRaisesRegex(RuntimeError, r"value_count must be non-negative, got -1$"):
+        runlength_encode(values, run_values, run_lengths, run_count=run_count, value_count=-1)
+
+    # Host-return mode (no run_count).
+    with test.assertRaisesRegex(RuntimeError, r"value_count must be non-negative, got -5$"):
+        runlength_encode(values, run_values, run_lengths, value_count=-5)
 
 
 def test_runlength_encode_error_unsupported_dtype(test, device):
@@ -189,8 +197,13 @@ add_function_test(
     test_runlength_encode_error_unsupported_dtype,
     devices=devices,
 )
+add_function_test(
+    TestRunlengthEncode,
+    "test_runlength_encode_error_negative_value_count",
+    test_runlength_encode_error_negative_value_count,
+    devices=devices,
+)
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

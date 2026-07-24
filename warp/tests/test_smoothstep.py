@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 from dataclasses import dataclass
@@ -58,10 +46,10 @@ TEST_DATA = {
 def test_smoothstep(test, device):
     def make_kernel_fn(data_type):
         def fn(
-            a: wp.array(dtype=data_type),
-            b: wp.array(dtype=data_type),
-            t: wp.array(dtype=float),
-            out: wp.array(dtype=data_type),
+            a: wp.array[data_type],
+            b: wp.array[data_type],
+            t: wp.array[float],
+            out: wp.array[data_type],
         ):
             out[0] = wp.smoothstep(a[0], b[0], t[0])
 
@@ -104,5 +92,4 @@ add_function_test(TestSmoothstep, "test_smoothstep", test_smoothstep, devices=de
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

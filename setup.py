@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import argparse
 import os
@@ -19,7 +7,7 @@ import pathlib
 import platform
 import shutil
 import sys
-from typing import ClassVar, NamedTuple, Optional
+from typing import ClassVar, NamedTuple
 
 import setuptools
 from wheel.bdist_wheel import bdist_wheel
@@ -29,14 +17,18 @@ from wheel.bdist_wheel import bdist_wheel
 parser = argparse.ArgumentParser()
 parser.add_argument("command")
 parser.add_argument(
-    "--platform", "-P", type=str, default="", help="Wheel platform: windows|linux|macos-x86_64|aarch64|universal"
+    "--platform",
+    "-P",
+    type=str,
+    default="",
+    help="Wheel platform: windows-x86_64|linux-x86_64|linux-aarch64|macos-aarch64",
 )
 parser.add_argument(
     "--manylinux",
     "-M",
     type=str,
     default="manylinux_2_28",
-    help="Manylinux flavor for Linux wheels: manylinux2014|manylinux_2_28|manylinux_2_34",
+    help="Manylinux flavor for Linux wheels: manylinux_2_28|manylinux_2_34",
 )
 args = parser.parse_known_args()[0]
 
@@ -73,7 +65,7 @@ class Platform(NamedTuple):
     def name(self) -> str:
         return self.os + "-" + self.arch
 
-    def get_platform_tag(self, manylinux_flavor: Optional[str] = None) -> str:
+    def get_platform_tag(self, manylinux_flavor: str | None = None) -> str:
         """Get the platform tag, with optional manylinux flavor override for Linux."""
         if self.os == "linux" and manylinux_flavor:
             return f"{manylinux_flavor}_{self.arch}"
@@ -84,7 +76,7 @@ platforms = [
     Platform("windows", "x86_64", "Windows x86-64", ".dll", "win_amd64"),
     Platform("linux", "x86_64", "Linux x86-64", ".so", "manylinux_2_28_x86_64"),
     Platform("linux", "aarch64", "Linux AArch64", ".so", "manylinux_2_34_aarch64"),
-    Platform("macos", "universal", "macOS universal", ".dylib", "macosx_10_13_universal2"),
+    Platform("macos", "aarch64", "macOS ARM64", ".dylib", "macosx_11_0_arm64"),
 ]
 
 
@@ -102,7 +94,7 @@ def detect_warp_libraries():
         for p in platforms:
             if os.path.splitext(file.name)[1] == p.extension:
                 # If this is a local build, assume we want a wheel for this machine's architecture
-                if file.parent.name == "bin" and (p.arch == machine_architecture() or p.arch == "universal"):
+                if file.parent.name == "bin" and p.arch == machine_architecture():
                     detected_libraries.add(Library(file.name, "bin/", p))
                 else:
                     # Expect libraries to be in a subdirectory named after the wheel platform
@@ -139,9 +131,8 @@ if args.command == "bdist_wheel":
     if wheel_platform is None:
         if len(detected_platforms) > 1:
             print("Libraries for multiple platforms were detected.")
-            print(
-                "Run `python -m build --wheel -C--build-option=-P[windows|linux|macos]-[x86_64|aarch64|universal]` to select a specific one."
-            )
+            print("Run `python -m build --wheel -C--build-option=-P<platform>` to select a specific one.")
+            print("Available platforms: windows-x86_64, linux-x86_64, linux-aarch64, macos-aarch64")
             # Select the libraries corresponding with the this machine's platform
             for p in platforms:
                 if p.os == machine_os() and p.arch == machine_architecture():
@@ -163,8 +154,8 @@ class WarpBDistWheel(bdist_wheel):
     # setuptools.Command can validate the command line options.
     user_options: ClassVar[list[tuple[str, str, str]]] = [
         *bdist_wheel.user_options,
-        ("platform=", "P", "Wheel platform: windows|linux|macos-x86_64|aarch64|universal"),
-        ("manylinux=", "M", "Manylinux flavor for Linux wheels: manylinux2014|manylinux_2_28|manylinux_2_34"),
+        ("platform=", "P", "Wheel platform: windows-x86_64|linux-x86_64|linux-aarch64|macos-aarch64"),
+        ("manylinux=", "M", "Manylinux flavor for Linux wheels: manylinux_2_28|manylinux_2_34"),
     ]
 
     def initialize_options(self):
@@ -225,6 +216,7 @@ setuptools.setup(
             "native/*.cu",
             "native/*.h",
             "native/clang/*.cpp",
+            "native/libdevice/*",
             "native/nanovdb/*.h",
             "tests/assets/*",
             "examples/assets/*",
@@ -232,7 +224,6 @@ setuptools.setup(
         ]
     },
     distclass=BinaryDistribution,
-    cmdclass={
-        "bdist_wheel": WarpBDistWheel,
-    },
+    cmdclass={"bdist_wheel": WarpBDistWheel},
+    license_files=["LICENSE.md", "licenses/*.txt"],
 )

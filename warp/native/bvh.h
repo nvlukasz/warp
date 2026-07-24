@@ -1,26 +1,18 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 #pragma once
 
 #include "builtin.h"
+
 #include "intersect.h"
 
-#define BVH_LEAF_SIZE (4)
+#ifdef __CUDA_ARCH__
+#define BVH_SHARED_STACK 1
+#else
+#define BVH_SHARED_STACK 0
+#endif
+
 #define SAH_NUM_BUCKETS (16)
 #define USE_LOAD4
 #define BVH_QUERY_STACK_SIZE (32)
@@ -28,19 +20,55 @@
 #define BVH_CONSTRUCTOR_SAH (0)
 #define BVH_CONSTRUCTOR_MEDIAN (1)
 #define BVH_CONSTRUCTOR_LBVH (2)
+#define BVH_CONSTRUCTOR_CUBQL (-1)
 
-namespace wp
+#ifndef WP_BVH_BLOCK_DIM
+#define WP_BVH_BLOCK_DIM 256
+#endif
+
+namespace wp {
+
+// std_min() / std_max() follow C++ std::min() / std::max() semantics: first-argument wins on tie and on unordered
+// comparison. Faster than wp::min / wp::max when inputs are known to be finite (BVH/mesh builders, refit loops, AABB
+// queries on real geometry).
+template <typename T> CUDA_CALLABLE inline T std_min(T a, T b) { return (b < a) ? b : a; }
+template <typename T> CUDA_CALLABLE inline T std_max(T a, T b) { return (b > a) ? b : a; }
+
+template <unsigned Length, typename Type>
+CUDA_CALLABLE inline vec_t<Length, Type> std_min(const vec_t<Length, Type>& a, const vec_t<Length, Type>& b)
 {
+    vec_t<Length, Type> ret;
+    for (unsigned i = 0; i < Length; ++i) {
+        ret[i] = std_min(a[i], b[i]);
+    }
+    return ret;
+}
 
-struct bounds3
+template <unsigned Length, typename Type>
+CUDA_CALLABLE inline vec_t<Length, Type> std_max(const vec_t<Length, Type>& a, const vec_t<Length, Type>& b)
 {
-    CUDA_CALLABLE inline bounds3() : lower( FLT_MAX)
-                                   , upper(-FLT_MAX) {}
+    vec_t<Length, Type> ret;
+    for (unsigned i = 0; i < Length; ++i) {
+        ret[i] = std_max(a[i], b[i]);
+    }
+    return ret;
+}
 
-    CUDA_CALLABLE inline bounds3(const vec3& lower, const vec3& upper) : lower(lower), upper(upper) {}
+struct bounds3 {
+    CUDA_CALLABLE inline bounds3()
+        : lower(FLT_MAX)
+        , upper(-FLT_MAX)
+    {
+    }
 
-    CUDA_CALLABLE inline vec3 center() const { return 0.5f*(lower+upper); }
-    CUDA_CALLABLE inline vec3 edges() const { return upper-lower; }
+    CUDA_CALLABLE inline bounds3(const vec3& lower, const vec3& upper)
+        : lower(lower)
+        , upper(upper)
+    {
+    }
+
+    CUDA_CALLABLE inline vec3 center() const { return 0.5f * (lower + upper); }
+    CUDA_CALLABLE inline vec3 edges() const { return upper - lower; }
 
     CUDA_CALLABLE inline void expand(float r)
     {
@@ -54,63 +82,45 @@ struct bounds3
         upper += r;
     }
 
-    CUDA_CALLABLE inline bool empty() const { return lower[0] >= upper[0] || lower[1] >= upper[1] || lower[2] >= upper[2]; }
+    CUDA_CALLABLE inline bool empty() const
+    {
+        return lower[0] >= upper[0] || lower[1] >= upper[1] || lower[2] >= upper[2];
+    }
 
     CUDA_CALLABLE inline bool overlaps(const vec3& p) const
     {
-        if (p[0] < lower[0] ||
-            p[1] < lower[1] ||
-            p[2] < lower[2] ||
-            p[0] > upper[0] ||
-            p[1] > upper[1] ||
-            p[2] > upper[2])
-        {
+        if (p[0] < lower[0] || p[1] < lower[1] || p[2] < lower[2] || p[0] > upper[0] || p[1] > upper[1]
+            || p[2] > upper[2]) {
             return false;
-        }
-        else
-        {
+        } else {
             return true;
         }
     }
 
     CUDA_CALLABLE inline bool overlaps(const bounds3& b) const
     {
-        if (lower[0] > b.upper[0] ||
-            lower[1] > b.upper[1] ||
-            lower[2] > b.upper[2] ||
-            upper[0] < b.lower[0] ||
-            upper[1] < b.lower[1] ||
-            upper[2] < b.lower[2])
-        {
+        if (lower[0] > b.upper[0] || lower[1] > b.upper[1] || lower[2] > b.upper[2] || upper[0] < b.lower[0]
+            || upper[1] < b.lower[1] || upper[2] < b.lower[2]) {
             return false;
-        }
-        else
-        {
+        } else {
             return true;
         }
     }
 
     CUDA_CALLABLE inline bool overlaps(const vec3& b_lower, const vec3& b_upper) const
     {
-        if (lower[0] > b_upper[0] ||
-            lower[1] > b_upper[1] ||
-            lower[2] > b_upper[2] ||
-            upper[0] < b_lower[0] ||
-            upper[1] < b_lower[1] ||
-            upper[2] < b_lower[2])
-        {
+        if (lower[0] > b_upper[0] || lower[1] > b_upper[1] || lower[2] > b_upper[2] || upper[0] < b_lower[0]
+            || upper[1] < b_lower[1] || upper[2] < b_lower[2]) {
             return false;
-        }
-        else
-        {
+        } else {
             return true;
         }
     }
 
     CUDA_CALLABLE inline void add_point(const vec3& p)
     {
-        lower = min(lower, p);
-        upper = max(upper, p);
+        lower = std_min(lower, p);
+        upper = std_max(upper, p);
     }
 
     CUDA_CALLABLE inline void add_bounds(const vec3& lower_other, const vec3& upper_other)
@@ -118,37 +128,36 @@ struct bounds3
         // lower_other will only impact the lower of the new bounds
         // upper_other will only impact the upper of the new bounds
         // this costs only half of the computation of adding lower_other and upper_other separately
-        lower = min(lower, lower_other);
-        upper = max(upper, upper_other);
+        lower = std_min(lower, lower_other);
+        upper = std_max(upper, upper_other);
     }
 
     CUDA_CALLABLE inline float area() const
     {
-        vec3 e = upper-lower;
-        return 2.0f*(e[0]*e[1] + e[0]*e[2] + e[1]*e[2]);
+        vec3 e = upper - lower;
+        return 2.0f * (e[0] * e[1] + e[0] * e[2] + e[1] * e[2]);
     }
 
     vec3 lower;
     vec3 upper;
 };
 
-CUDA_CALLABLE inline bounds3 bounds_union(const bounds3& a, const vec3& b) 
+CUDA_CALLABLE inline bounds3 bounds_union(const bounds3& a, const vec3& b)
 {
-    return bounds3(min(a.lower, b), max(a.upper, b));
+    return bounds3(std_min(a.lower, b), std_max(a.upper, b));
 }
 
-CUDA_CALLABLE inline bounds3 bounds_union(const bounds3& a, const bounds3& b) 
+CUDA_CALLABLE inline bounds3 bounds_union(const bounds3& a, const bounds3& b)
 {
-    return bounds3(min(a.lower, b.lower), max(a.upper, b.upper));
+    return bounds3(std_min(a.lower, b.lower), std_max(a.upper, b.upper));
 }
 
 CUDA_CALLABLE inline bounds3 bounds_intersection(const bounds3& a, const bounds3& b)
 {
-    return bounds3(max(a.lower, b.lower), min(a.upper, b.upper));
+    return bounds3(std_max(a.lower, b.lower), std_min(a.upper, b.upper));
 }
 
-struct BVHPackedNodeHalf
-{
+struct BVHPackedNodeHalf {
     float x;
     float y;
     float z;
@@ -163,8 +172,7 @@ struct BVHPackedNodeHalf
     unsigned int b : 1;
 };
 
-struct BVH
-{		
+struct BVH {
     BVHPackedNodeHalf* node_lowers;
     BVHPackedNodeHalf* node_uppers;
 
@@ -173,7 +181,7 @@ struct BVH
     int* node_counts;
     // reordered primitive indices corresponds to the ordering of leaf nodes
     int* primitive_indices;
-    
+
     int max_depth;
     int max_nodes;
     int num_nodes;
@@ -188,11 +196,15 @@ struct BVH
     // item bounds are not owned by the BVH but by the caller
     vec3* item_lowers;
     vec3* item_uppers;
+    int* item_groups;
     int num_items;
+    int leaf_size;
+    int constructor_type;
 
     // cuda context
     void* context;
 };
+
 
 CUDA_CALLABLE inline BVHPackedNodeHalf make_node(const vec3& bound, int child, bool leaf)
 {
@@ -201,7 +213,7 @@ CUDA_CALLABLE inline BVHPackedNodeHalf make_node(const vec3& bound, int child, b
     n.y = bound[1];
     n.z = bound[2];
     n.i = (unsigned int)child;
-    n.b = (unsigned int)(leaf?1:0);
+    n.b = (unsigned int)(leaf ? 1 : 0);
 
     return n;
 }
@@ -213,62 +225,57 @@ CUDA_CALLABLE inline void make_node(volatile BVHPackedNodeHalf* n, const vec3& b
     n->y = bound[1];
     n->z = bound[2];
     n->i = (unsigned int)child;
-    n->b = (unsigned int)(leaf?1:0);
+    n->b = (unsigned int)(leaf ? 1 : 0);
 }
 
 #ifdef __CUDA_ARCH__
 __device__ inline wp::BVHPackedNodeHalf bvh_load_node(const wp::BVHPackedNodeHalf* nodes, int index)
 {
 #ifdef USE_LOAD4
-    //return  (const wp::BVHPackedNodeHalf&)(__ldg((const float4*)(nodes)+index));
-    return  (const wp::BVHPackedNodeHalf&)(*((const float4*)(nodes)+index));
+    float4 f4 = __ldg((const float4*)(nodes) + index);
+    return (const wp::BVHPackedNodeHalf&)f4;
+    // return  (const wp::BVHPackedNodeHalf&)(*((const float4*)(nodes)+index));
 #else
-    return  nodes[index];
-#endif // USE_LOAD4
-
+    return nodes[index];
+#endif  // USE_LOAD4
 }
 #else
-inline wp::BVHPackedNodeHalf bvh_load_node(const wp::BVHPackedNodeHalf* nodes, int index)
-{
-    return  nodes[index];
-}
-#endif // __CUDACC__
+inline wp::BVHPackedNodeHalf bvh_load_node(const wp::BVHPackedNodeHalf* nodes, int index) { return nodes[index]; }
+#endif  // __CUDACC__
 
 CUDA_CALLABLE inline int clz(int x)
 {
     int n;
-    if (x == 0) return 32;
-    for (n = 0; ((x & 0x80000000) == 0); n++, x <<= 1);
+    if (x == 0)
+        return 32;
+    for (n = 0; ((x & 0x80000000) == 0); n++, x <<= 1)
+        ;
     return n;
 }
 
 CUDA_CALLABLE inline uint32_t part1by2(uint32_t n)
 {
     n = (n ^ (n << 16)) & 0xff0000ff;
-    n = (n ^ (n <<  8)) & 0x0300f00f;
-    n = (n ^ (n <<  4)) & 0x030c30c3;
-    n = (n ^ (n <<  2)) & 0x09249249;
+    n = (n ^ (n << 8)) & 0x0300f00f;
+    n = (n ^ (n << 4)) & 0x030c30c3;
+    n = (n ^ (n << 2)) & 0x09249249;
 
     return n;
 }
 
-// Takes values in the range [0, 1] and assigns an index based Morton codes of length 3*lwp2(dim) bits 
-template <int dim>
-CUDA_CALLABLE inline uint32_t morton3(float x, float y, float z)
+// Takes values in the range [0, 1] and assigns an index based Morton codes of length 3*lwp2(dim) bits
+template <int dim> CUDA_CALLABLE inline uint32_t morton3(float x, float y, float z)
 {
-    uint32_t ux = clamp(int(x*dim), 0, dim-1);
-    uint32_t uy = clamp(int(y*dim), 0, dim-1);
-    uint32_t uz = clamp(int(z*dim), 0, dim-1);
+    uint32_t ux = clamp(int(x * dim), 0, dim - 1);
+    uint32_t uy = clamp(int(y * dim), 0, dim - 1);
+    uint32_t uz = clamp(int(z * dim), 0, dim - 1);
 
     return (part1by2(uz) << 2) | (part1by2(uy) << 1) | part1by2(ux);
 }
 
 // making the class accessible from python
 
-CUDA_CALLABLE inline BVH bvh_get(uint64_t id)
-{
-    return *(BVH*)(id);
-}
+CUDA_CALLABLE inline BVH bvh_get(uint64_t id) { return *(BVH*)(id); }
 
 CUDA_CALLABLE inline int bvh_get_num_bounds(uint64_t id)
 {
@@ -276,66 +283,189 @@ CUDA_CALLABLE inline int bvh_get_num_bounds(uint64_t id)
     return bvh.num_items;
 }
 
-
-// stores state required to traverse the BVH nodes that 
-// overlap with a query AABB.
-struct bvh_query_t
+CUDA_CALLABLE inline int get_leaf_group(const BVH& bvh, int leaf)
 {
+    if (!bvh.item_groups)
+        return 0;
+    return bvh.item_groups[bvh.primitive_indices[bvh.node_lowers[leaf].i]];
+}
+
+CUDA_CALLABLE inline int lower_bound_group(const BVH& bvh, int group)
+{
+    int lo = 0;
+    int hi = bvh.num_leaf_nodes;
+
+    while (lo < hi) {
+        int mid = (lo + hi) >> 1;
+        if (get_leaf_group(bvh, mid) < group) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+
+    if (lo == bvh.num_leaf_nodes || (get_leaf_group(bvh, lo)) != group)
+        return -1;
+
+    return lo;
+}
+
+CUDA_CALLABLE inline int upper_bound_group(const BVH& bvh, int group)
+{
+    int lo = 0;
+    int hi = bvh.num_leaf_nodes;
+
+    while (lo < hi) {
+        int mid = (lo + hi) >> 1;
+        if (get_leaf_group(bvh, mid) <= group) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+
+    return lo;
+}
+
+CUDA_CALLABLE inline uint64_t bvh_query_node_pack(const BVHPackedNodeHalf& lower, const BVHPackedNodeHalf& upper)
+{
+    return (uint64_t(lower.b) << 62) | (uint64_t(upper.i) << 31) | uint64_t(lower.i);
+}
+
+CUDA_CALLABLE inline uint64_t bvh_query_node_load(const BVH& bvh, int node_index)
+{
+    const BVHPackedNodeHalf lower = bvh_load_node(bvh.node_lowers, node_index);
+    const BVHPackedNodeHalf upper = bvh_load_node(bvh.node_uppers, node_index);
+    return bvh_query_node_pack(lower, upper);
+}
+
+CUDA_CALLABLE inline bool bvh_query_node_is_leaf(uint64_t node) { return (node >> 62) != 0; }
+
+CUDA_CALLABLE inline int bvh_query_node_lower_payload(uint64_t node) { return int(node & 0x7fffffffu); }
+
+CUDA_CALLABLE inline int bvh_query_node_upper_payload(uint64_t node) { return int((node >> 31) & 0x7fffffffu); }
+
+CUDA_CALLABLE inline int lca(int node_a, int node_b, const int* parent)
+{
+    int da = 0, db = 0;
+    for (int t = node_a; t != -1; t = parent[t])
+        ++da;
+    for (int t = node_b; t != -1; t = parent[t])
+        ++db;
+
+    if (da > db) {
+        int diff = da - db;
+        while (diff-- && node_a != -1)
+            node_a = parent[node_a];
+    } else if (db > da) {
+        int diff = db - da;
+        while (diff-- && node_b != -1)
+            node_b = parent[node_b];
+    }
+
+    while (node_a != node_b) {
+        if (node_a == -1 || node_b == -1)
+            return -1;
+        node_a = parent[node_a];
+        node_b = parent[node_b];
+    }
+    return node_a;  // either the LCA or -1
+}
+
+// this function requires all the leaf nodes to be stored as the first bvh.num_leaf_nodes nodes
+// and sorted by their group ids
+CUDA_CALLABLE inline int bvh_get_group_root(uint64_t id, int group_id)
+{
+    BVH bvh = bvh_get(id);
+    // locate first leaf of the current group
+    const int first = lower_bound_group(bvh, group_id);
+    if (first < 0)
+        return -1;
+
+    // find the first leaf with a greater group id to locate the last leaf of the current group
+    const int last = upper_bound_group(bvh, group_id) - 1;
+
+    return lca(first, last, bvh.node_parents);
+}
+
+// represents a strided stack in shared memory
+// so each level of the stack is stored contiguously
+// across the block
+struct bvh_stack_t {
+    CUDA_CALLABLE inline int operator[](int depth) const { return ptr[depth * WP_TILE_BLOCK_DIM]; }
+    CUDA_CALLABLE inline int& operator[](int depth) { return ptr[depth * WP_TILE_BLOCK_DIM]; }
+
+    int* ptr;
+};
+
+// stores state required to traverse the BVH nodes that
+// overlap with a query AABB.
+struct bvh_query_t {
     CUDA_CALLABLE bvh_query_t()
-        : bvh(),
-          stack(),
-          count(0),
-          is_ray(false),
-          input_lower(),
-          input_upper(),
-          bounds_nr(0),
-          primitive_counter(-1)
-    {}
+        : bvh()
+        , stack()
+        , count(0)
+        , is_ray(false)
+        , input_lower()
+        , input_upper()
+        , bounds_nr(0)
+        , primitive_counter(-1)
+        , last_query_valid(true)
+    {
+    }
 
     // Required for adjoint computations.
-    CUDA_CALLABLE inline bvh_query_t& operator+=(const bvh_query_t& other)
-    {
-        return *this;
-    }
+    CUDA_CALLABLE inline bvh_query_t& operator+=(const bvh_query_t& other) { return *this; }
 
     BVH bvh;
 
     // BVH traversal stack:
+#if BVH_SHARED_STACK
+    bvh_stack_t stack;
+#else
     int stack[BVH_QUERY_STACK_SIZE];
+#endif
+
     int count;
 
     // >= 0 if currently in a packed leaf node
     int primitive_counter;
-    
+
     // inputs
-    wp::vec3 input_lower;	// start for ray
-    wp::vec3 input_upper;	// dir for ray
+    wp::vec3 input_lower;  // start for ray
+    wp::vec3 input_upper;  // dir for ray
 
     int bounds_nr;
     bool is_ray;
+    // Tracks whether the most recent bvh_query_next() / tile_bvh_query_next() call
+    // produced a valid index. Seeded to true on construction so an initial
+    // tile_query_valid() check (before any next() call) reports valid.
+    bool last_query_valid;
 };
 
-CUDA_CALLABLE inline bool bvh_query_intersection_test(const bvh_query_t& query, const vec3& node_lower, const vec3& node_upper)
+CUDA_CALLABLE inline bool
+bvh_query_intersection_test(const bvh_query_t& query, const vec3& node_lower, const vec3& node_upper, float& t)
 {
-    if (query.is_ray)
-    {
-        float t = 0.0f;
+    if (query.is_ray) {
         return intersect_ray_aabb(query.input_lower, query.input_upper, node_lower, node_upper, t);
-    }
-    else
-    {
+    } else {
         return intersect_aabb_aabb(query.input_lower, query.input_upper, node_lower, node_upper);
     }
 }
 
-CUDA_CALLABLE inline bvh_query_t bvh_query(
-    uint64_t id, bool is_ray, const vec3& lower, const vec3& upper)
+
+CUDA_CALLABLE inline bvh_query_t bvh_query(uint64_t id, bool is_ray, const vec3& lower, const vec3& upper, int root)
 {
     // This routine traverses the BVH tree until it finds
-    // the first overlapping bound. 
+    // the first overlapping bound.
 
     // initialize empty
     bvh_query_t query;
+
+#if BVH_SHARED_STACK
+    __shared__ int stack[BVH_QUERY_STACK_SIZE * WP_TILE_BLOCK_DIM];
+    query.stack.ptr = &stack[threadIdx.x];
+#endif
 
     query.bounds_nr = -1;
 
@@ -344,118 +474,85 @@ CUDA_CALLABLE inline bvh_query_t bvh_query(
     query.bvh = bvh;
     query.is_ray = is_ray;
 
-    // optimization: make the latest	
-    query.stack[0] = *bvh.root;
+    // optimization: make the latest
+    query.stack[0] = root == -1 ? *bvh.root : root;
     query.count = 1;
+    // ensure node-level AABB tests run on first iteration
+    query.primitive_counter = 0;
     query.input_lower = lower;
     query.input_upper = upper;
-
-    // Navigate through the bvh, find the first overlapping leaf node.
-    while (query.count)
-    {
-        const int node_index = query.stack[--query.count];
-        BVHPackedNodeHalf node_lower = bvh_load_node(bvh.node_lowers, node_index);
-        BVHPackedNodeHalf node_upper = bvh_load_node(bvh.node_uppers, node_index);
-
-        if (!bvh_query_intersection_test(query, reinterpret_cast<vec3&>(node_lower), reinterpret_cast<vec3&>(node_upper)))
-        {
-            continue;
-        }
-
-        const int left_index = node_lower.i;
-        const int right_index = node_upper.i;
-        // Make bounds from this AABB
-        if (node_lower.b)
-        {
-            // Reached a leaf node, point to its first primitive
-            // Back up one level and return 
-            query.primitive_counter = 0;
-            query.stack[query.count++] = node_index;
-            return query;
-        }
-        else
-        {
-            query.stack[query.count++] = left_index;
-            query.stack[query.count++] = right_index;
-        }
-    }
 
     return query;
 }
 
-CUDA_CALLABLE inline bvh_query_t bvh_query_aabb(
-    uint64_t id, const vec3& lower, const vec3& upper)
+CUDA_CALLABLE inline bvh_query_t bvh_query_aabb(uint64_t id, const vec3& lower, const vec3& upper, int root)
 {
-    return bvh_query(id, false, lower, upper);
+    return bvh_query(id, false, lower, upper, root);
 }
 
-
-CUDA_CALLABLE inline bvh_query_t bvh_query_ray(uint64_t id, const vec3& start, const vec3& dir)
+CUDA_CALLABLE inline bvh_query_t bvh_query_ray(uint64_t id, const vec3& start, const vec3& dir, int root)
 {
-    return bvh_query(id, true, start, 1.0f / dir);
+    return bvh_query(id, true, start, 1.0f / dir, root);
 }
 
-//Stub
-CUDA_CALLABLE inline void adj_bvh_query_aabb(uint64_t id, const vec3& lower, const vec3& upper,
-                                               uint64_t, vec3&, vec3&, bvh_query_t&)
-{
-}
-
-
-CUDA_CALLABLE inline void adj_bvh_query_ray(uint64_t id, const vec3& start, const vec3& dir,
-                                               uint64_t, vec3&, vec3&, bvh_query_t&)
-{
-}
-
-
-CUDA_CALLABLE inline bool bvh_query_next(bvh_query_t& query, int& index)
+CUDA_CALLABLE inline bool bvh_query_next(bvh_query_t& query, int& index, const float& max_dist)
 {
     BVH bvh = query.bvh;
 
     // Navigate through the bvh, find the first overlapping leaf node.
-    while (query.count)
-    {
+    while (query.count) {
         const int node_index = query.stack[--query.count];
 
         BVHPackedNodeHalf node_lower = bvh_load_node(bvh.node_lowers, node_index);
         BVHPackedNodeHalf node_upper = bvh_load_node(bvh.node_uppers, node_index);
 
-        if (!bvh_query_intersection_test(query, reinterpret_cast<vec3&>(node_lower), reinterpret_cast<vec3&>(node_upper)))
-        {
-            continue;
+        if (query.primitive_counter == 0) {
+            float t = FLT_MAX;
+            bool hit = bvh_query_intersection_test(
+                query, reinterpret_cast<vec3&>(node_lower), reinterpret_cast<vec3&>(node_upper), t
+            );
+            if (!hit || (query.is_ray && t >= max_dist)) {
+                continue;
+            }
         }
 
         const int left_index = node_lower.i;
         const int right_index = node_upper.i;
 
-        if (node_lower.b)
-        {
-            // found leaf, loop through its content primitives
+        if (node_lower.b) {
             const int start = left_index;
             const int end = right_index;
 
-            int primitive_index = bvh.primitive_indices[start + (query.primitive_counter++)];
-            // if already visited the last primitive in the leaf node
-            // move to the next node and reset the primitive counter to 0
-            if (start + query.primitive_counter == end)
-            {
-                query.primitive_counter = 0;
-            }
-            // otherwise we need to keep this leaf node in stack for a future visit
-            else
-            {
-                query.stack[query.count++] = node_index;
-            }
-            if (bvh_query_intersection_test(query, bvh.item_lowers[primitive_index], bvh.item_uppers[primitive_index]))
-            {
+            // Fast path when the actual leaf range contains exactly one primitive
+            if (end - start == 1) {
+                int primitive_index = bvh.primitive_indices[start];
                 index = primitive_index;
                 query.bounds_nr = primitive_index;
+                return true;
+            } else {
+                int primitive_index = bvh.primitive_indices[start + (query.primitive_counter++)];
 
+                // if already visited the last primitive in the leaf node
+                // move to the next node and reset the primitive counter to 0
+                if (start + query.primitive_counter == end) {
+                    query.primitive_counter = 0;
+                }
+                // otherwise we need to keep this leaf node in stack for a future visit
+                else {
+                    query.stack[query.count++] = node_index;
+                }
+                float t = FLT_MAX;
+                bool hit = bvh_query_intersection_test(
+                    query, bvh.item_lowers[primitive_index], bvh.item_uppers[primitive_index], t
+                );
+                if (!hit || (query.is_ray && t >= max_dist)) {
+                    continue;
+                }
+                index = primitive_index;
+                query.bounds_nr = primitive_index;
                 return true;
             }
-        }
-        else
-        {
+        } else {
             // if it's not a leaf node we treat it as if we have visited the last primitive
             query.primitive_counter = 0;
             query.stack[query.count++] = left_index;
@@ -465,15 +562,12 @@ CUDA_CALLABLE inline bool bvh_query_next(bvh_query_t& query, int& index)
     return false;
 }
 
-
-CUDA_CALLABLE inline int iter_next(bvh_query_t& query)
-{
-    return query.bounds_nr;
-}
+CUDA_CALLABLE inline int iter_next(bvh_query_t& query) { return query.bounds_nr; }
 
 CUDA_CALLABLE inline bool iter_cmp(bvh_query_t& query)
 {
-    bool finished = bvh_query_next(query, query.bounds_nr);
+    float max_dist = FLT_MAX;
+    bool finished = bvh_query_next(query, query.bounds_nr, max_dist);
     return finished;
 }
 
@@ -483,31 +577,52 @@ CUDA_CALLABLE inline bvh_query_t iter_reverse(const bvh_query_t& query)
     return query;
 }
 
-CUDA_CALLABLE inline void adj_iter_reverse(const bvh_query_t& query, bvh_query_t& adj_query, bvh_query_t& adj_ret)
-{
-}
-
-
-// stub
-CUDA_CALLABLE inline void adj_bvh_query_next(bvh_query_t& query, int& index, bvh_query_t&, int&, bool&) 
-{
-
-}
-
 CUDA_CALLABLE bool bvh_get_descriptor(uint64_t id, BVH& bvh);
 CUDA_CALLABLE void bvh_add_descriptor(uint64_t id, const BVH& bvh);
 CUDA_CALLABLE void bvh_rem_descriptor(uint64_t id);
 
-void bvh_create_host(vec3* lowers, vec3* uppers, int num_items,  int constructor_type, BVH& bvh);
+
+void bvh_create_host(
+    vec3* lowers, vec3* uppers, int num_items, int constructor_type, int* groups, int leaf_size, BVH& bvh
+);
 void bvh_destroy_host(wp::BVH& bvh);
 void bvh_refit_host(wp::BVH& bvh);
+void cubql_bvh_create_host(vec3* lowers, vec3* uppers, int num_items, int leaf_size, BVH& bvh);
+void cubql_bvh_destroy_host(BVH& bvh);
+void cubql_bvh_refit_host(BVH& bvh);
+void cubql_bvh_rebuild_host(BVH& bvh);
+// reorder a top-down-constructed bvh so its structure accords with a bottom-up tree:
+// all of its leaves nodes are stored as the first bvh.num_leaf_nodes nodes
+void reorder_top_down_bvh(BVH& bvh_host);
 
 #if WP_ENABLE_CUDA
 
-void bvh_create_device(void* context, vec3* lowers, vec3* uppers, int num_items, int constructor_type, BVH& bvh_device_on_host);
+void bvh_create_device(
+    void* context,
+    vec3* lowers,
+    vec3* uppers,
+    int num_items,
+    int constructor_type,
+    int* groups,
+    int leaf_size,
+    BVH& bvh_device_on_host
+);
 void bvh_destroy_device(BVH& bvh);
 void bvh_refit_device(BVH& bvh);
+// Copy a host-built BVH to the device. Reorders leaves to the front unless the
+// BVH is grouped or constructed by cuBQL (those layouts must be preserved).
+void copy_host_tree_to_device(void* context, BVH& bvh_host, BVH& bvh_device_on_host);
+void cubql_bvh_create_device(
+    void* context, vec3* lowers, vec3* uppers, int num_items, int leaf_size, BVH& bvh_device_on_host
+);
+void cubql_bvh_destroy_device(BVH& bvh);
+// Returns true on success and false when refit fails; callers should propagate failures.
+bool cubql_bvh_refit_device(BVH& bvh);
+void cubql_bvh_rebuild_device(BVH& bvh);
 
-#endif // WP_ENABLE_CUDA
+#endif  // WP_ENABLE_CUDA
 
-} // namespace wp
+}  // namespace wp
+
+
+#include "tile_bvh.h"

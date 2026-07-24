@@ -1,17 +1,23 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+# ==============================================================================
+# Clang Build and Testing Child Pipeline
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# This child pipeline tests Warp builds using the Clang/LLVM toolchain instead
+# of the default GCC compiler. This ensures compatibility with alternative build
+# configurations and validates that our codebase doesn't rely on GCC-specific
+# behavior.
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+# Key features:
+# - Tests against the latest LLVM development toolchain
+# - Tests CUDA 12.8.1 and 13.0.1 compatibility
+# - Validates build system portability
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# This pipeline can be triggered from the main GitLab pipeline under specific
+# circumstances. See the child pipelines defined in /.gitlab-ci.yml for the
+# trigger conditions. It is not automatically run in merge request pipelines.
+# ==============================================================================
 
 include:
   - /.gitlab/ci/common.yml
@@ -31,38 +37,49 @@ stages:
 .build_linux_base:
   stage: build
   before_script:
-    - echo -e "\\e[0Ksection_start:`date +%s`:install_dependencies[collapsed=true]\\r\\e[0KInstalling dependencies"
-    - apt update && apt install curl --no-install-recommends -y wget build-essential ca-certificates
-    - wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/llvm.gpg
+    - !reference [.snippets, section-start-install-deps]
+    - apt-get update && apt-get install --no-install-recommends -y ca-certificates curl build-essential
+    - curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/llvm.gpg
     - echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble main" > /etc/apt/sources.list.d/llvm.list
-    - echo "deb-src http://apt.llvm.org/noble/ llvm-toolchain-noble main" >> /etc/apt/sources.list.d/llvm.list
-    - apt-get update && apt-get install --no-install-recommends -y clang-22
-    - update-alternatives --install /usr/bin/clang clang /usr/bin/clang-22 100
-    - update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-22 100
-    - echo -e "\\e[0Ksection_end:`date +%s`:install_dependencies\\r\\e[0K"
+    - apt-get update
+    - CLANG_VERSION=$(apt-cache search '^clang-[0-9]+$' | grep -oP '^clang-\K[0-9]+' | sort -n | tail -1)
+    - apt-get install --no-install-recommends -y clang-$CLANG_VERSION
+    - update-alternatives --install /usr/bin/clang clang /usr/bin/clang-$CLANG_VERSION 100
+    - update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-$CLANG_VERSION 100
+    - !reference [.snippets, section-end-install-deps]
     - clang --version
-    - curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=$CI_PROJECT_DIR/uv sh
+    - curl -fsSL https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=$CI_PROJECT_DIR/uv sh
     - source $CI_PROJECT_DIR/uv/env
-    - uv venv
-    - source .venv/bin/activate
-    - uv pip install numpy
     - unset CUDA_HOME
+    - !reference [.snippets, setup-packman-config]
 
 linux-x86_64 build:
-  image: gitlab-master.nvidia.com:5005/omniverse/warp/cuda:12.8.1-devel-ubuntu24.04
+  image: ${CI_REGISTRY_IMAGE}/cuda:12.8.1-devel-ubuntu24.04
+  variables:
+    IPP_RUNNER_EXECUTION_DURATION: "3600"
   extends:
     - .build_linux_base
-    - .runner-build-linux-x86_64
+    - .ipp_lnx_x86_64_cpu_medium
   artifacts:
     name: $CI_JOB_NAME_SLUG
     paths:
       - warp/bin/**/*.so
-    expire_in: 1 day  # Binary is quite large and we just need it for the test job
+    expire_in: 1 day # Binary is quite large and we just need it for the test job
   script:
-    - python build_lib.py --clang_build_toolchain
+    - uv run build_lib.py --clang-build-toolchain
     - mkdir -p warp/bin/linux-x86_64
     - mv warp/bin/warp.so warp/bin/linux-x86_64
     - mv warp/bin/warp-clang.so warp/bin/linux-x86_64
+
+linux-x86_64 build cuda 13:
+  image: ${CI_REGISTRY_IMAGE}/cuda:13.0.1-devel-ubuntu24.04
+  variables:
+    IPP_RUNNER_EXECUTION_DURATION: "3600"
+  extends:
+    - .build_linux_base
+    - .ipp_lnx_x86_64_cpu_medium
+  script:
+    - uv run build_lib.py --clang-build-toolchain
 
 # ==============================================================================
 # Unit Testing Jobs
@@ -73,29 +90,15 @@ linux-x86_64 build:
 
 linux-x86_64 test:
   stage: test
-  image: ubuntu:24.04
+  image: $UV_TRIXIE_SLIM_IMAGE
   needs: [linux-x86_64 build]
+  variables:
+    IPP_RUNNER_EXECUTION_DURATION: "3600"
   extends:
-    - .runner-test-linux-x86_64-gpu
+    - .ipp_lnx_x86_64_gpu
     - .save_test_report_artifact
   before_script:
-    - echo -e "\\e[0Ksection_start:`date +%s`:install_dependencies[collapsed=true]\\r\\e[0KInstalling dependencies"
-    - apt-get update && apt-get install --no-install-recommends -y curl ca-certificates 
     - df -h
-    # Move compiled binaries out of platform-specific directory
-    - mv warp/bin/linux-x86_64/warp.so warp/bin/
-    - mv warp/bin/linux-x86_64/warp-clang.so warp/bin/
-    # Install UV
-    - curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=$CI_PROJECT_DIR/uv sh
-    - source $CI_PROJECT_DIR/uv/env
-    - uv venv
-    - source .venv/bin/activate
-    - uv pip install numpy usd-core Pillow
-    - uv pip install --upgrade torch --extra-index-url https://download.pytorch.org/whl/cu121
-    - uv pip install -U "jax[cuda12]"
-    - uv pip install -e .
-    - echo -e "\\e[0Ksection_end:`date +%s`:install_dependencies\\r\\e[0K"
-    # HACK: disable P2P tests due to misbehaving agents
-    - export WARP_DISABLE_P2P_TESTS=1
+    - !reference [.snippets, move-linux-x86_64-binaries]
   script:
-    - python -m warp.tests --junit-report-xml rspec.xml -s autodetect --failfast
+    - uv run --extra dev --extra torch-cu12 --with "jax[cuda12]" --with rmm-cu12 -m warp.tests --junit-report-xml rspec.xml -s autodetect --failfast

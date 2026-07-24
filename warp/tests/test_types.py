@@ -1,20 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import sys
+import types
 import unittest
+from enum import IntEnum
+from typing import get_origin
+
+import numpy as np
 
 from warp.tests.unittest_utils import *
 
@@ -80,20 +73,20 @@ def test_floats(test, device, dtype):
 def test_vector(test, device, dtype):
     def make_scalar(x):
         # Cast to the correct integer type to simulate wrapping.
-        if dtype in wp.types.int_types:
+        if dtype in wp._src.types.int_types:
             return dtype._type_(x).value
 
         return x
 
     def make_vec(*args):
-        if dtype in wp.types.int_types:
+        if dtype in wp._src.types.int_types:
             # Cast to the correct integer type to simulate wrapping.
             return tuple(dtype._type_(x).value for x in args)
 
         return args
 
-    vec3_cls = wp.vec(3, dtype)
-    vec4_cls = wp.vec(4, dtype)
+    vec3_cls = wp.types.vector(3, dtype)
+    vec4_cls = wp.types.vector(4, dtype)
 
     v = vec4_cls(1, 2, 3, 4)
     test.assertEqual(v[0], make_scalar(1))
@@ -132,23 +125,157 @@ def test_vector(test, device, dtype):
     test.assertSequenceEqual(v, make_vec(1, -2, -3, 4))
 
     v = vec3_cls(2, 4, 6)
-    test.assertSequenceEqual(+v, make_vec(2, 4, 6))
-    test.assertSequenceEqual(-v, make_vec(-2, -4, -6))
-    test.assertSequenceEqual(v + vec3_cls(1, 1, 1), make_vec(3, 5, 7))
-    test.assertSequenceEqual(v - vec3_cls(1, 1, 1), make_vec(1, 3, 5))
-    test.assertSequenceEqual(v * dtype(2), make_vec(4, 8, 12))
-    test.assertSequenceEqual(dtype(2) * v, make_vec(4, 8, 12))
-    test.assertSequenceEqual(v / dtype(2), make_vec(1, 2, 3))
-    test.assertSequenceEqual(dtype(12) / v, make_vec(6, 3, 2))
+    # bfloat16 does not have named vector/matrix types yet, so Python-side
+    # operator dispatch (pos, neg, add, etc.) is not available.
+    if dtype is not wp.bfloat16:
+        test.assertSequenceEqual(+v, make_vec(2, 4, 6))
+        test.assertSequenceEqual(-v, make_vec(-2, -4, -6))
+        test.assertSequenceEqual(v + vec3_cls(1, 1, 1), make_vec(3, 5, 7))
+        test.assertSequenceEqual(v - vec3_cls(1, 1, 1), make_vec(1, 3, 5))
+        test.assertSequenceEqual(v * dtype(2), make_vec(4, 8, 12))
+        test.assertSequenceEqual(dtype(2) * v, make_vec(4, 8, 12))
+        test.assertSequenceEqual(v / dtype(2), make_vec(1, 2, 3))
+        test.assertSequenceEqual(dtype(12) / v, make_vec(6, 3, 2))
 
     test.assertTrue(v != vec3_cls(1, 2, 3))
     test.assertEqual(str(v), "[{}]".format(", ".join(str(x) for x in v)))
 
+    # Copy constructor.
+    v_copy = vec3_cls(v)
+    v_copy[0] = 123
+    test.assertSequenceEqual(v, make_vec(2, 4, 6))
+    test.assertSequenceEqual(v_copy, make_vec(123, 4, 6))
+
     # Check added purely for coverage reasons but is this really a desired
-    # behaviour? Not allowing to define new attributes using systems like
+    # behavior? Not allowing to define new attributes using systems like
     # `__slots__` could help improving memory usage.
     v.foo = 123
     test.assertEqual(v.foo, 123)
+
+
+@wp.struct
+class Foo:
+    x: int
+
+
+class Kind(IntEnum):
+    INT = 1
+    FLOAT = 2
+    VECTOR = 3
+    MATRIX = 4
+    QUATERNION = 5
+    TRANSFORMATION = 6
+    STRUCT = 7
+    ARRAY = 8
+    TILE = 9
+
+
+vec8us = wp.types.vector(8, wp.uint8)
+mat55d = wp.types.matrix((5, 5), wp.float64)
+
+
+def test_introspection(test, device):
+    def check(a, kind, is_inst):
+        test.assertEqual(wp.types.type_is_int(a), kind is Kind.INT and not is_inst)
+        test.assertEqual(wp.types.type_is_float(a), kind is Kind.FLOAT and not is_inst)
+        test.assertEqual(wp.types.type_is_scalar(a), kind in (Kind.INT, Kind.FLOAT) and not is_inst)
+        test.assertEqual(wp.types.type_is_vector(a), kind is Kind.VECTOR and not is_inst)
+        test.assertEqual(wp.types.type_is_matrix(a), kind is Kind.MATRIX and not is_inst)
+        test.assertEqual(wp.types.type_is_quaternion(a), kind is Kind.QUATERNION and not is_inst)
+        test.assertEqual(wp.types.type_is_transformation(a), kind is Kind.TRANSFORMATION and not is_inst)
+        test.assertEqual(
+            wp.types.type_is_composite(a), kind >= Kind.VECTOR and kind <= Kind.TRANSFORMATION and not is_inst
+        )
+        test.assertEqual(wp.types.type_is_value(a), kind <= Kind.TRANSFORMATION and not is_inst)
+        test.assertEqual(wp.types.type_is_struct(a), kind is Kind.STRUCT and not is_inst)
+        test.assertEqual(wp.types.type_is_array(a), kind is Kind.ARRAY and not is_inst)
+        test.assertEqual(wp.types.type_is_tile(a), kind is Kind.TILE and not is_inst)
+
+        test.assertEqual(wp.types.is_int(a), kind is Kind.INT and is_inst)
+        test.assertEqual(wp.types.is_float(a), kind is Kind.FLOAT and is_inst)
+        test.assertEqual(wp.types.is_scalar(a), kind in (Kind.INT, Kind.FLOAT) and is_inst)
+        test.assertEqual(wp.types.is_vector(a), kind is Kind.VECTOR and is_inst)
+        test.assertEqual(wp.types.is_matrix(a), kind is Kind.MATRIX and is_inst)
+        test.assertEqual(wp.types.is_quaternion(a), kind is Kind.QUATERNION and is_inst)
+        test.assertEqual(wp.types.is_composite(a), kind >= Kind.VECTOR and kind <= Kind.TRANSFORMATION and is_inst)
+        test.assertEqual(wp.types.is_value(a), kind <= Kind.TRANSFORMATION and is_inst)
+        test.assertEqual(wp.types.is_struct(a), kind is Kind.STRUCT and is_inst)
+        test.assertEqual(wp.types.is_array(a), kind is Kind.ARRAY and is_inst)
+        test.assertEqual(wp.types.is_tile(a), kind is Kind.TILE and is_inst)
+
+    # Types.
+
+    check(int, Kind.INT, is_inst=False)
+    check(wp.int32, Kind.INT, is_inst=False)
+    check(wp.int16, Kind.INT, is_inst=False)
+    check(wp.uint64, Kind.INT, is_inst=False)
+
+    check(float, Kind.FLOAT, is_inst=False)
+    check(wp.float32, Kind.FLOAT, is_inst=False)
+    check(wp.float16, Kind.FLOAT, is_inst=False)
+
+    check(wp.vec3, Kind.VECTOR, is_inst=False)
+    check(wp.vec2i, Kind.VECTOR, is_inst=False)
+    check(vec8us, Kind.VECTOR, is_inst=False)
+
+    check(wp.mat22, Kind.MATRIX, is_inst=False)
+    check(wp.mat33h, Kind.MATRIX, is_inst=False)
+    check(mat55d, Kind.MATRIX, is_inst=False)
+
+    check(wp.quat, Kind.QUATERNION, is_inst=False)
+    check(wp.quath, Kind.QUATERNION, is_inst=False)
+
+    check(wp.transform, Kind.TRANSFORMATION, is_inst=False)
+    check(wp.transformd, Kind.TRANSFORMATION, is_inst=False)
+
+    check(Foo, Kind.STRUCT, is_inst=False)
+
+    check(wp.array, Kind.ARRAY, is_inst=False)
+    check(wp.fixedarray, Kind.ARRAY, is_inst=False)
+    check(wp.fabricarray, Kind.ARRAY, is_inst=False)
+    check(wp.indexedarray, Kind.ARRAY, is_inst=False)
+
+    check(wp.tile, Kind.TILE, is_inst=False)
+
+    # Instances.
+
+    check(123, Kind.INT, is_inst=True)
+    check(wp.int32(123), Kind.INT, is_inst=True)
+    check(wp.int16(123), Kind.INT, is_inst=True)
+    check(wp.uint64(123), Kind.INT, is_inst=True)
+
+    check(1.23, Kind.FLOAT, is_inst=True)
+    check(wp.float32(1.23), Kind.FLOAT, is_inst=True)
+    check(wp.float16(1.23), Kind.FLOAT, is_inst=True)
+
+    check(wp.vec3(*range(3)), Kind.VECTOR, is_inst=True)
+    check(wp.vec2i(*range(2)), Kind.VECTOR, is_inst=True)
+    check(vec8us(*range(8)), Kind.VECTOR, is_inst=True)
+
+    check(wp.mat22(*range(4)), Kind.MATRIX, is_inst=True)
+    check(wp.mat33h(*range(9)), Kind.MATRIX, is_inst=True)
+    check(mat55d(*range(25)), Kind.MATRIX, is_inst=True)
+
+    check(wp.quat(*range(4)), Kind.QUATERNION, is_inst=True)
+    check(wp.quath(*range(4)), Kind.QUATERNION, is_inst=True)
+
+    check(wp.transform(*range(7)), Kind.TRANSFORMATION, is_inst=True)
+    check(wp.transformd(*range(7)), Kind.TRANSFORMATION, is_inst=True)
+
+    check(Foo(), Kind.STRUCT, is_inst=True)
+
+    check(wp.array(dtype=int), Kind.ARRAY, is_inst=True)
+    check(wp.array(ndim=3, dtype=float), Kind.ARRAY, is_inst=True)
+    check(wp.array3d(((1, 2, 3),) * 2, dtype=wp.float16), Kind.ARRAY, is_inst=True)
+    check(wp.fixedarray(dtype=int), Kind.ARRAY, is_inst=True)
+    check(wp.fabricarray(dtype=float), Kind.ARRAY, is_inst=True)
+    check(wp.indexedarray(dtype=wp.float16), Kind.ARRAY, is_inst=True)
+
+    check(wp.array((1, 2, 3), dtype=wp.uint16, device=device), Kind.ARRAY, is_inst=True)
+    check(wp.zeros(1, dtype=wp.float64, device=device), Kind.ARRAY, is_inst=True)
+
+    check(wp.tile(dtype=float, shape=(2, 2)), Kind.TILE, is_inst=True)
+    check(wp.tile(dtype=wp.float16, shape=(2, 2)), Kind.TILE, is_inst=True)
 
 
 devices = [x for x in get_test_devices() if x.is_cpu]
@@ -240,6 +367,28 @@ class TestTypes(unittest.TestCase):
         v[2] = np.float16(3.0)
         self.assertEqual(v, (1.0, 2.0, 3.0))
 
+    def test_legacy_scalar_return_types(self):
+        old_setting = wp.config.legacy_scalar_return_types
+
+        try:
+            wp.config.legacy_scalar_return_types = True
+
+            vec3h = wp.types.vector(3, wp.float16)
+            vec3d = wp.types.vector(3, wp.float64)
+            vec3s = wp.types.vector(3, wp.int16)
+            self.assertIsInstance(vec3h(1.0, 2.0, 3.0)[0], float)
+            self.assertIsInstance(vec3d(1.0, 2.0, 3.0)[0], float)
+            self.assertIsInstance(vec3s(1, 2, 3)[0], int)
+
+            mat22h = wp.types.matrix((2, 2), wp.float16)
+            mat22d = wp.types.matrix((2, 2), wp.float64)
+            mat22s = wp.types.matrix((2, 2), wp.int16)
+            self.assertIsInstance(mat22h(1, 2, 3, 4)[0, 0], float)
+            self.assertIsInstance(mat22d(1, 2, 3, 4)[0, 0], float)
+            self.assertIsInstance(mat22s(1, 2, 3, 4)[0, 0], int)
+        finally:
+            wp.config.legacy_scalar_return_types = old_setting
+
     def test_vector_error_invalid_arg_count(self):
         with self.assertRaisesRegex(
             ValueError, r"Invalid number of arguments in vector constructor, expected 3 elements, got 2$"
@@ -282,32 +431,32 @@ class TestTypes(unittest.TestCase):
             v2[:1] = (v2,)
 
     def test_matrix(self):
-        for dtype in (*wp.types.float_types, float):
+        for dtype in (*wp._src.types.float_types, float):
 
             def make_scalar(x, dtype=dtype):
                 # Cast to the correct integer type to simulate wrapping.
-                if dtype in wp.types.int_types:
+                if dtype in wp._src.types.int_types:
                     return dtype._type_(x).value
 
                 return x
 
             def make_vec(*args, dtype=dtype):
-                if dtype in wp.types.int_types:
+                if dtype in wp._src.types.int_types:
                     # Cast to the correct integer type to simulate wrapping.
                     return tuple(dtype._type_(x).value for x in args)
 
                 return args
 
             def make_mat(*args, dtype=dtype):
-                if dtype in wp.types.int_types:
+                if dtype in wp._src.types.int_types:
                     # Cast to the correct integer type to simulate wrapping.
                     return tuple(tuple(dtype._type_(x).value for x in row) for row in args)
 
                 return args
 
-            mat22_cls = wp.mat((2, 2), dtype)
-            mat33_cls = wp.mat((3, 3), dtype)
-            vec2_cls = wp.vec(2, dtype)
+            mat22_cls = wp.types.matrix((2, 2), dtype)
+            mat33_cls = wp.types.matrix((3, 3), dtype)
+            vec2_cls = wp.types.vector(2, dtype)
 
             m = mat33_cls(((1, 2, 3), (4, 5, 6), (7, 8, 9)))
             self.assertEqual(m[0][0], make_scalar(1))
@@ -400,19 +549,23 @@ class TestTypes(unittest.TestCase):
             self.assertSequenceEqual(m, make_mat((1, 2, 3), (-4, 5, 6), (-7, 8, -9)))
 
             m = mat22_cls(2, 4, 6, 8)
-            self.assertSequenceEqual(+m, make_mat((2, 4), (6, 8)))
-            self.assertSequenceEqual(-m, make_mat((-2, -4), (-6, -8)))
-            self.assertSequenceEqual(m + mat22_cls(1, 1, 1, 1), make_mat((3, 5), (7, 9)))
-            self.assertSequenceEqual(m - mat22_cls(1, 1, 1, 1), make_mat((1, 3), (5, 7)))
-            self.assertSequenceEqual(m * dtype(2), make_mat((4, 8), (12, 16)))
-            self.assertSequenceEqual(dtype(2) * m, make_mat((4, 8), (12, 16)))
-            self.assertSequenceEqual(m / dtype(2), make_mat((1, 2), (3, 4)))
-            self.assertSequenceEqual(dtype(24) / m, make_mat((12, 6), (4, 3)))
+            # bfloat16 does not have named vector/matrix types yet, so
+            # Python-side operator dispatch (pos, neg, add, etc.) is not available.
+            if dtype is not wp.bfloat16:
+                self.assertSequenceEqual(+m, make_mat((2, 4), (6, 8)))
+                self.assertSequenceEqual(-m, make_mat((-2, -4), (-6, -8)))
+                self.assertSequenceEqual(m + mat22_cls(1, 1, 1, 1), make_mat((3, 5), (7, 9)))
+                self.assertSequenceEqual(m - mat22_cls(1, 1, 1, 1), make_mat((1, 3), (5, 7)))
+                self.assertSequenceEqual(m * dtype(2), make_mat((4, 8), (12, 16)))
+                self.assertSequenceEqual(dtype(2) * m, make_mat((4, 8), (12, 16)))
+                self.assertSequenceEqual(m / dtype(2), make_mat((1, 2), (3, 4)))
+                self.assertSequenceEqual(dtype(24) / m, make_mat((12, 6), (4, 3)))
 
-            self.assertSequenceEqual(m * vec2_cls(1, 2), make_vec(10, 22))
-            self.assertSequenceEqual(m @ vec2_cls(1, 2), make_vec(10, 22))
-            self.assertSequenceEqual(vec2_cls(1, 2) * m, make_vec(14, 20))
-            self.assertSequenceEqual(vec2_cls(1, 2) @ m, make_vec(14, 20))
+            if dtype is not wp.bfloat16:
+                self.assertSequenceEqual(m * vec2_cls(1, 2), make_vec(10, 22))
+                self.assertSequenceEqual(m @ vec2_cls(1, 2), make_vec(10, 22))
+                self.assertSequenceEqual(vec2_cls(1, 2) * m, make_vec(14, 20))
+                self.assertSequenceEqual(vec2_cls(1, 2) @ m, make_vec(14, 20))
 
             self.assertTrue(m != mat22_cls(1, 2, 3, 4))
             self.assertEqual(
@@ -420,8 +573,14 @@ class TestTypes(unittest.TestCase):
                 "[{}]".format(",\n ".join("[{}]".format(", ".join(str(y) for y in m[x])) for x in range(m._shape_[0]))),
             )
 
+            # Copy constructor.
+            m_copy = mat22_cls(m)
+            m_copy[0, 0] = 123
+            self.assertSequenceEqual(m, make_mat((2, 4), (6, 8)))
+            self.assertSequenceEqual(m_copy, make_mat((123, 4), (6, 8)))
+
             # Check added purely for coverage reasons but is this really a desired
-            # behaviour? Not allowing to define new attributes using systems like
+            # behavior? Not allowing to define new attributes using systems like
             # `__slots__` could help improving memory usage.
             m.foo = 123
             self.assertEqual(m.foo, 123)
@@ -488,8 +647,6 @@ class TestTypes(unittest.TestCase):
             m[0][:1] = (1, 2)
 
     def test_dtype_from_numpy(self):
-        import numpy as np
-
         def test_conversions(np_type, warp_type):
             self.assertEqual(wp.dtype_from_numpy(np_type), warp_type)
             self.assertEqual(wp.dtype_from_numpy(np.dtype(np_type)), warp_type)
@@ -510,8 +667,6 @@ class TestTypes(unittest.TestCase):
         test_conversions(np.ubyte, wp.uint8)
 
     def test_dtype_to_numpy(self):
-        import numpy as np
-
         def test_conversions(warp_type, np_type):
             self.assertEqual(wp.dtype_to_numpy(warp_type), np_type)
 
@@ -528,76 +683,163 @@ class TestTypes(unittest.TestCase):
         test_conversions(wp.uint64, np.uint64)
         test_conversions(wp.bool, np.bool_)
 
-    # Only define this test method on Python 3.9+ where lowercase tuple is supported
-    if sys.version_info >= (3, 9):
+    def test_tuple_type_code_generation(self):
+        """Test that tuple type annotations generate correct type codes, especially on Python 3.10."""
+        # Test basic tuple types
+        tuple_float_float = tuple[float, float]
+        result = wp._src.types.get_type_code(tuple_float_float)
+        self.assertEqual(result, "tpl2f4f4", "tuple[float, float] should generate 'tpl2f4f4'")
 
-        def test_tuple_type_code_generation(self):
-            """Test that tuple type annotations generate correct type codes, especially on Python 3.10."""
-            import sys
-            import types
-            from typing import get_origin
+        # Test tuple with Warp vector types - the problematic case from Python 3.10
+        tuple_mixed = tuple[float, wp.vec3f, wp.vec3f]
+        result = wp._src.types.get_type_code(tuple_mixed)
+        self.assertEqual(result, "tpl3f4v3f4v3f4", "tuple[float, vec3f, vec3f] should generate 'tpl3f4v3f4v3f4'")
 
-            # Test basic tuple types
-            tuple_float_float = tuple[float, float]
-            result = wp.types.get_type_code(tuple_float_float)
-            self.assertEqual(result, "tpl2f4f4", "tuple[float, float] should generate 'tpl2f4f4'")
+        # Test homogeneous tuple with ellipsis
+        tuple_homogeneous = tuple[wp.vec3f, ...]
+        result = wp._src.types.get_type_code(tuple_homogeneous)
+        self.assertEqual(result, "tpl2v3f4?", "tuple[vec3f, ...] should generate 'tpl2v3f4?'")
 
-            # Test tuple with Warp vector types - the problematic case from Python 3.10
-            tuple_mixed = tuple[float, wp.vec3f, wp.vec3f]
-            result = wp.types.get_type_code(tuple_mixed)
-            self.assertEqual(result, "tpl3f4v3f4v3f4", "tuple[float, vec3f, vec3f] should generate 'tpl3f4v3f4v3f4'")
+        # Test single element tuple
+        tuple_single = tuple[wp.int32]
+        result = wp._src.types.get_type_code(tuple_single)
+        self.assertEqual(result, "tpl1i4", "tuple[int32] should generate 'tpl1i4'")
 
-            # Test homogeneous tuple with ellipsis
-            tuple_homogeneous = tuple[wp.vec3f, ...]
-            result = wp.types.get_type_code(tuple_homogeneous)
-            self.assertEqual(result, "tpl2v3f4?", "tuple[vec3f, ...] should generate 'tpl2v3f4?'")
+        # Test tuple with multiple Warp types
+        tuple_multi_warp = tuple[wp.vec3f, wp.mat33f, wp.quatf]
+        result = wp._src.types.get_type_code(tuple_multi_warp)
+        self.assertEqual(result, "tpl3v3f4m33f4qf4", "tuple[vec3f, mat33f, quatf] should generate 'tpl3v3f4m33f4qf4'")
 
-            # Test single element tuple
-            tuple_single = tuple[wp.int32]
-            result = wp.types.get_type_code(tuple_single)
-            self.assertEqual(result, "tpl1i4", "tuple[int32] should generate 'tpl1i4'")
-
-            # Test tuple with multiple Warp types
-            tuple_multi_warp = tuple[wp.vec3f, wp.mat33f, wp.quatf]
-            result = wp.types.get_type_code(tuple_multi_warp)
-            self.assertEqual(
-                result, "tpl3v3f4m33f4qf4", "tuple[vec3f, mat33f, quatf] should generate 'tpl3v3f4m33f4qf4'"
+        # Verify the fix works on Python 3.10 specifically
+        if sys.version_info < (3, 11) and hasattr(types, "GenericAlias"):
+            # On Python 3.10, tuple[...] creates types.GenericAlias
+            self.assertIsInstance(
+                tuple_mixed, types.GenericAlias, "On Python 3.10, tuple[...] should create types.GenericAlias"
             )
+            self.assertIs(tuple_mixed.__origin__, tuple, "GenericAlias origin should be tuple")
 
-            # Verify the fix works on Python 3.9-3.10 specifically
-            if sys.version_info < (3, 11) and hasattr(types, "GenericAlias"):
-                # On Python 3.9-3.10, tuple[...] creates types.GenericAlias
-                self.assertIsInstance(
-                    tuple_mixed, types.GenericAlias, "On Python 3.9-3.10, tuple[...] should create types.GenericAlias"
-                )
-                self.assertIs(tuple_mixed.__origin__, tuple, "GenericAlias origin should be tuple")
+            # Verify our fix catches this case
+            self.assertEqual(get_origin(tuple_mixed), tuple, "get_origin should return tuple")
+        elif sys.version_info >= (3, 11):
+            # On Python 3.11+, the existing code path should handle it
+            self.assertEqual(get_origin(tuple_mixed), tuple, "get_origin should return tuple on Python 3.11+")
 
-                # Verify our fix catches this case
-                self.assertEqual(get_origin(tuple_mixed), tuple, "get_origin should return tuple")
-            elif sys.version_info >= (3, 11):
-                # On Python 3.11+, the existing code path should handle it
-                self.assertEqual(get_origin(tuple_mixed), tuple, "get_origin should return tuple on Python 3.11+")
+        # Test that the fix doesn't break existing functionality
+        # Test with built-in Python types
+        tuple_builtin = tuple[int, str, bool]
+        try:
+            # This might fail because str and bool aren't Warp types, but it shouldn't crash
+            wp._src.types.get_type_code(tuple_builtin)
+        except TypeError as e:
+            # Expected to fail for non-Warp types, but should be a clean TypeError
+            self.assertIn("Unrecognized type", str(e))
 
-            # Test that the fix doesn't break existing functionality
-            # Test with built-in Python types
-            tuple_builtin = tuple[int, str, bool]
-            try:
-                # This might fail because str and bool aren't Warp types, but it shouldn't crash
-                wp.types.get_type_code(tuple_builtin)
-            except TypeError as e:
-                # Expected to fail for non-Warp types, but should be a clean TypeError
-                self.assertIn("Unrecognized type", str(e))
+    def test_composite_types_repr(self):
+        """Test that repr() works on Warp composite types (vectors, matrices, quaternions, transforms) without errors.
+
+        Specifically tests the fix for the vector __repr__ recursion bug where type_repr(self)
+        was called instead of type_repr(type(self)).
+        """
+        # Test vectors
+        v2 = wp.vec2i(1, 2)
+        v3 = wp.vec3f(1.0, 2.0, 3.0)
+        v4 = wp.vec4d(1.0, 2.0, 3.0, 4.0)
+
+        self.assertEqual(repr(v2), "vec2i([1, 2])")
+        self.assertEqual(repr(v3), "vec3f([1.0, 2.0, 3.0])")
+        self.assertEqual(repr(v4), "vec4d([float64(1.0), float64(2.0), float64(3.0), float64(4.0)])")
+
+        # Test matrices
+        m22 = wp.mat22f(1.0, 2.0, 3.0, 4.0)
+        m33 = wp.mat33d([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
+
+        # Matrices don't have __repr__ defined, so they use default ctypes.Array repr
+        # Just verify they don't cause recursion errors
+        repr(m22)
+        repr(m33)
+
+        # Test quaternions
+        q = wp.quatf(1.0, 0.0, 0.0, 0.0)
+        # Quaternions also use default ctypes.Array repr
+        repr(q)
+
+        # Test transforms
+        t = wp.transformf((1.0, 2.0, 3.0), (0.0, 0.0, 0.0, 1.0))
+        repr(t)
+
+        # Test that lists of vectors work
+        vec_list = [wp.vec2i(i, i + 1) for i in range(5)]
+        result = repr(vec_list)
+        self.assertIn("vec2i", result)
+        self.assertGreater(len(result), 0)
+
+    def test_int_float_comparison(self):
+        for int_type in wp._src.types.int_types:
+            with self.subTest(int_type=int_type):
+                one = int_type(1)
+                two = int_type(2)
+
+                # Equality must not truncate floats.
+                self.assertNotEqual(one, 1.5)
+                self.assertEqual(one, 1.0)
+
+                # Ordering operators.
+                self.assertLess(one, 1.5)
+                self.assertLessEqual(one, 1.5)
+                self.assertLessEqual(one, 1.0)
+                self.assertGreater(two, 1.5)
+                self.assertGreaterEqual(two, 1.5)
+                self.assertGreaterEqual(two, 2.0)
+
+                # Comparisons with Warp float scalars.
+                self.assertNotEqual(one, wp.float32(1.5))
+                self.assertEqual(one, wp.float32(1.0))
+
+                # Comparisons with NumPy float scalars (including types
+                # that are not subclasses of Python float).
+                for np_float in (np.float16, np.float32, np.float64):
+                    with self.subTest(np_float=np_float):
+                        self.assertNotEqual(one, np_float(1.5))
+                        self.assertEqual(one, np_float(1.0))
+                        self.assertLess(one, np_float(1.5))
+                        self.assertGreater(two, np_float(1.5))
+
+                # Int-to-int comparison still works.
+                self.assertEqual(one, 1)
+                self.assertNotEqual(one, 2)
+
+                # Hash/eq contract: equal values must have equal hashes.
+                self.assertEqual(hash(one), hash(1.0))
+                self.assertNotEqual(hash(one), hash(1.5))
+
+                # Sets must treat int8(1) and 1.5 as distinct.
+                self.assertEqual(len({one, 1.5}), 2)
+                # Sets must treat int8(1) and 1.0 as equal.
+                self.assertEqual(len({one, 1.0}), 1)
+
+                # Infinity must not crash.
+                self.assertNotEqual(one, float("inf"))
+                self.assertLess(one, float("inf"))
+
+    def test_float_overflow_comparison(self):
+        huge = 2**1024
+        for float_type in wp._src.types.float_types:
+            for op in ("__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__"):
+                with self.subTest(float_type=float_type, op=op):
+                    with self.assertRaises(OverflowError):
+                        getattr(float_type(1.0), op)(huge)
 
 
-for dtype in wp.types.int_types:
+for dtype in wp._src.types.int_types:
     add_function_test(TestTypes, f"test_integers_{dtype.__name__}", test_integers, devices=devices, dtype=dtype)
 
-for dtype in wp.types.float_types:
+for dtype in wp._src.types.float_types:
     add_function_test(TestTypes, f"test_floats_{dtype.__name__}", test_floats, devices=devices, dtype=dtype)
 
-for dtype in (*wp.types.scalar_types, int, float):
+for dtype in (*wp._src.types.scalar_types, int, float):
     add_function_test(TestTypes, f"test_vector_{dtype.__name__}", test_vector, devices=devices, dtype=dtype)
 
+add_function_test(TestTypes, "test_introspection", test_introspection)
+
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import contextlib
 import io
@@ -29,13 +17,13 @@ from warp.tests.unittest_utils import *
 
 
 @wp.kernel
-def square_kernel(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+def square_kernel(x: wp.array[float], y: wp.array[float]):
     tid = wp.tid()
     y[tid] = x[tid] * x[tid]
 
 
 @wp.kernel
-def overwrite_kernel_a(z: wp.array(dtype=float), x: wp.array(dtype=float)):
+def overwrite_kernel_a(z: wp.array[float], x: wp.array[float]):
     tid = wp.tid()
     x[tid] = z[tid]
 
@@ -52,7 +40,7 @@ def test_kernel_read_kernel_write(test, device):
 
         tape = wp.Tape()
 
-        with contextlib.redirect_stdout(io.StringIO()) as f:
+        with contextlib.redirect_stderr(io.StringIO()) as f:
             with tape:
                 wp.launch(square_kernel, a.shape, inputs=[a], outputs=[b], device=device)
                 wp.launch(overwrite_kernel_a, c.shape, inputs=[c], outputs=[a], device=device)
@@ -65,19 +53,19 @@ def test_kernel_read_kernel_write(test, device):
 
 
 @wp.kernel
-def double_kernel(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+def double_kernel(x: wp.array[float], y: wp.array[float]):
     tid = wp.tid()
     y[tid] = 2.0 * x[tid]
 
 
 @wp.kernel
-def triple_kernel(y: wp.array(dtype=float), z: wp.array(dtype=float)):
+def triple_kernel(y: wp.array[float], z: wp.array[float]):
     tid = wp.tid()
     z[tid] = 3.0 * y[tid]
 
 
 @wp.kernel
-def overwrite_kernel_b(w: wp.array(dtype=float), y: wp.array(dtype=float)):
+def overwrite_kernel_b(w: wp.array[float], y: wp.array[float]):
     tid = wp.tid()
     y[tid] = 1.0 * w[tid]
 
@@ -95,7 +83,7 @@ def test_kernel_write_kernel_read_kernel_write(test, device):
         c = wp.zeros_like(a)
         d = wp.zeros_like(a)
 
-        with contextlib.redirect_stdout(io.StringIO()) as f:
+        with contextlib.redirect_stderr(io.StringIO()) as f:
             with tape:
                 wp.launch(double_kernel, a.shape, inputs=[a], outputs=[b], device=device)
                 wp.launch(triple_kernel, b.shape, inputs=[b], outputs=[c], device=device)
@@ -109,13 +97,13 @@ def test_kernel_write_kernel_read_kernel_write(test, device):
 
 
 @wp.kernel
-def read_kernel(a: wp.array(dtype=float), b: wp.array(dtype=float)):
+def read_kernel(a: wp.array[float], b: wp.array[float]):
     tid = wp.tid()
     b[tid] = a[tid]
 
 
 @wp.kernel
-def writeread_kernel(a: wp.array(dtype=float), b: wp.array(dtype=float), c: wp.array(dtype=float)):
+def writeread_kernel(a: wp.array[float], b: wp.array[float], c: wp.array[float]):
     tid = wp.tid()
     a[tid] = c[tid] * c[tid]
     b[tid] = a[tid]
@@ -134,7 +122,7 @@ def test_kernel_read_kernel_writeread(test, device):
 
         tape = wp.Tape()
 
-        with contextlib.redirect_stdout(io.StringIO()) as f:
+        with contextlib.redirect_stderr(io.StringIO()) as f:
             with tape:
                 wp.launch(read_kernel, dim=5, inputs=[a, b], device=device)
                 wp.launch(writeread_kernel, dim=5, inputs=[a, d, c], device=device)
@@ -147,7 +135,7 @@ def test_kernel_read_kernel_writeread(test, device):
 
 
 @wp.kernel
-def write_kernel(a: wp.array(dtype=float), d: wp.array(dtype=float)):
+def write_kernel(a: wp.array[float], d: wp.array[float]):
     tid = wp.tid()
     a[tid] = d[tid]
 
@@ -165,7 +153,7 @@ def test_kernel_writeread_kernel_write(test, device):
 
         tape = wp.Tape()
 
-        with contextlib.redirect_stdout(io.StringIO()) as f:
+        with contextlib.redirect_stderr(io.StringIO()) as f:
             with tape:
                 wp.launch(writeread_kernel, dim=5, inputs=[a, b, c], device=device)
                 wp.launch(write_kernel, dim=5, inputs=[a, d], device=device)
@@ -178,23 +166,23 @@ def test_kernel_writeread_kernel_write(test, device):
 
 
 @wp.func
-def read_func(a: wp.array(dtype=Any), idx: int):
+def read_func(a: wp.array[Any], idx: int):
     x = a[idx]
     return x
 
 
 @wp.func
-def read_return_func(b: wp.array(dtype=Any), idx: int):
+def read_return_func(b: wp.array[Any], idx: int):
     return 1.0, b[idx]
 
 
 @wp.func
-def write_func(c: wp.array(dtype=Any), idx: int):
+def write_func(c: wp.array[Any], idx: int):
     c[idx] = 1.0
 
 
 @wp.func
-def main_func(a: wp.array(dtype=float), b: wp.array(dtype=float), c: wp.array(dtype=float), idx: int):
+def main_func(a: wp.array[float], b: wp.array[float], c: wp.array[float], idx: int):
     x = read_func(a, idx)
     y, z = read_return_func(b, idx)
     write_func(c, idx)
@@ -202,7 +190,7 @@ def main_func(a: wp.array(dtype=float), b: wp.array(dtype=float), c: wp.array(dt
 
 
 @wp.kernel
-def func_kernel(a: wp.array(dtype=float), b: wp.array(dtype=float), c: wp.array(dtype=float), d: wp.array(dtype=float)):
+def func_kernel(a: wp.array[float], b: wp.array[float], c: wp.array[float], d: wp.array[float]):
     tid = wp.tid()
     d[tid] = main_func(a, b, c, tid)
 
@@ -233,7 +221,7 @@ def test_nested_function_read_write(test, device):
 
 
 @wp.kernel
-def slice_kernel(x: wp.array3d(dtype=float), y: wp.array3d(dtype=float)):
+def slice_kernel(x: wp.array3d[float], y: wp.array3d[float]):
     i, j, k = wp.tid()
     x_slice = x[i, j]
     val = x_slice[k]
@@ -266,13 +254,13 @@ def test_multidimensional_indexing(test, device):
 
 
 @wp.kernel
-def inplace_a(x: wp.array(dtype=float)):
+def inplace_a(x: wp.array[float]):
     tid = wp.tid()
     x[tid] += 1.0
 
 
 @wp.kernel
-def inplace_b(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+def inplace_b(x: wp.array[float], y: wp.array[float]):
     tid = wp.tid()
     x[tid] += y[tid]
 
@@ -382,10 +370,10 @@ def test_in_place_operators_warning(test, device):
     try:
         wp.config.verify_autograd_array_access = True
 
-        with contextlib.redirect_stdout(io.StringIO()) as f:
+        with contextlib.redirect_stderr(io.StringIO()) as f:
 
             @wp.kernel
-            def inplace_c(x: wp.array(dtype=float)):
+            def inplace_c(x: wp.array[float]):
                 tid = wp.tid()
                 x[tid] = 1.0
                 a = x[tid]
@@ -410,10 +398,10 @@ def test_kernel_readwrite(test, device):
     try:
         wp.config.verify_autograd_array_access = True
 
-        with contextlib.redirect_stdout(io.StringIO()) as f:
+        with contextlib.redirect_stderr(io.StringIO()) as f:
 
             @wp.kernel
-            def readwrite_kernel(a: wp.array(dtype=float), b: wp.array(dtype=float)):
+            def readwrite_kernel(a: wp.array[float], b: wp.array[float]):
                 tid = wp.tid()
                 b[tid] = a[tid] * a[tid]
                 a[tid] = 1.0
@@ -438,14 +426,14 @@ def test_kernel_read_func_write(test, device):
     try:
         wp.config.verify_autograd_array_access = True
 
-        with contextlib.redirect_stdout(io.StringIO()) as f:
+        with contextlib.redirect_stderr(io.StringIO()) as f:
 
             @wp.func
-            def write_func_2(x: wp.array(dtype=float), idx: int):
+            def write_func_2(x: wp.array[float], idx: int):
                 x[idx] = 2.0
 
             @wp.kernel
-            def read_kernel_func_write(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+            def read_kernel_func_write(x: wp.array[float], y: wp.array[float]):
                 tid = wp.tid()
                 a = x[tid]
                 write_func_2(x, tid)
@@ -467,10 +455,10 @@ def test_kernel_read_func_write(test, device):
 
 @wp.func
 def atomic_func(
-    a: wp.array(dtype=wp.int32),
-    b: wp.array(dtype=wp.int32),
-    c: wp.array(dtype=wp.int32),
-    d: wp.array(dtype=wp.int32),
+    a: wp.array[wp.int32],
+    b: wp.array[wp.int32],
+    c: wp.array[wp.int32],
+    d: wp.array[wp.int32],
     i: int,
 ):
     wp.atomic_add(a, i, 1)
@@ -480,9 +468,7 @@ def atomic_func(
 
 
 @wp.kernel(enable_backward=False)
-def atomic_kernel(
-    a: wp.array(dtype=wp.int32), b: wp.array(dtype=wp.int32), c: wp.array(dtype=wp.int32), d: wp.array(dtype=wp.int32)
-):
+def atomic_kernel(a: wp.array[wp.int32], b: wp.array[wp.int32], c: wp.array[wp.int32], d: wp.array[wp.int32]):
     i = wp.tid()
     atomic_func(a, b, c, d, i)
 
@@ -547,5 +533,4 @@ add_function_test(TestOverwrite, "test_kernel_readwrite", test_kernel_readwrite,
 add_function_test(TestOverwrite, "test_kernel_read_func_write", test_kernel_read_func_write, devices=cuda_device)
 
 if __name__ == "__main__":
-    wp.build.clear_kernel_cache()
     unittest.main(verbosity=2)

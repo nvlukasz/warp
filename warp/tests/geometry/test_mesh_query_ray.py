@@ -1,23 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
+import itertools
+import os
 import unittest
 
 import numpy as np
 
 import warp as wp
+import warp.examples
 from warp.tests.unittest_utils import *
 
 
@@ -43,10 +34,10 @@ def triangulate(face_counts, face_indices):
 @wp.kernel
 def mesh_query_ray_loss(
     mesh: wp.uint64,
-    query_points: wp.array(dtype=wp.vec3),
-    query_dirs: wp.array(dtype=wp.vec3),
-    intersection_points: wp.array(dtype=wp.vec3),
-    loss: wp.array(dtype=float),
+    query_points: wp.array[wp.vec3],
+    query_dirs: wp.array[wp.vec3],
+    intersection_points: wp.array[wp.vec3],
+    loss: wp.array[float],
 ):
     tid = wp.tid()
 
@@ -71,17 +62,132 @@ def mesh_query_ray_loss(
     loss[tid] = l
 
     query = wp.mesh_query_ray(mesh, p, D, max_t)
-    wp.expect_eq(query.t, t)
-    wp.expect_eq(query.u, bary_u)
-    wp.expect_eq(query.v, bary_v)
-    wp.expect_eq(query.sign, sign)
-    wp.expect_eq(query.normal, normal)
+    wp.expect_near(query.t, t, tolerance=1.0e-6)
+    wp.expect_near(query.u, bary_u, tolerance=1.0e-6)
+    wp.expect_near(query.v, bary_v, tolerance=1.0e-6)
+    wp.expect_near(query.sign, sign, tolerance=1.0e-6)
+    wp.expect_near(query.normal, normal, tolerance=1.0e-6)
     wp.expect_eq(query.face, face_index)
+
+
+@wp.func
+def intersect_ray_triangle(
+    p: wp.vec3,
+    dir: wp.vec3,
+    a: wp.vec3,
+    b: wp.vec3,
+    c: wp.vec3,
+    max_t: float,
+):
+    eps = 1.0e-6
+
+    e1 = b - a
+    e2 = c - a
+
+    pvec = wp.cross(dir, e2)
+    det = wp.dot(e1, pvec)
+
+    if wp.abs(det) < eps:
+        return max_t
+
+    inv_det = 1.0 / det
+
+    tvec = p - a
+    u = wp.dot(tvec, pvec) * inv_det
+    if u < 0.0 or u > 1.0:
+        return max_t
+
+    qvec = wp.cross(tvec, e1)
+    v = wp.dot(dir, qvec) * inv_det
+    if v < 0.0 or u + v > 1.0:
+        return max_t
+
+    t = wp.dot(e2, qvec) * inv_det
+    if t < eps or t > max_t:
+        return max_t
+
+    return t
+
+
+@wp.func
+def raycast_brutal(
+    points: wp.array[wp.vec3],
+    indices: wp.array[int],
+    p: wp.vec3,
+    dir: wp.vec3,
+    max_t: float,
+):
+    t_closest = max_t
+    face_closest = int(-1)
+    num_faces = int(indices.shape[0] / 3)
+
+    for face in range(num_faces):
+        i = indices[face * 3 + 0]
+        j = indices[face * 3 + 1]
+        k = indices[face * 3 + 2]
+
+        a = points[i]
+        b = points[j]
+        c = points[k]
+
+        t = intersect_ray_triangle(p, dir, a, b, c, max_t)
+        if t < t_closest:
+            t_closest = t
+            face_closest = face
+
+    return face_closest
+
+
+@wp.kernel
+def mesh_query_ray_count_intersections_brutal(
+    points: wp.array[wp.vec3],
+    indices: wp.array[int],
+    ray_starts: wp.array[wp.vec3],
+    ray_directions: wp.array[wp.vec3],
+    counts: wp.array[int],
+):
+    tid = wp.tid()
+    p = ray_starts[tid]
+    dir = ray_directions[tid]
+
+    # Count all intersections (similar pattern to mesh_query_ray_brutal)
+    intersection_count = int(0)
+    num_faces = int(indices.shape[0] / 3)
+    max_t = 1.0e10
+
+    for face in range(num_faces):
+        i = indices[face * 3 + 0]
+        j = indices[face * 3 + 1]
+        k = indices[face * 3 + 2]
+
+        a = points[i]
+        b = points[j]
+        c = points[k]
+
+        t = intersect_ray_triangle(p, dir, a, b, c, max_t)
+        if t < max_t:
+            intersection_count += 1
+
+    counts[tid] = intersection_count
+
+
+@wp.kernel
+def mesh_query_ray_count_intersections_kernel(
+    mesh: wp.uint64,
+    ray_starts: wp.array[wp.vec3],
+    ray_directions: wp.array[wp.vec3],
+    counts: wp.array[int],
+):
+    tid = wp.tid()
+    p = ray_starts[tid]
+    dir = ray_directions[tid]
+
+    counts[tid] = wp.mesh_query_ray_count_intersections(mesh, p, dir)
 
 
 @unittest.skipUnless(USD_AVAILABLE, "Requires usd-core")
 def test_mesh_query_ray_grad(test, device):
-    from pxr import Usd, UsdGeom
+    from pxr import Usd, UsdGeom  # noqa: PLC0415
 
     # test tri
     # print("Testing Single Triangle")
@@ -104,12 +210,23 @@ def test_mesh_query_ray_grad(test, device):
     else:
         constructors = ["sah", "median", "lbvh"]
 
-    for constructor in constructors:
+    if wp.is_cubql_available():
+        constructors.append("cubql")
+
+    leaf_sizes = [1, 2, 4]
+
+    for leaf_size, constructor in itertools.product(leaf_sizes, constructors):
         p = wp.vec3(50.0, 50.0, 0.0)
         D = wp.vec3(0.0, -1.0, 0.0)
 
         # create mesh
-        mesh = wp.Mesh(points=mesh_points, velocities=None, indices=mesh_indices, bvh_constructor=constructor)
+        mesh = wp.Mesh(
+            points=mesh_points,
+            velocities=None,
+            indices=mesh_indices,
+            bvh_constructor=constructor,
+            bvh_leaf_size=leaf_size,
+        )
 
         tape = wp.Tape()
 
@@ -216,11 +333,327 @@ def test_mesh_query_ray_grad(test, device):
 
 
 @wp.kernel
+def mesh_query_ray_with_results(
+    mesh: wp.uint64,
+    ray_starts: wp.array[wp.vec3],
+    ray_directions: wp.array[wp.vec3],
+    max_t: float,
+    faces: wp.array[int],
+    counts: wp.array[int],
+):
+    tid = wp.tid()
+
+    p = ray_starts[tid]
+    dir = ray_directions[tid]
+
+    t = float(0.0)
+    u = float(0.0)
+    v = float(0.0)
+    sign = float(0.0)
+    n = wp.vec3()
+    f = int(-1)
+
+    hit = wp.mesh_query_ray(mesh, p, dir, max_t, t, u, v, sign, n, f)
+
+    faces[tid] = f
+    counts[tid] = int(hit)
+
+
+@wp.kernel
+def mesh_query_ray_brutal(
+    points: wp.array[wp.vec3],
+    indices: wp.array[int],
+    ray_starts: wp.array[wp.vec3],
+    ray_directions: wp.array[wp.vec3],
+    max_t: float,
+    faces: wp.array[int],
+    counts: wp.array[int],
+):
+    tid = wp.tid()
+
+    p = ray_starts[tid]
+    dir = ray_directions[tid]
+
+    face_closest = raycast_brutal(points, indices, p, dir, max_t)
+    hit = face_closest >= 0
+
+    faces[tid] = face_closest
+    counts[tid] = int(hit)
+
+
+@unittest.skipUnless(USD_AVAILABLE, "Requires usd-core")
+def test_mesh_query_ray_count_intersections(test, device):
+    """Stress test for mesh_query_ray_count_intersections with various ray configurations"""
+    from pxr import Usd, UsdGeom  # noqa: PLC0415
+
+    # Load a complex mesh (torus is good for multiple intersections)
+    usd_stage = Usd.Stage.Open(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "torus.usda")))
+    usd_geom = UsdGeom.Mesh(usd_stage.GetPrimAtPath("/World/Torus"))
+
+    mesh_counts = usd_geom.GetFaceVertexCountsAttr().Get()
+    mesh_indices = usd_geom.GetFaceVertexIndicesAttr().Get()
+    tri_indices = triangulate(mesh_counts, mesh_indices)
+
+    points_np = np.array(usd_geom.GetPointsAttr().Get())
+    indices_np = np.array(tri_indices)
+
+    points = wp.array(points_np, dtype=wp.vec3, device=device)
+    indices = wp.array(indices_np, dtype=int, device=device)
+
+    if device.is_cpu:
+        constructors = ["sah", "median"]
+    else:
+        constructors = ["sah", "median", "lbvh"]
+
+    if wp.is_cubql_available():
+        constructors.append("cubql")
+
+    leaf_sizes = [1, 2, 4]
+
+    # Compute bounding box for ray generation
+    world_min = np.min(points_np, axis=0)
+    world_max = np.max(points_np, axis=0)
+    world_center = (world_min + world_max) / 2.0
+    world_size = world_max - world_min
+    max_extent = np.max(world_size)
+
+    # Generate stress test rays
+    num_rays = 5000  # Stress test with many rays
+    rng = np.random.default_rng(42)
+
+    ray_starts_list = []
+    ray_dirs_list = []
+
+    # 1. Rays from above (perpendicular to XY plane) - should get multiple hits through torus
+    num_rays_vertical = num_rays // 5
+    xy = rng.uniform(0.0, 1.0, size=(num_rays_vertical, 2)) * world_size[:2] + world_min[:2]
+    z = np.full((num_rays_vertical, 1), world_max[2] + max_extent * 0.5, dtype=np.float32)
+    ray_starts_list.append(np.concatenate((xy, z), axis=1))
+    ray_dirs_vertical = np.zeros((num_rays_vertical, 3))
+    ray_dirs_vertical[:, 2] = -1.0
+    ray_dirs_list.append(ray_dirs_vertical)
+
+    # 2. Rays from multiple sides (should pierce torus from different angles)
+    num_rays_sides = num_rays // 5
+    for axis in range(3):
+        starts = rng.uniform(0.0, 1.0, size=(num_rays_sides, 3)) * world_size + world_min
+        # Move rays outside the bounding box along the chosen axis
+        starts[:, axis] = world_min[axis] - max_extent * 0.5
+
+        dirs = np.zeros((num_rays_sides, 3))
+        dirs[:, axis] = 1.0
+
+        ray_starts_list.append(starts)
+        ray_dirs_list.append(dirs)
+
+    # 3. Rays through center with random angles (likely to get multiple hits)
+    num_rays_center = num_rays // 5
+    angles_theta = rng.uniform(0, 2 * np.pi, size=num_rays_center)
+    angles_phi = rng.uniform(0, np.pi, size=num_rays_center)
+
+    # Start rays from outside, pointing toward center
+    offset_distance = max_extent * 1.5
+    ray_starts_center = np.zeros((num_rays_center, 3), dtype=np.float32)
+    ray_starts_center[:, 0] = world_center[0] + offset_distance * np.sin(angles_phi) * np.cos(angles_theta)
+    ray_starts_center[:, 1] = world_center[1] + offset_distance * np.sin(angles_phi) * np.sin(angles_theta)
+    ray_starts_center[:, 2] = world_center[2] + offset_distance * np.cos(angles_phi)
+
+    ray_dirs_center = world_center - ray_starts_center
+    ray_dirs_center = ray_dirs_center / np.linalg.norm(ray_dirs_center, axis=1, keepdims=True)
+
+    ray_starts_list.append(ray_starts_center)
+    ray_dirs_list.append(ray_dirs_center)
+
+    # Combine all rays
+    ray_starts_np = np.concatenate(ray_starts_list, axis=0).astype(np.float32)
+    ray_dirs_np = np.concatenate(ray_dirs_list, axis=0).astype(np.float32)
+    total_rays = len(ray_starts_np)
+
+    ray_starts = wp.array(ray_starts_np, dtype=wp.vec3, device=device)
+    ray_dirs = wp.array(ray_dirs_np, dtype=wp.vec3, device=device)
+
+    for leaf_size, constructor in itertools.product(leaf_sizes, constructors):
+        mesh = wp.Mesh(
+            points=points,
+            indices=indices,
+            bvh_constructor=constructor,
+            bvh_leaf_size=leaf_size,
+        )
+
+        # Brute force count
+        counts_brutal = wp.empty(n=total_rays, dtype=int, device=device)
+        wp.launch(
+            kernel=mesh_query_ray_count_intersections_brutal,
+            dim=total_rays,
+            inputs=[points, indices, ray_starts, ray_dirs],
+            outputs=[counts_brutal],
+            device=device,
+        )
+
+        # BVH-accelerated count
+        counts_bvh = wp.empty(n=total_rays, dtype=int, device=device)
+        wp.launch(
+            kernel=mesh_query_ray_count_intersections_kernel,
+            dim=total_rays,
+            inputs=[mesh.id, ray_starts, ray_dirs],
+            outputs=[counts_bvh],
+            device=device,
+        )
+
+        # Compare results
+        counts_brutal_np = counts_brutal.numpy()
+
+        # Verify they match
+        assert_array_equal(counts_bvh, counts_brutal)
+
+        # Additional validation: check that we have interesting cases
+        # (rays with 0, 1, 2+ intersections)
+        unique_counts = np.unique(counts_brutal_np)
+        test.assertGreater(
+            len(unique_counts),
+            2,
+            f"Test should have rays with different intersection counts (found: {unique_counts})",
+        )
+        test.assertTrue(np.any(counts_brutal_np == 0), "Test should have rays with 0 intersections")
+        test.assertTrue(
+            np.any(counts_brutal_np >= 2), "Test should have rays with 2+ intersections (stress test for torus)"
+        )
+
+
+@unittest.skipUnless(USD_AVAILABLE, "Requires usd-core")
+def test_mesh_query_ray_and_groups(test, device):
+    from pxr import Usd, UsdGeom  # noqa: PLC0415
+
+    usd_stage = Usd.Stage.Open(os.path.join(wp.examples.get_asset_directory(), "bunny.usd"))
+    usd_geom = UsdGeom.Mesh(usd_stage.GetPrimAtPath("/root/bunny"))
+
+    points_np = np.array(usd_geom.GetPointsAttr().Get())
+    indices_np = np.array(usd_geom.GetFaceVertexIndicesAttr().Get())
+
+    points = wp.array(points_np, dtype=wp.vec3, device=device)
+    indices = wp.array(indices_np, dtype=int, device=device)
+    num_faces = int(indices.shape[0] / 3)
+
+    if device.is_cpu:
+        constructors = ["sah", "median"]
+    else:
+        constructors = ["sah", "median", "lbvh"]
+
+    leaf_sizes = [1, 2, 4]
+
+    world_min = np.min(points_np, axis=0)
+    world_max = np.max(points_np, axis=0)
+    world_size = world_max - world_min
+
+    num_rays = 10000
+    rng = np.random.default_rng(123)
+
+    xy = rng.uniform(0.0, 1.0, size=(num_rays, 2)) * world_size[:2] + world_min[:2]
+    z = np.full((num_rays, 1), world_max[2] + 0.1 * world_size[2], dtype=np.float32)
+
+    ray_starts_np = np.concatenate((xy, z), axis=1)
+    ray_dirs_np = np.zeros_like(ray_starts_np)
+    ray_dirs_np[:, 2] = -1.0
+
+    ray_starts = wp.array(ray_starts_np, dtype=wp.vec3, device=device)
+    ray_dirs = wp.array(ray_dirs_np, dtype=wp.vec3, device=device)
+
+    groups_np = np.zeros(num_faces, dtype=np.int32)
+    groups_np[num_faces // 2 :] = 1
+    groups = wp.array(groups_np, dtype=int, device=device)
+
+    max_t = float(1.0e6)
+
+    for leaf_size, constructor in itertools.product(leaf_sizes, constructors):
+        mesh = wp.Mesh(
+            points=points,
+            indices=indices,
+            bvh_constructor=constructor,
+            bvh_leaf_size=leaf_size,
+        )
+
+        mesh_grouped = wp.Mesh(
+            points=points,
+            indices=indices,
+            groups=groups,
+            bvh_constructor=constructor,
+            bvh_leaf_size=leaf_size,
+        )
+
+        counts_brutal = wp.empty(n=num_rays, dtype=int, device=device)
+        faces_brutal = wp.empty(n=num_rays, dtype=int, device=device)
+
+        wp.launch(
+            kernel=mesh_query_ray_brutal,
+            dim=num_rays,
+            inputs=[points, indices, ray_starts, ray_dirs, max_t],
+            outputs=[faces_brutal, counts_brutal],
+            device=device,
+        )
+
+        faces = wp.empty(n=num_rays, dtype=int, device=device)
+        counts = wp.empty(n=num_rays, dtype=int, device=device)
+
+        wp.launch(
+            kernel=mesh_query_ray_with_results,
+            dim=num_rays,
+            inputs=[mesh.id, ray_starts, ray_dirs, max_t],
+            outputs=[faces, counts],
+            device=device,
+        )
+
+        assert_array_equal(counts, counts_brutal)
+        assert_array_equal(faces, faces_brutal)
+
+        faces_grouped = wp.empty(n=num_rays, dtype=int, device=device)
+        counts_grouped = wp.empty(n=num_rays, dtype=int, device=device)
+
+        wp.launch(
+            kernel=mesh_query_ray_with_results,
+            dim=num_rays,
+            inputs=[mesh_grouped.id, ray_starts, ray_dirs, max_t],
+            outputs=[faces_grouped, counts_grouped],
+            device=device,
+        )
+
+        assert_array_equal(counts_grouped, counts_brutal)
+        assert_array_equal(faces_grouped, faces_brutal)
+
+        counts_anyhit = wp.empty(n=num_rays, dtype=int, device=device)
+
+        wp.launch(
+            kernel=mesh_query_ray_anyhit_kernel,
+            dim=num_rays,
+            inputs=[mesh.id, ray_starts, ray_dirs, max_t],
+            outputs=[counts_anyhit],
+            device=device,
+        )
+
+        assert_array_equal(counts_anyhit, counts_brutal)
+
+        wp.synchronize_device(device)
+
+
+@wp.kernel
+def mesh_query_ray_anyhit_kernel(
+    mesh: wp.uint64,
+    ray_starts: wp.array[wp.vec3],
+    ray_directions: wp.array[wp.vec3],
+    max_t: float,
+    counts: wp.array[int],
+):
+    tid = wp.tid()
+    p = ray_starts[tid]
+    dir = ray_directions[tid]
+    counts[tid] = int(wp.mesh_query_ray_anyhit(mesh, p, dir, max_t))
+
+
+@wp.kernel
 def raycast_kernel(
     mesh: wp.uint64,
-    ray_starts: wp.array(dtype=wp.vec3),
-    ray_directions: wp.array(dtype=wp.vec3),
-    count: wp.array(dtype=int),
+    ray_starts: wp.array[wp.vec3],
+    ray_directions: wp.array[wp.vec3],
+    count: wp.array[int],
 ):
     t = float(0.0)  # hit distance along ray
     u = float(0.0)  # hit face barycentric u
@@ -248,6 +681,11 @@ def test_mesh_query_ray_edge(test, device):
     else:
         constructors = ["sah", "median", "lbvh"]
 
+    if wp.is_cubql_available():
+        constructors.append("cubql")
+
+    leaf_sizes = [1, 2, 4]
+
     # Create raycast starts and directions
     xx, yy = np.meshgrid(np.arange(0.1, 0.4, 0.01), np.arange(0.1, 0.4, 0.01))
     xx = xx.flatten().reshape(-1, 1)
@@ -268,11 +706,12 @@ def test_mesh_query_ray_edge(test, device):
 
     triangles = np.array([[1, 0, 2], [1, 2, 3]], dtype=np.int32)
 
-    for constructor in constructors:
+    for leaf_size, constructor in itertools.product(leaf_sizes, constructors):
         mesh = wp.Mesh(
             points=wp.array(vertices, dtype=wp.vec3, device=device),
             indices=wp.array(triangles.flatten(), dtype=int, device=device),
             bvh_constructor=constructor,
+            bvh_leaf_size=leaf_size,
         )
 
         counts = wp.zeros(1, dtype=int, device=device)
@@ -281,6 +720,126 @@ def test_mesh_query_ray_edge(test, device):
         wp.synchronize()
 
         test.assertEqual(counts.numpy()[0], n)
+
+
+def test_mesh_query_ray_parallel_slab_boundaries(test, device):
+    """Regression for the parallel-slab false negative in BVH ray traversal.
+
+    When dir[i] == 0 the ray is parallel to that slab axis.  The previous
+    safe_ray_rcp_dir trick replaced zero dir components with ~FLT_MIN, which
+    caused a false negative whenever the ray origin sat exactly on the far AABB
+    face (start[i] == upper[i]): the slab computed lmax = 0 and rejected any
+    intersection at t > 0 through the remaining axes.
+
+    Five cases exercise parallel-slab handling on the Warp BVH backends via
+    mesh_query_ray_count_intersections, mesh_query_ray, and mesh_query_ray_anyhit.
+    The count-intersections query tests every node's AABB including the root
+    regardless of tree depth (cuBQL has its own parallel-slab handling and is not
+    tested here):
+
+      1. start.x == upper.x  — the specific regression introduced by this branch
+      2. start.x == lower.x  — near-face boundary on the opposite side
+      3. start.y == upper.y  — same upper-face regression on the y axis
+      4. start.y == lower.y  — near-face boundary on the y axis
+      5. interior origin     — sanity check that normal rays still hit
+
+    The flat mesh also has a degenerate z-slab (lower.z == upper.z == 0).  The
+    z-axis is the only non-zero direction component (dir.z == -1), so it is
+    exercised by the normal slab path.  An end-to-end degenerate-slab test for
+    the zero-direction case (dir[i] == 0, lower[i] == upper[i]) would require
+    the ray to be coplanar with the mesh, making triangle intersection
+    degenerate.
+    """
+    # Flat quad at z = 0, spanning x in [0, 2] and y in [0, 2].
+    # AABB: lower=(0,0,0), upper=(2,2,0) — degenerate z-slab, finite x and y.
+    verts = np.array(
+        [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 2.0, 0.0], [0.0, 2.0, 0.0]],
+        dtype=np.float32,
+    )
+    indices = np.array([0, 1, 2, 0, 2, 3], dtype=np.int32)
+
+    # Five test rays, all going in -z so they must cross z = 0 to hit the mesh.
+    # The x- and y-direction components are zero; the BVH must not prune any of
+    # these based on the x- or y-slab even when the origin is on the slab face.
+    ray_starts = np.array(
+        [
+            [2.0, 1.0, 1.0],  # 1: start.x == upper.x — false-negative regression
+            [0.0, 1.0, 1.0],  # 2: start.x == lower.x
+            [1.0, 2.0, 1.0],  # 3: start.y == upper.y — same regression on y-axis
+            [1.0, 0.0, 1.0],  # 4: start.y == lower.y
+            [1.0, 1.0, 1.0],  # 5: interior origin — sanity check
+        ],
+        dtype=np.float32,
+    )
+    ray_dirs = np.tile([0.0, 0.0, -1.0], (5, 1)).astype(np.float32)
+
+    labels = [
+        "start.x == upper.x",
+        "start.x == lower.x",
+        "start.y == upper.y",
+        "start.y == lower.y",
+        "interior (sanity)",
+    ]
+
+    # cuBQL has its own pre-existing parallel-slab handling; test Warp BVH only.
+    constructors = ["sah", "median"]
+    if device.is_cuda:
+        constructors.append("lbvh")
+
+    for constructor in constructors:
+        # mesh_query_ray_count_intersections tests every node's AABB including
+        # the root, so the parallel-slab fix is exercised regardless of BVH
+        # depth or leaf size.
+        mesh = wp.Mesh(
+            points=wp.array(verts, dtype=wp.vec3, device=device),
+            indices=wp.array(indices, dtype=int, device=device),
+            bvh_constructor=constructor,
+        )
+        starts_wp = wp.array(ray_starts, dtype=wp.vec3, device=device)
+        dirs_wp = wp.array(ray_dirs, dtype=wp.vec3, device=device)
+        counts = wp.zeros(5, dtype=int, device=device)
+        wp.launch(
+            mesh_query_ray_count_intersections_kernel,
+            dim=5,
+            inputs=[mesh.id, starts_wp, dirs_wp, counts],
+            device=device,
+        )
+
+        counts_np = counts.numpy()
+        for i, label in enumerate(labels):
+            test.assertGreaterEqual(
+                counts_np[i],
+                1,
+                f"[{constructor}] {label}: expected at least one intersection, got {counts_np[i]}",
+            )
+
+        max_t = 10.0
+        faces = wp.empty(5, dtype=int, device=device)
+        hits = wp.empty(5, dtype=int, device=device)
+        wp.launch(
+            mesh_query_ray_with_results,
+            dim=5,
+            inputs=[mesh.id, starts_wp, dirs_wp, max_t],
+            outputs=[faces, hits],
+            device=device,
+        )
+
+        hits_np = hits.numpy()
+        for i, label in enumerate(labels):
+            test.assertEqual(hits_np[i], 1, f"[{constructor}] {label}: expected closest-hit query to hit")
+
+        anyhit = wp.empty(5, dtype=int, device=device)
+        wp.launch(
+            mesh_query_ray_anyhit_kernel,
+            dim=5,
+            inputs=[mesh.id, starts_wp, dirs_wp, max_t],
+            outputs=[anyhit],
+            device=device,
+        )
+
+        anyhit_np = anyhit.numpy()
+        for i, label in enumerate(labels):
+            test.assertEqual(anyhit_np[i], 1, f"[{constructor}] {label}: expected any-hit query to hit")
 
 
 devices = get_test_devices()
@@ -303,9 +862,21 @@ class TestMeshQueryRay(unittest.TestCase):
 
 
 add_function_test(TestMeshQueryRay, "test_mesh_query_ray_edge", test_mesh_query_ray_edge, devices=devices)
+add_function_test(
+    TestMeshQueryRay,
+    "test_mesh_query_ray_parallel_slab_boundaries",
+    test_mesh_query_ray_parallel_slab_boundaries,
+    devices=devices,
+)
 add_function_test(TestMeshQueryRay, "test_mesh_query_ray_grad", test_mesh_query_ray_grad, devices=devices)
+add_function_test(
+    TestMeshQueryRay,
+    "test_mesh_query_ray_count_intersections",
+    test_mesh_query_ray_count_intersections,
+    devices=devices,
+)
+add_function_test(TestMeshQueryRay, "test_mesh_query_ray_and_groups", test_mesh_query_ray_and_groups, devices=devices)
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

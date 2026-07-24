@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
@@ -30,7 +18,7 @@ def tearDownModule():
 
 
 @wp.kernel
-def quat_assign_subscript(x: wp.array(dtype=float), y: wp.array(dtype=wp.quat)):
+def quat_assign_subscript(x: wp.array[float], y: wp.array[wp.quat]):
     i = wp.tid()
 
     a = wp.quat()
@@ -42,7 +30,7 @@ def quat_assign_subscript(x: wp.array(dtype=float), y: wp.array(dtype=wp.quat)):
 
 
 @wp.kernel
-def quat_assign_attribute(x: wp.array(dtype=float), y: wp.array(dtype=wp.quat)):
+def quat_assign_attribute(x: wp.array[float], y: wp.array[wp.quat]):
     i = wp.tid()
 
     a = wp.quat()
@@ -74,7 +62,7 @@ def test_quat_assign(test, device):
 
 def test_quat_assign_copy(test, device):
     @wp.kernel(module="unique")
-    def quat_assign_overwrite(x: wp.array(dtype=wp.quat), y: wp.array(dtype=wp.quat)):
+    def quat_assign_overwrite(x: wp.array[wp.quat], y: wp.array[wp.quat]):
         tid = wp.tid()
 
         a = wp.quat()
@@ -100,7 +88,7 @@ def test_quat_assign_copy(test, device):
 
 def test_quat_slicing_assign_backward(test, device):
     @wp.kernel(module="unique")
-    def kernel(arr_x: wp.array(dtype=wp.vec2), arr_y: wp.array(dtype=wp.quat)):
+    def kernel(arr_x: wp.array[wp.vec2], arr_y: wp.array[wp.quat]):
         i = wp.tid()
 
         x = arr_x[i]
@@ -141,5 +129,4 @@ add_function_test(
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

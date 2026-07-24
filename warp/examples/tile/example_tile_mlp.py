@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 ###########################################################################
 # Example Image Multilayer Perceptron (MLP)
@@ -64,7 +52,7 @@ def create_array(dim_in, dim_hid, dtype=float):
 # number of frequencies for the positional encoding
 NUM_FREQ = wp.constant(8)
 
-DIM_IN = wp.constant(4 * NUM_FREQ)  # sin,cos for both x,y at each frequenecy
+DIM_IN = wp.constant(4 * NUM_FREQ)  # sin,cos for both x,y at each frequency
 DIM_HID = 32
 DIM_OUT = 3
 
@@ -87,18 +75,18 @@ def relu(x: dtype):
 
 @wp.kernel
 def compute(
-    indices: wp.array(dtype=int),
-    weights_0: wp.array2d(dtype=dtype),
-    bias_0: wp.array2d(dtype=dtype),
-    weights_1: wp.array2d(dtype=dtype),
-    bias_1: wp.array2d(dtype=dtype),
-    weights_2: wp.array2d(dtype=dtype),
-    bias_2: wp.array2d(dtype=dtype),
-    weights_3: wp.array2d(dtype=dtype),
-    bias_3: wp.array2d(dtype=dtype),
-    reference: wp.array2d(dtype=float),
-    loss: wp.array1d(dtype=float),
-    out: wp.array2d(dtype=float),
+    indices: wp.array[int],
+    weights_0: wp.array2d[dtype],
+    bias_0: wp.array2d[dtype],
+    weights_1: wp.array2d[dtype],
+    bias_1: wp.array2d[dtype],
+    weights_2: wp.array2d[dtype],
+    bias_2: wp.array2d[dtype],
+    weights_3: wp.array2d[dtype],
+    bias_3: wp.array2d[dtype],
+    reference: wp.array2d[float],
+    loss: wp.array1d[float],
+    out: wp.array2d[float],
 ):
     # batch indices
     linear = indices[wp.tid()]
@@ -110,7 +98,7 @@ def compute(
     x = (float(row) / float(IMG_WIDTH) - 0.5) * 2.0
     y = (float(col) / float(IMG_HEIGHT) - 0.5) * 2.0
 
-    local = wp.vector(dtype=dtype, length=DIM_IN)
+    local = wp.types.vector(dtype=dtype, length=DIM_IN)
 
     # construct positional encoding
     for s in range(NUM_FREQ):
@@ -186,6 +174,7 @@ class Example:
         self.num_batches = int((IMG_WIDTH * IMG_HEIGHT) / BATCH_SIZE)
         self.max_iters = train_iters
         self.max_epochs = max(1, int(self.max_iters / self.num_batches))
+        self.output_images = {}
 
     def train_warp(self):
         params = [
@@ -205,6 +194,8 @@ class Example:
 
         loss = wp.zeros(1, dtype=float, requires_grad=True)
         output = create_array(IMG_WIDTH * IMG_HEIGHT, DIM_OUT)
+
+        wp.load_module(module=compute.module, device=wp.get_device(), block_dim=NUM_THREADS)
 
         # capture graph for whole epoch
         wp.capture_begin()
@@ -266,10 +257,10 @@ class Example:
             block_dim=NUM_THREADS,
         )
 
-        self.save_image("example_tile_mlp.jpg", output.numpy())
+        self.output_images["example_tile_mlp.jpg"] = output.numpy()
 
     def train_torch(self):
-        import torch as tc
+        import torch as tc  # noqa: PLC0415
 
         weights_0 = tc.nn.Parameter(wp.to_torch(self.weights_0))
         weights_1 = tc.nn.Parameter(wp.to_torch(self.weights_1))
@@ -361,21 +352,27 @@ class Example:
         z = tc.relu(weights_2 @ z + bias_2)
         z = tc.relu(weights_3 @ z + bias_3)
 
-        self.save_image("example_tile_mlp_torch.jpg", z.detach().cpu().numpy())
+        self.output_images["example_tile_mlp_torch.jpg"] = z.detach().cpu().numpy()
 
-    def save_image(self, name, output):
-        predicted_image = output.T.reshape(IMG_WIDTH, IMG_HEIGHT, 3)
-        predicted_image = (predicted_image * 255).astype(np.uint8)
+    def save_images(self):
+        for name, output in self.output_images.items():
+            predicted_image = output.T.reshape(IMG_WIDTH, IMG_HEIGHT, 3)
+            predicted_image = (predicted_image * 255).astype(np.uint8)
 
-        predicted_image_pil = Image.fromarray(predicted_image)
-        predicted_image_pil.save(name)
+            predicted_image_pil = Image.fromarray(predicted_image)
+            predicted_image_pil.save(name)
 
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--train_iters", type=int, default=20000, help="Total number of training iterations.")
+    parser.add_argument("--train-iters", type=int, default=20000, help="Total number of training iterations.")
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Run in headless mode, suppressing the saving of output images.",
+    )
 
     args = parser.parse_known_args()[0]
 
@@ -383,3 +380,6 @@ if __name__ == "__main__":
         example = Example(args.train_iters)
         example.train_warp()
         # example.train_torch()
+
+        if not args.headless:
+            example.save_images()

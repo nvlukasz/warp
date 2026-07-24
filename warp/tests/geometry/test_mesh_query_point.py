@@ -1,18 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
+import itertools
 import math
 import unittest
 
@@ -26,10 +15,10 @@ from warp.tests.unittest_utils import *
 @wp.kernel
 def sample_mesh_query(
     mesh: wp.uint64,
-    query_points: wp.array(dtype=wp.vec3),
-    query_faces: wp.array(dtype=int),
-    query_signs: wp.array(dtype=float),
-    query_dist: wp.array(dtype=float),
+    query_points: wp.array[wp.vec3],
+    query_faces: wp.array[int],
+    query_signs: wp.array[float],
+    query_dist: wp.array[float],
 ):
     tid = wp.tid()
 
@@ -60,9 +49,9 @@ def sample_mesh_query(
 @wp.kernel
 def sample_mesh_query_no_sign(
     mesh: wp.uint64,
-    query_points: wp.array(dtype=wp.vec3),
-    query_faces: wp.array(dtype=int),
-    query_dist: wp.array(dtype=float),
+    query_points: wp.array[wp.vec3],
+    query_faces: wp.array[int],
+    query_dist: wp.array[float],
 ):
     tid = wp.tid()
 
@@ -90,10 +79,10 @@ def sample_mesh_query_no_sign(
 @wp.kernel
 def sample_mesh_query_sign_normal(
     mesh: wp.uint64,
-    query_points: wp.array(dtype=wp.vec3),
-    query_faces: wp.array(dtype=int),
-    query_signs: wp.array(dtype=float),
-    query_dist: wp.array(dtype=float),
+    query_points: wp.array[wp.vec3],
+    query_faces: wp.array[int],
+    query_signs: wp.array[float],
+    query_dist: wp.array[float],
 ):
     tid = wp.tid()
 
@@ -124,10 +113,10 @@ def sample_mesh_query_sign_normal(
 @wp.kernel
 def sample_mesh_query_sign_winding_number(
     mesh: wp.uint64,
-    query_points: wp.array(dtype=wp.vec3),
-    query_faces: wp.array(dtype=int),
-    query_signs: wp.array(dtype=float),
-    query_dist: wp.array(dtype=float),
+    query_points: wp.array[wp.vec3],
+    query_faces: wp.array[int],
+    query_signs: wp.array[float],
+    query_dist: wp.array[float],
 ):
     tid = wp.tid()
 
@@ -149,6 +138,40 @@ def sample_mesh_query_sign_winding_number(
     query_dist[tid] = wp.length(cp - p)
 
     query = wp.mesh_query_point_sign_winding_number(mesh, p, max_dist)
+    wp.expect_eq(query.sign, sign)
+    wp.expect_eq(query.face, face_index)
+    wp.expect_eq(query.u, face_u)
+    wp.expect_eq(query.v, face_v)
+
+
+@wp.kernel
+def sample_mesh_query_sign_parity(
+    mesh: wp.uint64,
+    query_points: wp.array[wp.vec3],
+    query_faces: wp.array[int],
+    query_signs: wp.array[float],
+    query_dist: wp.array[float],
+):
+    tid = wp.tid()
+
+    face_index = int(0)
+    face_u = float(0.0)
+    face_v = float(0.0)
+    sign = float(0.0)
+
+    max_dist = 10012.0
+
+    p = query_points[tid]
+
+    wp.mesh_query_point_sign_parity(mesh, p, max_dist, sign, face_index, face_u, face_v)
+
+    cp = wp.mesh_eval_position(mesh, face_index, face_u, face_v)
+
+    query_signs[tid] = sign
+    query_faces[tid] = face_index
+    query_dist[tid] = wp.length(cp - p)
+
+    query = wp.mesh_query_point_sign_parity(mesh, p, max_dist)
     wp.expect_eq(query.sign, sign)
     wp.expect_eq(query.face, face_index)
     wp.expect_eq(query.u, face_u)
@@ -222,13 +245,13 @@ def solid_angle(v0: wp.vec3, v1: wp.vec3, v2: wp.vec3, p: wp.vec3):
 
 @wp.kernel
 def sample_mesh_brute(
-    tri_points: wp.array(dtype=wp.vec3),
-    tri_indices: wp.array(dtype=int),
+    tri_points: wp.array[wp.vec3],
+    tri_indices: wp.array[int],
     tri_count: int,
-    query_points: wp.array(dtype=wp.vec3),
-    query_faces: wp.array(dtype=int),
-    query_signs: wp.array(dtype=float),
-    query_dist: wp.array(dtype=float),
+    query_points: wp.array[wp.vec3],
+    query_faces: wp.array[int],
+    query_signs: wp.array[float],
+    query_dist: wp.array[float],
 ):
     tid = wp.tid()
 
@@ -296,7 +319,7 @@ def triangulate(face_counts, face_indices):
 
 @unittest.skipUnless(USD_AVAILABLE, "Requires usd-core")
 def test_mesh_query_point(test, device):
-    from pxr import Usd, UsdGeom
+    from pxr import Usd, UsdGeom  # noqa: PLC0415
 
     mesh = Usd.Stage.Open(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "spiky.usd")))
     mesh_geom = UsdGeom.Mesh(mesh.GetPrimAtPath("/Cube/Cube"))
@@ -314,14 +337,24 @@ def test_mesh_query_point(test, device):
     else:
         constructors = ["sah", "median", "lbvh"]
 
-    for constructor in constructors:
+    if wp.is_cubql_available():
+        constructors.append("cubql")
+
+    leaf_sizes = [1, 2, 4]
+
+    for leaf_size, constructor in itertools.product(leaf_sizes, constructors):
+        # cuBQL doesn't yet support winding-number queries; build without that data
+        # and skip the winding-number kernel / assertions for this constructor.
+        use_winding_number = constructor != "cubql"
+
         # create mesh
         mesh = wp.Mesh(
             points=mesh_points,
             velocities=None,
             indices=mesh_indices,
-            support_winding_number=True,
+            support_winding_number=use_winding_number,
             bvh_constructor=constructor,
+            bvh_leaf_size=leaf_size,
         )
 
         p = particle_grid(32, 32, 32, np.array([-1.1, -1.1, -1.1]), 0.05, 0.0)
@@ -343,6 +376,10 @@ def test_mesh_query_point(test, device):
         signs_query_winding_number = wp.zeros(query_count, dtype=float, device=device)
         faces_query_winding_number = wp.zeros(query_count, dtype=int, device=device)
         dist_query_winding_number = wp.zeros(query_count, dtype=float, device=device)
+
+        signs_query_parity = wp.zeros(query_count, dtype=float, device=device)
+        faces_query_parity = wp.zeros(query_count, dtype=int, device=device)
+        dist_query_parity = wp.zeros(query_count, dtype=float, device=device)
 
         signs_brute = wp.zeros(query_count, dtype=float, device=device)
         faces_brute = wp.zeros(query_count, dtype=int, device=device)
@@ -369,15 +406,29 @@ def test_mesh_query_point(test, device):
             device=device,
         )
 
+        if use_winding_number:
+            wp.launch(
+                kernel=sample_mesh_query_sign_winding_number,
+                dim=query_count,
+                inputs=[
+                    mesh.id,
+                    query_points,
+                    faces_query_winding_number,
+                    signs_query_winding_number,
+                    dist_query_winding_number,
+                ],
+                device=device,
+            )
+
         wp.launch(
-            kernel=sample_mesh_query_sign_winding_number,
+            kernel=sample_mesh_query_sign_parity,
             dim=query_count,
             inputs=[
                 mesh.id,
                 query_points,
-                faces_query_winding_number,
-                signs_query_winding_number,
-                dist_query_winding_number,
+                faces_query_parity,
+                signs_query_parity,
+                dist_query_parity,
             ],
             device=device,
         )
@@ -412,6 +463,10 @@ def test_mesh_query_point(test, device):
         faces_query_winding_number = faces_query_winding_number.numpy()
         dist_query_winding_number = dist_query_winding_number.numpy()
 
+        signs_query_parity = signs_query_parity.numpy()
+        faces_query_parity = faces_query_parity.numpy()
+        dist_query_parity = dist_query_parity.numpy()
+
         signs_brute = signs_brute.numpy()
         faces_brute = faces_brute.numpy()
         dist_brute = dist_brute.numpy()
@@ -421,6 +476,7 @@ def test_mesh_query_point(test, device):
         inside_query = [[0.0, 0.0, 0.0]]
         inside_query_normal = [[0.0, 0.0, 0.0]]
         inside_query_winding_number = [[0.0, 0.0, 0.0]]
+        inside_query_parity = [[0.0, 0.0, 0.0]]
         inside_brute = [[0.0, 0.0, 0.0]]
 
         for i in range(query_count):
@@ -433,12 +489,16 @@ def test_mesh_query_point(test, device):
             if signs_query_winding_number[i] < 0.0:
                 inside_query_winding_number.append(query_points[i].tolist())
 
+            if signs_query_parity[i] < 0.0:
+                inside_query_parity.append(query_points[i].tolist())
+
             if signs_brute[i] > math.pi * 2.0:
                 inside_brute.append(query_points[i].tolist())
 
         inside_query = np.array(inside_query)
         inside_query_normal = np.array(inside_query_normal)
         inside_query_winding_number = np.array(inside_query_winding_number)
+        inside_query_parity = np.array(inside_query_parity)
         inside_brute = np.array(inside_brute)
 
         # import warp.render
@@ -457,7 +517,9 @@ def test_mesh_query_point(test, device):
 
         test.assertTrue(len(inside_query) == len(inside_brute))
         test.assertTrue(len(inside_query_normal) == len(inside_brute))
-        test.assertTrue(len(inside_query_winding_number) == len(inside_brute))
+        if use_winding_number:
+            test.assertTrue(len(inside_query_winding_number) == len(inside_brute))
+        test.assertTrue(len(inside_query_parity) == len(inside_brute))
 
         tolerance = 1.5e-4
         dist_error = np.max(np.abs(dist_query - dist_brute))
@@ -482,25 +544,38 @@ def test_mesh_query_point(test, device):
             sign_error < tolerance, f"mesh_query_point_sign_normal sign_error is {sign_error} which is >= {tolerance}"
         )
 
-        dist_error = np.max(np.abs(dist_query_winding_number - dist_brute))
-        sign_error = np.max(np.abs(inside_query_winding_number - inside_brute))
+        if use_winding_number:
+            dist_error = np.max(np.abs(dist_query_winding_number - dist_brute))
+            sign_error = np.max(np.abs(inside_query_winding_number - inside_brute))
+
+            test.assertTrue(
+                dist_error < tolerance,
+                f"mesh_query_point_sign_winding_number dist_error is {dist_error} which is >= {tolerance}",
+            )
+            test.assertTrue(
+                sign_error < tolerance,
+                f"mesh_query_point_sign_winding_number sign_error is {sign_error} which is >= {tolerance}",
+            )
+
+        dist_error = np.max(np.abs(dist_query_parity - dist_brute))
+        sign_error = np.max(np.abs(inside_query_parity - inside_brute))
 
         test.assertTrue(
             dist_error < tolerance,
-            f"mesh_query_point_sign_winding_number dist_error is {dist_error} which is >= {tolerance}",
+            f"mesh_query_point_sign_parity dist_error is {dist_error} which is >= {tolerance}",
         )
         test.assertTrue(
             sign_error < tolerance,
-            f"mesh_query_point_sign_winding_number sign_error is {sign_error} which is >= {tolerance}",
+            f"mesh_query_point_sign_parity sign_error is {sign_error} which is >= {tolerance}",
         )
 
 
 @wp.kernel
 def mesh_query_point_loss(
     mesh: wp.uint64,
-    query_points: wp.array(dtype=wp.vec3),
-    projected_points: wp.array(dtype=wp.vec3),
-    loss: wp.array(dtype=float),
+    query_points: wp.array[wp.vec3],
+    projected_points: wp.array[wp.vec3],
+    loss: wp.array[float],
 ):
     tid = wp.tid()
 
@@ -524,7 +599,7 @@ def mesh_query_point_loss(
 
 @unittest.skipUnless(USD_AVAILABLE, "Requires usd-core")
 def test_adj_mesh_query_point(test, device):
-    from pxr import Usd, UsdGeom
+    from pxr import Usd, UsdGeom  # noqa: PLC0415
 
     mesh = Usd.Stage.Open(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "torus.usda")))
     mesh_geom = UsdGeom.Mesh(mesh.GetPrimAtPath("/World/Torus"))
@@ -621,7 +696,7 @@ def test_adj_mesh_query_point(test, device):
 
 
 @wp.kernel
-def sample_furthest_points(mesh: wp.uint64, query_points: wp.array(dtype=wp.vec3), query_result: wp.array(dtype=float)):
+def sample_furthest_points(mesh: wp.uint64, query_points: wp.array[wp.vec3], query_result: wp.array[float]):
     tid = wp.tid()
 
     p = query_points[tid]
@@ -643,7 +718,7 @@ def sample_furthest_points(mesh: wp.uint64, query_points: wp.array(dtype=wp.vec3
 
 @wp.kernel
 def sample_furthest_points_brute(
-    mesh_points: wp.array(dtype=wp.vec3), query_points: wp.array(dtype=wp.vec3), query_result: wp.array(dtype=float)
+    mesh_points: wp.array[wp.vec3], query_points: wp.array[wp.vec3], query_result: wp.array[float]
 ):
     tid = wp.tid()
 
@@ -661,7 +736,7 @@ def sample_furthest_points_brute(
 
 @unittest.skipUnless(USD_AVAILABLE, "Requires usd-core")
 def test_mesh_query_furthest_point(test, device):
-    from pxr import Usd, UsdGeom
+    from pxr import Usd, UsdGeom  # noqa: PLC0415
 
     mesh = Usd.Stage.Open(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "spiky.usd")))
     mesh_geom = UsdGeom.Mesh(mesh.GetPrimAtPath("/Cube/Cube"))
@@ -678,6 +753,9 @@ def test_mesh_query_furthest_point(test, device):
         constructors = ["sah", "median"]
     else:
         constructors = ["sah", "median", "lbvh"]
+
+    if wp.is_cubql_available():
+        constructors.append("cubql")
 
     for constructor in constructors:
         # create mesh
@@ -751,7 +829,7 @@ def triangle_closest_point_for_test(a: wp.vec3, b: wp.vec3, c: wp.vec3, p: wp.ve
 
 
 def load_mesh(model_name="bunny"):
-    from pxr import Usd, UsdGeom
+    from pxr import Usd, UsdGeom  # noqa: PLC0415
 
     usd_stage = Usd.Stage.Open(os.path.join(wp.examples.get_asset_directory(), model_name + ".usd"))
     usd_geom = UsdGeom.Mesh(usd_stage.GetPrimAtPath("/root/" + model_name))
@@ -766,12 +844,12 @@ def load_mesh(model_name="bunny"):
 def point_query_aabb_and_closest(
     query_radius: float,
     mesh_id: wp.uint64,
-    pts: wp.array(dtype=wp.vec3),
-    pos: wp.array(dtype=wp.vec3),
-    tri_indices: wp.array(dtype=wp.int32, ndim=2),
-    query_results_num_collisions: wp.array(dtype=wp.int32),
-    query_results_min_dist: wp.array(dtype=float),
-    query_results_closest_point_velocity: wp.array(dtype=wp.vec3),
+    pts: wp.array[wp.vec3],
+    pos: wp.array[wp.vec3],
+    tri_indices: wp.array2d[wp.int32],
+    query_results_num_collisions: wp.array[wp.int32],
+    query_results_min_dist: wp.array[float],
+    query_results_closest_point_velocity: wp.array[wp.vec3],
 ):
     p_index = wp.tid()
     p = pts[p_index]
@@ -791,7 +869,6 @@ def point_query_aabb_and_closest(
 
     tri_index = wp.int32(0)
     num_collisions = wp.int32(0)
-    min_dis_to_tris = query_radius
     while wp.mesh_query_aabb_next(query, tri_index):
         t1 = tri_indices[tri_index, 0]
         t2 = tri_indices[tri_index, 1]
@@ -801,7 +878,7 @@ def point_query_aabb_and_closest(
         u2 = pos[t2]
         u3 = pos[t3]
 
-        closest_p1, barycentric1 = triangle_closest_point_for_test(u1, u2, u3, p)
+        closest_p1, _barycentric1 = triangle_closest_point_for_test(u1, u2, u3, p)
 
         dis = wp.length(closest_p1 - p)
 
@@ -928,5 +1005,4 @@ add_function_test(TestMeshQueryPoint, "test_adj_mesh_query_point", test_adj_mesh
 add_function_test(TestMeshQueryPoint, "test_set_mesh_points", test_set_mesh_points, devices=devices)
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

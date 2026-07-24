@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
@@ -27,37 +15,42 @@ dim_w = wp.constant(2)
 
 
 @wp.kernel
-def kernel1d(a: wp.array(dtype=int, ndim=1)):
+def kernel1d(a: wp.array[int]):
     i = wp.tid()
 
     wp.expect_eq(a[i], i)
 
 
 @wp.kernel
-def kernel2d(a: wp.array(dtype=int, ndim=2)):
+def kernel2d(a: wp.array2d[int]):
     i, j = wp.tid()
 
     wp.expect_eq(a[i, j], i * dim_y + j)
 
 
 @wp.kernel
-def kernel3d(a: wp.array(dtype=int, ndim=3)):
+def kernel3d(a: wp.array3d[int]):
     i, j, k = wp.tid()
 
     wp.expect_eq(a[i, j, k], i * dim_y * dim_z + j * dim_z + k)
 
 
 @wp.kernel
-def kernel4d(a: wp.array(dtype=int, ndim=4)):
+def kernel4d(a: wp.array4d[int]):
     i, j, k, l = wp.tid()
 
     wp.expect_eq(a[i, j, k, l], i * dim_y * dim_z * dim_w + j * dim_z * dim_w + k * dim_w + l)
 
 
 @wp.kernel
-def square_kernel(input: wp.array(dtype=float), output: wp.array(dtype=float)):
+def square_kernel(input: wp.array[float], output: wp.array[float]):
     i = wp.tid()
     output[i] = input[i] * input[i]
+
+
+@wp.kernel
+def noop_kernel():
+    tid = wp.tid()
 
 
 def test1d(test, device):
@@ -86,13 +79,13 @@ def test4d(test, device):
 
 @wp.struct
 class Params:
-    a: wp.array(dtype=int)
+    a: wp.array[int]
     i: int
     f: float
 
 
 @wp.kernel
-def kernel_cmd(params: Params, i: int, f: float, v: wp.vec3, m: wp.mat33, out: wp.array(dtype=int)):
+def kernel_cmd(params: Params, i: int, f: float, v: wp.vec3, m: wp.mat33, out: wp.array[int]):
     tid = wp.tid()
 
     wp.expect_eq(params.i, i)
@@ -245,7 +238,7 @@ def test_launch_cmd_set_ctype(test, device):
 
 
 @wp.kernel
-def arange(out: wp.array(dtype=int)):
+def arange(out: wp.array[int]):
     tid = wp.tid()
     out[tid] = tid
 
@@ -354,7 +347,7 @@ def test_launch_cmd_adjoint_empty(test, device):
 
 
 @wp.kernel
-def kernel_mul(values: wp.array(dtype=int), coeff: int, out: wp.array(dtype=int)):
+def kernel_mul(values: wp.array[int], coeff: int, out: wp.array[int]):
     tid = wp.tid()
     out[tid] = values[tid] * coeff
 
@@ -383,7 +376,132 @@ def test_launch_tuple_args(test, device):
     assert_np_equal(out.numpy(), np.array((0, 3, 6, 9)))
 
 
+# ==================================================================================
+# Launch bounds tests
+# ==================================================================================
+
+
+@wp.kernel
+def kernel_no_bounds(x: wp.array[float]):
+    tid = wp.tid()
+    x[tid] = x[tid] * 2.0
+
+
+@wp.kernel(launch_bounds=256)
+def kernel_single_bound(x: wp.array[float]):
+    tid = wp.tid()
+    x[tid] = x[tid] * 2.0
+
+
+@wp.kernel(launch_bounds=(256, 1))
+def kernel_tuple_bounds(x: wp.array[float]):
+    tid = wp.tid()
+    x[tid] = x[tid] * 2.0
+
+
+@wp.kernel(launch_bounds=(512,))
+def kernel_single_tuple_bound(x: wp.array[float]):
+    tid = wp.tid()
+    x[tid] = x[tid] * 2.0
+
+
+@wp.kernel(launch_bounds=256)
+def bounded_square_kernel(data: wp.array[float], output: wp.array[float]):
+    i = wp.tid()
+    output[i] = data[i] * data[i]
+
+
+def test_launch_bounds_none(test, device):
+    """Test kernel without launch_bounds"""
+    n = 1024
+    x = wp.array(np.ones(n, dtype=np.float32), dtype=float, device=device)
+    wp.launch(kernel_no_bounds, dim=n, inputs=[x], device=device)
+    wp.synchronize_device(device)
+    assert_np_equal(x.numpy(), np.full(n, 2.0, dtype=np.float32))
+
+
+def test_launch_bounds_single(test, device):
+    """Test kernel with single int launch_bounds"""
+    n = 1024
+    x = wp.array(np.ones(n, dtype=np.float32), dtype=float, device=device)
+    wp.launch(kernel_single_bound, dim=n, inputs=[x], device=device)
+    wp.synchronize_device(device)
+    assert_np_equal(x.numpy(), np.full(n, 2.0, dtype=np.float32))
+
+
+def test_launch_bounds_tuple(test, device):
+    """Test kernel with tuple launch_bounds (maxThreadsPerBlock, minBlocksPerMultiprocessor)"""
+    n = 1024
+    x = wp.array(np.ones(n, dtype=np.float32), dtype=float, device=device)
+    wp.launch(kernel_tuple_bounds, dim=n, inputs=[x], device=device)
+    wp.synchronize_device(device)
+    assert_np_equal(x.numpy(), np.full(n, 2.0, dtype=np.float32))
+
+
+def test_launch_bounds_single_tuple(test, device):
+    """Test kernel with single-element tuple launch_bounds"""
+    n = 1024
+    x = wp.array(np.ones(n, dtype=np.float32), dtype=float, device=device)
+    wp.launch(kernel_single_tuple_bound, dim=n, inputs=[x], device=device)
+    wp.synchronize_device(device)
+    assert_np_equal(x.numpy(), np.full(n, 2.0, dtype=np.float32))
+
+
+def test_launch_device_block_dim_failure(test, device):
+    """Raise when CUDA rejects an oversized launch block.
+
+    Protects users from continuing after native stderr with kernel outputs left unchanged.
+    """
+    with test.assertRaisesRegex(RuntimeError, r"Error launching kernel: .*noop_kernel.*Warp CUDA error"):
+        wp.launch(noop_kernel, dim=1, block_dim=2048, device=device)
+
+
+def test_launch_bounds_block_dim_failure(test, device):
+    """Raise when CUDA rejects a launch-bounds violation.
+
+    Protects users from silently skipping kernels whose outputs feed later simulation stages.
+    """
+    x = wp.ones(1, dtype=float, device=device)
+
+    with test.assertRaisesRegex(RuntimeError, r"Error launching kernel: .*kernel_single_bound.*Warp CUDA error"):
+        wp.launch(kernel_single_bound, dim=1, inputs=[x], block_dim=512, device=device)
+
+
+def test_launch_cmd_block_dim_failure(test, device):
+    """Raise when recorded launches hit CUDA launch errors.
+
+    Protects recorded command replay from returning normally with stale outputs.
+    """
+    x = wp.ones(1, dtype=float, device=device)
+    cmd = wp.launch(kernel_single_bound, dim=1, inputs=[x], block_dim=512, device=device, record_cmd=True)
+
+    with test.assertRaisesRegex(RuntimeError, r"Error launching kernel: .*kernel_single_bound.*Warp CUDA error"):
+        cmd.launch()
+
+
+def test_launch_adjoint_block_dim_failure(test, device):
+    """Raise when adjoint launches hit CUDA launch errors.
+
+    Protects differentiable simulations from using missing or partial gradients.
+    """
+    input_arr = wp.array([1.0], dtype=float, requires_grad=True, device=device)
+    output_arr = wp.empty_like(input_arr)
+    output_arr.grad.fill_(1.0)
+
+    with test.assertRaisesRegex(RuntimeError, r"Error launching kernel: .*bounded_square_kernel.*Warp CUDA error"):
+        wp.launch(
+            bounded_square_kernel,
+            dim=input_arr.size,
+            inputs=[input_arr, output_arr],
+            adj_inputs=[None, None],
+            adjoint=True,
+            block_dim=512,
+            device=device,
+        )
+
+
 devices = get_test_devices()
+cuda_devices = get_cuda_test_devices()
 
 
 class TestLaunch(unittest.TestCase):
@@ -405,7 +523,23 @@ add_function_test(TestLaunch, "test_launch_cmd_adjoint_empty", test_launch_cmd_a
 
 add_function_test(TestLaunch, "test_launch_tuple_args", test_launch_tuple_args, devices=devices)
 
+add_function_test(TestLaunch, "test_launch_bounds_none", test_launch_bounds_none, devices=devices)
+add_function_test(TestLaunch, "test_launch_bounds_single", test_launch_bounds_single, devices=devices)
+add_function_test(TestLaunch, "test_launch_bounds_tuple", test_launch_bounds_tuple, devices=devices)
+add_function_test(TestLaunch, "test_launch_bounds_single_tuple", test_launch_bounds_single_tuple, devices=devices)
+add_function_test(
+    TestLaunch, "test_launch_device_block_dim_failure", test_launch_device_block_dim_failure, devices=cuda_devices
+)
+add_function_test(
+    TestLaunch, "test_launch_bounds_block_dim_failure", test_launch_bounds_block_dim_failure, devices=cuda_devices
+)
+add_function_test(
+    TestLaunch, "test_launch_cmd_block_dim_failure", test_launch_cmd_block_dim_failure, devices=cuda_devices
+)
+add_function_test(
+    TestLaunch, "test_launch_adjoint_block_dim_failure", test_launch_adjoint_block_dim_failure, devices=cuda_devices
+)
+
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

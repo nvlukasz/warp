@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import time
 
@@ -25,12 +13,12 @@ BLOCK_DIM = 128
 def create_test_kernel(KEY_TYPE, MAX_SORT_LENGTH):
     @wp.kernel
     def tile_sort_kernel(
-        input_keys: wp.array(dtype=KEY_TYPE, ndim=2),
-        input_values: wp.array(dtype=wp.int32, ndim=2),
-        output_keys: wp.array(dtype=KEY_TYPE, ndim=2),
-        output_values: wp.array(dtype=wp.int32, ndim=2),
+        input_keys: wp.array2d[KEY_TYPE],
+        input_values: wp.array2d[int],
+        output_keys: wp.array2d[KEY_TYPE],
+        output_values: wp.array2d[int],
     ):
-        batch_id, i = wp.tid()
+        batch_id, _i = wp.tid()
 
         # Load input into shared memory
         keys = wp.tile_load(input_keys[batch_id], shape=MAX_SORT_LENGTH, storage="shared")
@@ -47,7 +35,7 @@ def create_test_kernel(KEY_TYPE, MAX_SORT_LENGTH):
 
 
 if __name__ == "__main__":
-    wp.config.quiet = True
+    wp.config.log_level = wp.LOG_WARNING
     wp.init()
     wp.clear_kernel_cache()
     wp.set_module_options({"fast_math": True, "enable_backward": False})

@@ -1,22 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 ###########################################################################
 # Example Graph Capture
 #
-# Shows how to implement CUDA graph capture using wp.ScopedCapture().
+# Shows how to implement graph capture using wp.ScopedCapture().
 #
 ###########################################################################
 
@@ -30,9 +18,9 @@ def fbm(
     kernel_seed: int,
     frequency: float,
     amplitude: float,
-    x: wp.array(dtype=float),
-    y: wp.array(dtype=float),
-    z: wp.array2d(dtype=float),
+    x: wp.array[float],
+    y: wp.array[float],
+    z: wp.array2d[float],
 ):
     i, j = wp.tid()
     state = wp.rand_init(kernel_seed)
@@ -44,7 +32,7 @@ def fbm(
 
 
 @wp.kernel
-def slide(x: wp.array(dtype=float), shift: float):
+def slide(x: wp.array[float], shift: float):
     tid = wp.tid()
     x[tid] += shift
 
@@ -69,13 +57,10 @@ class Example:
         self.frequency = 1.0
         self.amplitude = 1.0
 
-        # use graph capture if launching from a CUDA-capable device
-        self.use_cuda_graph = wp.get_device().is_cuda
-        if self.use_cuda_graph:
-            # record launches
-            with wp.ScopedCapture() as capture:
-                self.fbm()
-            self.graph = capture.graph
+        # use graph capture to reduce per-kernel launch overhead
+        with wp.ScopedCapture() as capture:
+            self.fbm()
+        self.graph = capture.graph
 
     def fbm(self):
         for _ in range(16):
@@ -96,10 +81,7 @@ class Example:
         with wp.ScopedTimer("step", active=True):
             wp.launch(kernel=slide, dim=self.width, inputs=[self.x, self.shift])
 
-            if self.use_cuda_graph:
-                wp.capture_launch(self.graph)
-            else:  # cpu path
-                self.fbm()
+            wp.capture_launch(self.graph)
 
     def step_and_render(self, frame_num=None, img=None):
         self.step()
@@ -118,7 +100,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--device", type=str, default=None, help="Override the default Warp device.")
-    parser.add_argument("--num_frames", type=int, default=1000, help="Total number of frames.")
+    parser.add_argument("--num-frames", type=int, default=1000, help="Total number of frames.")
     parser.add_argument(
         "--headless",
         action="store_true",

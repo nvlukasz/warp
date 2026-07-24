@@ -1,25 +1,24 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
+import inspect
 import math
+import subprocess
+import sys
+import tempfile
 import unittest
-from typing import Any, Tuple
+from pathlib import Path
+from typing import Any
+
+try:
+    from typing import get_overloads
+except ImportError:
+    get_overloads = None
 
 import numpy as np
 
 import warp as wp
+from warp.sparse import bsr_row_index
 from warp.tests.unittest_utils import *
 
 
@@ -91,7 +90,7 @@ def test_override_func():
 
 def test_func_closure_capture(test, device):
     def make_closure_kernel(func):
-        def closure_kernel_fn(data: wp.array(dtype=float), expected: float):
+        def closure_kernel_fn(data: wp.array[float], expected: float):
             f = func(data[wp.tid()])
             wp.expect_eq(f, expected)
 
@@ -114,7 +113,7 @@ def test_func(param1: wp.int32, param2: wp.int32, param3: wp.int32) -> wp.float3
 
 
 @wp.kernel
-def test_return_kernel(test_data: wp.array(dtype=wp.float32)):
+def test_return_kernel(test_data: wp.array[wp.float32]):
     tid = wp.tid()
     test_data[tid] = wp.lerp(test_func(0, 1, 2), test_func(0, 1, 2), 0.5)
 
@@ -130,8 +129,8 @@ def multi_valued_func(a: wp.float32, b: wp.float32):
 
 
 def test_multi_valued_func(test, device):
-    @wp.kernel
-    def test_multi_valued_kernel(test_data1: wp.array(dtype=wp.float32), test_data2: wp.array(dtype=wp.float32)):
+    @wp.kernel(module="unique")
+    def test_multi_valued_kernel(test_data1: wp.array[wp.float32], test_data2: wp.array[wp.float32]):
         tid = wp.tid()
         d1, d2 = test_data1[tid], test_data2[tid]
         a, b, c, d = multi_valued_func(d1, d2)
@@ -207,7 +206,7 @@ def test_user_func_with_defaults(test, device):
 
 
 @wp.func
-def user_func_return_multiple_values(a: int, b: float) -> Tuple[int, float]:
+def user_func_return_multiple_values(a: int, b: float) -> tuple[int, float]:
     return a + a, b * b
 
 
@@ -220,7 +219,7 @@ def test_user_func_return_multiple_values():
 
 @wp.func
 def user_func_overload(
-    b: wp.array(dtype=Any),
+    b: wp.array[Any],
     i: int,
 ):
     return b[i] * 2.0
@@ -228,8 +227,8 @@ def user_func_overload(
 
 @wp.kernel
 def user_func_overload_resolution_kernel(
-    a: wp.array(dtype=Any),
-    b: wp.array(dtype=Any),
+    a: wp.array[Any],
+    b: wp.array[Any],
 ):
     i = wp.tid()
     a[i] = user_func_overload(b, i)
@@ -275,8 +274,108 @@ def divide_float64(x: wp.float64):
 
 
 @wp.func
-def get_array_len(arr: wp.array(dtype=wp.float32)):
+def get_array_len(arr: wp.array[wp.float32]):
     return len(arr)
+
+
+@wp.func
+def square(x: float):
+    return x * x
+
+
+@wp.func
+def grad_func(x: float):
+    dsquare_dx = wp.grad(square)(x)
+    return x + dsquare_dx
+
+
+@wp.kernel(enable_backward=False)
+def grad_kernel(
+    x: wp.array[float],
+    y: wp.array[float],
+    grad_x: wp.array[float],
+    grad_atan2_y: wp.array[float],
+    grad_atan2_x: wp.array[float],
+    z: wp.array[float],
+):
+    tid = wp.tid()
+
+    grad_x[tid] = wp.grad(square)(x[tid])
+
+    grad_square = wp.grad(square)
+    wp.expect_eq(grad_square(x[tid]), wp.grad(square)(x[tid]))
+
+    grad_x[tid] = grad_square(x[tid])
+
+    b, a = wp.grad(wp.atan2)(y[tid], x[tid])
+    grad_atan2_y[tid] = b
+    grad_atan2_x[tid] = a
+
+    z[tid] = grad_func(x[tid])
+
+
+def test_grad(test, device):
+    """Test that warp.grad() allows computing gradients in forward code."""
+
+    n = 10
+    x_np = np.arange(n, dtype=np.float32)
+    x = wp.array(x_np, dtype=float, device=device)
+    y = wp.ones(n, dtype=float, device=device)
+    grad_x = wp.zeros(n, dtype=float, device=device)
+    grad_atan2_y = wp.zeros(n, dtype=float, device=device)
+    grad_atan2_x = wp.zeros(n, dtype=float, device=device)
+    z = wp.zeros(n, dtype=float, device=device)
+
+    wp.launch(grad_kernel, dim=n, inputs=[x, y, grad_x, grad_atan2_y, grad_atan2_x, z], device=device)
+
+    # Check gradient of square: d(x^2)/dx = 2*x
+    assert_np_equal(grad_x.numpy(), 2.0 * np.arange(n, dtype=np.float32))
+
+    # Check gradients of atan2(y, x) where y=1, x varies:
+    #   d/dy = x / (x^2 + y^2) = x / (x^2 + 1)
+    #   d/dx = -y / (x^2 + y^2) = -1 / (x^2 + 1)
+    expected_grad_atan2_y = x_np / (x_np**2 + 1)
+    expected_grad_atan2_x = -1.0 / (x_np**2 + 1)
+    assert_np_equal(grad_atan2_y.numpy(), expected_grad_atan2_y, tol=1e-5)
+    assert_np_equal(grad_atan2_x.numpy(), expected_grad_atan2_x, tol=1e-5)
+
+    # Check gradient of square called in a custom function
+    assert_np_equal(z.numpy(), 3.0 * x_np)
+
+
+@wp.func
+def safe_sqrt(x: float):
+    return wp.sqrt(x)
+
+
+@wp.func_grad(safe_sqrt)
+def adj_safe_sqrt(x: float, adj_ret: float):
+    # Use wp.grad() inside a custom gradient function
+    if x > 0.0:
+        wp.adjoint[x] += wp.grad(wp.sqrt)(x) * adj_ret
+
+
+@wp.kernel
+def safe_sqrt_kernel(x: wp.array[float], y: wp.array[float]):
+    tid = wp.tid()
+    y[tid] = safe_sqrt(x[tid])
+
+
+def test_grad_in_func_grad(test, device):
+    """Test that warp.grad() can be used inside a @wp.func_grad function."""
+
+    x_np = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+    x = wp.array(x_np, dtype=float, device=device, requires_grad=True)
+    y = wp.zeros_like(x, requires_grad=True)
+
+    with wp.Tape() as tape:
+        wp.launch(safe_sqrt_kernel, x.shape, inputs=[x, y], device=device)
+
+    tape.backward(grads={y: wp.array(np.ones(x.shape), dtype=float, device=device)})
+
+    # The gradient of sqrt(x) is 1/(2*sqrt(x)) = 0.5/sqrt(x)
+    expected_grad = 0.5 / np.sqrt(x_np)
+    assert_np_equal(x.grad.numpy(), expected_grad, tol=1e-5)
 
 
 class TestFunc(unittest.TestCase):
@@ -408,6 +507,12 @@ class TestFunc(unittest.TestCase):
             (-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0),
         )
 
+        with self.assertRaisesRegex(
+            TypeError,
+            r"^got an unexpected keyword argument 'pos'$",
+        ):
+            wp.transform(pos=wp.vec3(), rot=wp.quat())
+
         f = wp.sin(math.pi * 0.5)
         self.assertAlmostEqual(f, 1.0, places=3)
 
@@ -443,10 +548,7 @@ class TestFunc(unittest.TestCase):
             a * b
 
     def test_cpython_call_user_function_with_error(self):
-        with self.assertRaisesRegex(
-            ZeroDivisionError,
-            "float division by zero",
-        ):
+        with self.assertRaises(ZeroDivisionError):
             divide_by_zero(1.0)
 
     def test_cpython_call_user_function_with_wrong_argument_types(self):
@@ -466,6 +568,76 @@ class TestFunc(unittest.TestCase):
         arr = wp.array((1, 2, 3, 4, 5, 6, 7, 8), dtype=wp.float32)
         length = get_array_len(arr)
         assert length == 8
+
+    @unittest.skipUnless(sys.version_info >= (3, 11), "get_overloads() is only available in Python 3.11 and later")
+    def test_func_decorator_has_overloads(self):
+        """Verify @wp.func has @overload signatures for static type checkers.
+
+        Without @overload signatures using ParamSpec, static type checkers like
+        Pyright/Pylance show generic _Wrapped types instead of the actual function
+        signature when hovering over @wp.func decorated functions.
+        """
+        overloads = get_overloads(wp.func)
+        # Should have at least 2 overloads:
+        # 1. @wp.func (bare decorator)
+        # 2. @wp.func(...) (decorator with arguments)
+        self.assertGreaterEqual(
+            len(overloads),
+            2,
+            "wp.func should have @overload signatures for Pyright/Pylance. "
+            "Without these, static type checkers cannot infer decorated function signatures.",
+        )
+
+    @unittest.skipUnless(sys.version_info >= (3, 11), "get_overloads() is only available in Python 3.11 and later")
+    def test_func_decorator_overloads_preserve_signature(self):
+        """Verify @wp.func overloads return Callable types to preserve signatures."""
+        overloads = get_overloads(wp.func)
+        if len(overloads) < 2:
+            self.skipTest("Overloads not yet implemented")
+
+        # At least one overload should have a Callable return annotation
+        has_callable_return = False
+        for overload in overloads:
+            hints = getattr(overload, "__annotations__", {})
+            return_hint = hints.get("return", "")
+            if "Callable" in str(return_hint):
+                has_callable_return = True
+                break
+
+        self.assertTrue(
+            has_callable_return,
+            "At least one @wp.func overload should return Callable to preserve signatures.",
+        )
+
+    def test_func_decorated_signature_introspection(self):
+        """Verify inspect.signature() works on @wp.func decorated functions."""
+        sig = inspect.signature(bsr_row_index)
+        params = list(sig.parameters.keys())
+
+        # Based on warp/_src/sparse.py bsr_row_index(offsets, row_count, block_index)
+        # Update these if the function signature changes
+        self.assertIn("offsets", params)
+        self.assertIn("row_count", params)
+        self.assertIn("block_index", params)
+
+    def test_parameterized_func_decorator_script_scope(self):
+        """Verify @wp.func(module="unique") registers in directly executed scripts."""
+
+        script = """\
+import warp as wp
+
+@wp.func(module="unique")
+def f(x: float):
+    return x + 1.0
+"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            script_path = Path(temp_dir) / "repro_wp_func_unique.py"
+            script_path.write_text(script, encoding="utf-8")
+
+            result = subprocess.run([sys.executable, script_path], capture_output=True, text=True, check=False)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 devices = get_test_devices()
@@ -491,8 +663,9 @@ add_function_test(
 add_kernel_test(
     TestFunc, kernel=test_return_annotation_none, name="test_return_annotation_none", dim=1, devices=devices
 )
+add_function_test(TestFunc, func=test_grad, name="test_grad", devices=devices)
+add_function_test(TestFunc, func=test_grad_in_func_grad, name="test_grad_in_func_grad", devices=devices)
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

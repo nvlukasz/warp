@@ -1,22 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import importlib
 import tempfile
 import unittest
-from typing import Dict, List
 
 import numpy as np
 
@@ -51,7 +38,7 @@ def static_global_variable_func():
 
 
 @wp.kernel
-def static_global_variable_kernel(results: wp.array(dtype=int)):
+def static_global_variable_kernel(results: wp.array[int]):
     # evaluate a constant expression at codegen time
     static_var = static_global_variable_func()
     const_var = 3
@@ -94,7 +81,7 @@ def construct_nested_struct(mat: wp.mat33, vec: wp.vec3, i: int, tf: wp.transfor
 
 
 @wp.kernel
-def construct_static_struct_kernel(results: wp.array(dtype=StaticallyConstructableStruct)):
+def construct_static_struct_kernel(results: wp.array[StaticallyConstructableStruct]):
     static_struct = wp.static(
         construct_struct(
             wp.mat33(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0),
@@ -106,7 +93,7 @@ def construct_static_struct_kernel(results: wp.array(dtype=StaticallyConstructab
 
 
 @wp.kernel
-def construct_static_nested_struct_kernel(results: wp.array(dtype=StaticallyConstructableNestedStruct)):
+def construct_static_nested_struct_kernel(results: wp.array[StaticallyConstructableNestedStruct]):
     static_struct = wp.static(
         construct_nested_struct(
             wp.mat33(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0),
@@ -155,7 +142,7 @@ def test_invalid_static_expression(test, device):
         wp.static(1.0 / 0.0)
 
     with test.assertRaisesRegex(
-        warp.codegen.WarpCodegenError, r"Error evaluating static expression\: float division by zero"
+        wp.WarpCodegenError, r"Error evaluating static expression\: (?:float )?division by zero"
     ):
         wp.launch(invalid_kernel, 1, device=device)
 
@@ -164,7 +151,7 @@ def test_invalid_static_expression(test, device):
         wp.static(i * 2)
 
     with test.assertRaisesRegex(
-        wp.codegen.WarpCodegenError,
+        wp.WarpCodegenError,
         r"Error evaluating static expression\: name 'i' is not defined\. Make sure all variables used in the static expression are constant\.",
     ):
         wp.launch(invalid_kernel, 1, device=device, inputs=[3])
@@ -176,14 +163,14 @@ def test_static_expression_return_types(test, device):
         wp.static(wp.zeros(3, device=device))
 
     with test.assertRaisesRegex(
-        warp.codegen.WarpCodegenError,
+        wp.WarpCodegenError,
         r"Static expression returns an unsupported value\: a Warp array cannot be created inside Warp kernels",
     ):
         wp.launch(invalid_kernel, 1, device=device)
 
     @wp.struct
     class Baz:
-        data: wp.array(dtype=int)
+        data: wp.array[int]
         z: wp.vec3
 
     @wp.struct
@@ -211,7 +198,7 @@ def test_static_expression_return_types(test, device):
         wp.static(create_struct())
 
     with test.assertRaisesRegex(
-        warp.codegen.WarpCodegenError,
+        wp.WarpCodegenError,
         r"Static expression returns an unsupported value: the returned Warp struct contains a data type that cannot be constructed inside Warp kernels\: a Warp array cannot be created inside Warp kernels at .*?Foo\.bar\.baz",
     ):
         wp.launch(invalid_kernel, 1, device=device)
@@ -224,7 +211,7 @@ def test_static_expression_return_types(test, device):
         wp.static(function_with_no_return_value())
 
     with test.assertRaisesRegex(
-        warp.codegen.WarpCodegenError,
+        wp.WarpCodegenError,
         r"Static expression returns an unsupported value\: None is returned",
     ):
         wp.launch(invalid_kernel, 1, device=device)
@@ -237,7 +224,7 @@ def test_static_expression_return_types(test, device):
         wp.static(MyClass())
 
     with test.assertRaisesRegex(
-        warp.codegen.WarpCodegenError,
+        wp.WarpCodegenError,
         r"Static expression returns an unsupported value\: value of type .*?MyClass",
     ):
         wp.launch(invalid_kernel, 1, device=device)
@@ -257,7 +244,7 @@ def test_function_variable(test, device):
         # note that this example also works without using wp.static()
 
         @wp.kernel
-        def function_variable_kernel(results: wp.array(dtype=int)):
+        def function_variable_kernel(results: wp.array[int]):
             results[0] = wp.static(func)(3, 2)  # noqa: B023
 
         results = wp.zeros(1, dtype=int, device=device)
@@ -292,7 +279,7 @@ def test_function_lookup(test, device):
     for _op, op_func in op_handlers.items():
 
         @wp.kernel
-        def operate(input: wp.array(dtype=inputs.dtype, ndim=2), output: wp.array(dtype=wp.float32)):
+        def operate(input: wp.array2d[inputs.dtype], output: wp.array[wp.float32]):
             tid = wp.tid()
             a, b = input[tid, 0], input[tid, 1]
             # retrieve the right function to use for the captured dtype variable
@@ -305,7 +292,7 @@ def test_function_lookup(test, device):
             test.assertEqual(outputs_np[i], op_func(float(inputs_np[i][0]), float(inputs_np[i][1])))
 
 
-def count_ssa_occurrences(kernel: wp.Kernel, ssas: List[str]) -> Dict[str, int]:
+def count_ssa_occurrences(kernel: wp.Kernel, ssas: list[str]) -> dict[str, int]:
     # analyze the generated code
     counts = dict.fromkeys(ssas, 0)
     for line in kernel.adj.blocks[0].body_forward:
@@ -317,7 +304,7 @@ def count_ssa_occurrences(kernel: wp.Kernel, ssas: List[str]) -> Dict[str, int]:
 
 def test_static_for_loop(test, device):
     @wp.kernel
-    def static_loop_variable(results: wp.array(dtype=int)):
+    def static_loop_variable(results: wp.array[int]):
         s = 0
         for i in range(wp.static(static_global_variable_func())):
             s += wp.static(i)
@@ -346,9 +333,62 @@ def test_static_for_loop(test, device):
         test.assertEqual(counts["for"], 1, "Static for loop must be unrolled")
 
 
+def test_static_for_loop_force_unroll(test, device):
+    @wp.kernel
+    def static_loop_force_unroll(results: wp.array[int]):
+        s = 0
+        for i in range(0, 8):
+            s += wp.static(i)
+        results[0] = s
+
+    original_options = dict(wp.get_module_options())
+    try:
+        wp.set_module_options({"max_unroll": 3})
+
+        results = wp.zeros(1, dtype=int, device=device)
+        wp.launch(static_loop_force_unroll, 1, [results], device=device)
+        results = results.numpy()
+
+        test.assertEqual(results[0], sum(range(8)), "Static for loop must compute the correct solution")
+
+        if hasattr(static_loop_force_unroll.adj, "blocks"):
+            counts = count_ssa_occurrences(static_loop_force_unroll, ["add", "for"])
+            test.assertEqual(counts["add"], 8, "Static for loop must be unrolled")
+            test.assertGreaterEqual(counts["for"], 1, "Static for loop must be unrolled")
+            test.assertLessEqual(counts["for"], 2, "Static for loop must be unrolled")
+    finally:
+        wp.set_module_options(original_options)
+
+
+def test_static_for_loop_no_force_unroll(test, device):
+    @wp.kernel
+    def static_loop_no_force(results: wp.array[int]):
+        s = int(0)
+        for _i in range(0, 8):
+            s = s + wp.static(global_variable)
+        results[0] = s
+
+    original_options = dict(wp.get_module_options())
+    try:
+        wp.set_module_options({"max_unroll": 3})
+
+        results = wp.zeros(1, dtype=int, device=device)
+        wp.launch(static_loop_no_force, 1, [results], device=device)
+        results = results.numpy()
+
+        test.assertEqual(results[0], global_variable * 8, "Static for loop must compute the correct solution")
+
+        if hasattr(static_loop_no_force.adj, "blocks"):
+            counts = count_ssa_occurrences(static_loop_no_force, ["add", "for"])
+            test.assertEqual(counts["add"], 1, "Static for loop should not be unrolled")
+            test.assertGreaterEqual(counts["for"], 2, "Static for loop should remain dynamic")
+    finally:
+        wp.set_module_options(original_options)
+
+
 def test_static_if_else_elif(test, device):
     @wp.kernel
-    def static_condition1(results: wp.array(dtype=int)):
+    def static_condition1(results: wp.array[int]):
         if wp.static(static_global_variable_func() in {2, 3, 5}):
             results[0] = 1
         elif wp.static(static_global_variable_func() in {0, 1}):
@@ -372,7 +412,7 @@ def test_static_if_else_elif(test, device):
     captured_var = "hello"
 
     @wp.kernel
-    def static_condition2(results: wp.array(dtype=int)):
+    def static_condition2(results: wp.array[int]):
         if wp.static(captured_var == "world"):
             results[0] = 1
         else:
@@ -390,7 +430,7 @@ def test_static_if_else_elif(test, device):
     my_list = [1, 2, 3]
 
     @wp.kernel
-    def static_condition3(results: wp.array(dtype=int)):
+    def static_condition3(results: wp.array[int]):
         if wp.static(len(my_list) == 0):
             results[0] = 0
         elif wp.static(len(my_list) == 1):
@@ -489,7 +529,7 @@ def test_static_constant_hash(test, _):
             test.assertEqual(hash1, hash3)
 
     # Warp types (scalars, vectors, matrices)
-    for warp_type in [*wp.types.scalar_types, *wp.types.vector_types]:
+    for warp_type in [*wp._src.types.scalar_types, *wp._src.types.vector_types]:
         type_name = warp_type.__name__
         with test.subTest(msg=f"wp.{type_name}"):
             value1 = ", ".join([str(17)] * warp_type._length_)
@@ -576,7 +616,7 @@ def unresolved_builder(funcids):
     _funcs = [funcs[id] for id in funcids]
 
     @wp.kernel
-    def eval(input: wp.array(dtype=int), output: wp.array(dtype=int)):
+    def eval(input: wp.array[int], output: wp.array[int]):
         for i in range(wp.static(len(_funcs))):
             output[0] = wp.static(_funcs[i])()
 
@@ -607,6 +647,90 @@ def test_unresolved_static_expression(test, device):
         test.assertEqual(output2.numpy()[0], 2)
 
 
+# Global variables used to test wp.static() loop variable handling
+_global_test_idx = 999
+_global_test_j = 888
+
+
+@wp.kernel
+def static_loop_var_kernel(results: wp.array[int]):
+    """Kernel where wp.static() should capture the loop variable, not the global."""
+    for _global_test_idx in range(3):
+        results[_global_test_idx] = wp.static(_global_test_idx)
+
+
+@wp.kernel
+def static_loop_var_in_expr_kernel(results: wp.array[int]):
+    """Kernel where loop variable is used in an arithmetic expression."""
+    for _global_test_idx in range(3):
+        # Even in complex expressions, the loop variable should be used
+        results[_global_test_idx] = wp.static(_global_test_idx * 2 + 1)
+
+
+@wp.kernel
+def static_nested_loop_kernel(results: wp.array[int]):
+    """Kernel with nested loops - both loop variables should be protected."""
+    for _global_test_idx in range(2):
+        for _global_test_j in range(2):
+            idx = _global_test_idx * 2 + _global_test_j
+            results[idx] = wp.static(_global_test_idx * 10 + _global_test_j)
+
+
+@wp.kernel
+def static_nested_loop_same_var_kernel(results: wp.array[int]):
+    """Kernel with nested loops reusing the same variable name.
+
+    Tests counter-based loop variable tracking: when inner and outer loops
+    use the same variable name, the global should still not be captured.
+    Per Python semantics, after the inner loop the variable has the inner
+    loop's final value.
+    """
+    idx = 0
+    for _global_test_idx in range(2):
+        for _global_test_idx in range(3):  # intentional shadowing for test
+            pass
+        # Per Python semantics, _global_test_idx is now 2 (inner loop's final value)
+        # Key: we should NOT capture the global value (999)
+        results[idx] = wp.static(_global_test_idx)
+        idx += 1
+
+
+def test_static_loop_variable_not_shadowed_by_global(test, device):
+    """Test that wp.static() inside a for loop correctly captures the loop variable.
+
+    When a global Python variable exists with the same name as a kernel loop variable,
+    wp.static() should use the loop variable's compile-time constant value (0, 1, 2, ...),
+    not the unrelated global variable. This prevents confusing behavior where the
+    presence of a global variable silently changes the kernel's output.
+    """
+    with wp.ScopedDevice(device):
+        # Test 1: Simple loop variable
+        results = wp.zeros(3, dtype=int)
+        wp.launch(static_loop_var_kernel, dim=1, inputs=[results])
+        np.testing.assert_array_equal(results.numpy(), np.array([0, 1, 2]), err_msg="Simple loop variable test failed")
+
+        # Test 2: Loop variable in arithmetic expression
+        results2 = wp.zeros(3, dtype=int)
+        wp.launch(static_loop_var_in_expr_kernel, dim=1, inputs=[results2])
+        np.testing.assert_array_equal(
+            results2.numpy(), np.array([1, 3, 5]), err_msg="Loop variable in expression test failed"
+        )
+
+        # Test 3: Nested loops - both variables protected
+        results3 = wp.zeros(4, dtype=int)
+        wp.launch(static_nested_loop_kernel, dim=1, inputs=[results3])
+        np.testing.assert_array_equal(results3.numpy(), np.array([0, 1, 10, 11]), err_msg="Nested loop test failed")
+
+        # Test 4: Nested loops reusing the same variable name
+        # Tests counter-based tracking: global should not be captured even with shadowing
+        results4 = wp.zeros(2, dtype=int)
+        wp.launch(static_nested_loop_same_var_kernel, dim=1, inputs=[results4])
+        # Per Python semantics: inner loop shadows outer, final value (2) persists
+        np.testing.assert_array_equal(
+            results4.numpy(), np.array([2, 2]), err_msg="Nested loop with same variable test failed"
+        )
+
+
 devices = get_test_devices()
 
 
@@ -628,13 +752,22 @@ add_function_test(
     TestStatic, "test_static_expression_return_types", test_static_expression_return_types, devices=devices
 )
 add_function_test(TestStatic, "test_static_for_loop", test_static_for_loop, devices=devices)
+add_function_test(TestStatic, "test_static_for_loop_force_unroll", test_static_for_loop_force_unroll, devices=devices)
+add_function_test(
+    TestStatic, "test_static_for_loop_no_force_unroll", test_static_for_loop_no_force_unroll, devices=devices
+)
 add_function_test(TestStatic, "test_static_if_else_elif", test_static_if_else_elif, devices=devices)
 
 add_function_test(TestStatic, "test_static_constant_hash", test_static_constant_hash, devices=None)
 add_function_test(TestStatic, "test_static_function_hash", test_static_function_hash, devices=None)
 add_function_test(TestStatic, "test_static_len_query", test_static_len_query, devices=None)
+add_function_test(
+    TestStatic,
+    "test_static_loop_variable_not_shadowed_by_global",
+    test_static_loop_variable_not_shadowed_by_global,
+    devices=devices,
+)
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import re
 import unittest
@@ -25,10 +13,10 @@ from warp.tests.unittest_utils import *
 # construct kernel + test function for atomic ops on each vec/matrix type
 def make_atomic_test(type):
     def test_atomic_kernel(
-        out_add: wp.array(dtype=type),
-        out_min: wp.array(dtype=type),
-        out_max: wp.array(dtype=type),
-        val: wp.array(dtype=type),
+        out_add: wp.array[type],
+        out_min: wp.array[type],
+        out_max: wp.array[type],
+        val: wp.array[type],
     ):
         tid = wp.tid()
 
@@ -119,6 +107,66 @@ def make_atomic_test(type):
     return test_atomic
 
 
+# atomic functions must return the previous value that was stored
+def make_atomic_return_test(type):
+    def test_atomic_return_value(
+        in_add: wp.array[type],
+        in_min: wp.array[type],
+        in_max: wp.array[type],
+        val: wp.array[type],
+        out_add: wp.array[type],
+        out_min: wp.array[type],
+        out_max: wp.array[type],
+    ):
+        tid = wp.tid()
+
+        out_add[tid] = wp.atomic_add(in_add, tid, val[tid])
+        out_min[tid] = wp.atomic_min(in_min, tid, val[tid])
+        out_max[tid] = wp.atomic_max(in_max, tid, val[tid])
+
+    kernel = wp.Kernel(func=test_atomic_return_value, key=f"test_atomic_{type.__name__}_return_kernel")
+
+    def test_atomic(test, device):
+        n = 1024
+
+        rng = np.random.default_rng(42)
+
+        def random(type):
+            np_type = wp.dtype_to_numpy(type)
+            if np.issubdtype(np_type, np.integer):
+                return rng.integers(-10000, 10000, size=n, dtype=np_type)
+            else:
+                return rng.random(size=n, dtype=np_type)
+
+        in_add_array = wp.array(random(type), dtype=type, device=device)
+        in_min_array = wp.array(random(type), dtype=type, device=device)
+        in_max_array = wp.array(random(type), dtype=type, device=device)
+        val_array = wp.array(random(type), dtype=type, device=device)
+        out_add_array = wp.zeros(n, dtype=type, device=device)
+        out_min_array = wp.zeros(n, dtype=type, device=device)
+        out_max_array = wp.zeros(n, dtype=type, device=device)
+
+        # the input arrays will be modified in-place by the atomic ops
+        # keep a copy of the originals to verify the returned values
+        original_add = in_add_array.numpy().copy()
+        original_min = in_min_array.numpy().copy()
+        original_max = in_max_array.numpy().copy()
+
+        wp.launch(
+            kernel,
+            n,
+            inputs=[in_add_array, in_min_array, in_max_array, val_array],
+            outputs=[out_add_array, out_min_array, out_max_array],
+            device=device,
+        )
+
+        assert_np_equal(out_add_array.numpy(), original_add)
+        assert_np_equal(out_min_array.numpy(), original_min)
+        assert_np_equal(out_max_array.numpy(), original_max)
+
+    return test_atomic
+
+
 # generate test functions for atomic types
 test_atomic_int = make_atomic_test(wp.int32)
 test_atomic_float = make_atomic_test(wp.float32)
@@ -129,24 +177,43 @@ test_atomic_vec4 = make_atomic_test(wp.vec4)
 test_atomic_mat22 = make_atomic_test(wp.mat22)
 test_atomic_mat33 = make_atomic_test(wp.mat33)
 test_atomic_mat44 = make_atomic_test(wp.mat44)
+test_atomic_return_int = make_atomic_return_test(wp.int32)
+test_atomic_return_long = make_atomic_return_test(wp.int64)
+test_atomic_return_float = make_atomic_return_test(wp.float32)
+test_atomic_return_double = make_atomic_return_test(wp.float64)
 
 
 def test_atomic_add_supported_dtypes(test, device, dtype):
     scalar_type = getattr(dtype, "_wp_scalar_type_", dtype)
+    # Use a smaller N for bfloat16 so every intermediate sum (1..64) is exactly representable
+    N = 64 if scalar_type is wp.bfloat16 else 1024
 
-    @wp.kernel
-    def kernel(arr: wp.array(dtype=dtype)):
-        wp.atomic_add(arr, 0, dtype(scalar_type(0)))
+    @wp.kernel(module="unique")
+    def kernel(arr: wp.array[dtype]):
+        wp.atomic_add(arr, 0, dtype(scalar_type(1)))
 
     arr = wp.zeros(1, dtype=dtype, device=device)
-    wp.launch(kernel, dim=1, outputs=(arr,), device=device)
+    wp.launch(kernel, dim=N, outputs=(arr,), device=device)
+
+    size = 1 if not hasattr(dtype, "_shape_") else dtype._shape_
+    if scalar_type is wp.bfloat16:
+        np_arr = arr.numpy().flatten()
+        if np_arr.dtype == np.uint16:
+            # ml_dtypes not installed: manual bit-level conversion to float32
+            result_float = (np_arr.astype(np.uint32) << 16).view(np.float32)
+        else:
+            # ml_dtypes installed: .numpy() returns ml_dtypes.bfloat16
+            result_float = np_arr.astype(np.float32)
+        assert_np_equal(result_float, np.full(size, N, dtype=np.float32))
+    else:
+        assert_np_equal(arr.numpy().flatten(), np.full(size, N, dtype=wp.dtype_to_numpy(scalar_type)))
 
 
 def test_atomic_min_supported_dtypes(test, device, dtype):
     scalar_type = getattr(dtype, "_wp_scalar_type_", dtype)
 
-    @wp.kernel
-    def kernel(arr: wp.array(dtype=dtype)):
+    @wp.kernel(module="unique")
+    def kernel(arr: wp.array[dtype]):
         wp.atomic_min(arr, 0, dtype(scalar_type(0)))
 
     arr = wp.zeros(1, dtype=dtype, device=device)
@@ -156,8 +223,8 @@ def test_atomic_min_supported_dtypes(test, device, dtype):
 def test_atomic_max_supported_dtypes(test, device, dtype):
     scalar_type = getattr(dtype, "_wp_scalar_type_", dtype)
 
-    @wp.kernel
-    def kernel(arr: wp.array(dtype=dtype)):
+    @wp.kernel(module="unique")
+    def kernel(arr: wp.array[dtype]):
         wp.atomic_max(arr, 0, dtype(scalar_type(0)))
 
     arr = wp.zeros(1, dtype=dtype, device=device)
@@ -170,15 +237,15 @@ def test_atomic_add_unsupported_dtypes(test, device, dtype):
     dtype_str = re.escape(wp.types.type_repr(dtype))
     scalar_type_str = wp.types.type_repr(scalar_type)
 
-    @wp.kernel
-    def kernel(arr: wp.array(dtype=dtype)):
+    @wp.kernel(module="unique")
+    def kernel(arr: wp.array[dtype]):
         wp.atomic_add(arr, 0, dtype(scalar_type(0)))
 
     arr = wp.zeros(1, dtype=dtype, device=device)
     with test.assertRaisesRegex(
         RuntimeError,
         (
-            r"atomic_add\(\) operations only work on arrays with \[u\]int32, \[u\]int64, float16, float32, or float64 "
+            r"atomic_add\(\) operations only work on arrays with \[u\]int32, \[u\]int64, float16, bfloat16, float32, or float64 "
             rf"as the underlying scalar types, but got {dtype_str} \(with scalar type {scalar_type_str}\)$"
         ),
     ):
@@ -191,15 +258,15 @@ def test_atomic_min_unsupported_dtypes(test, device, dtype):
     dtype_str = re.escape(wp.types.type_repr(dtype))
     scalar_type_str = wp.types.type_repr(scalar_type)
 
-    @wp.kernel
-    def kernel(arr: wp.array(dtype=dtype)):
+    @wp.kernel(module="unique")
+    def kernel(arr: wp.array[dtype]):
         wp.atomic_min(arr, 0, dtype(scalar_type(0)))
 
     arr = wp.zeros(1, dtype=dtype, device=device)
     with test.assertRaisesRegex(
         RuntimeError,
         (
-            r"atomic_min\(\) operations only work on arrays with \[u\]int32, \[u\]int64, float32, or float64 "
+            r"atomic_min\(\) operations only work on arrays with \[u\]int32, \[u\]int64, bfloat16, float32, or float64 "
             rf"as the underlying scalar types, but got {dtype_str} \(with scalar type {scalar_type_str}\)$"
         ),
     ):
@@ -212,15 +279,15 @@ def test_atomic_max_unsupported_dtypes(test, device, dtype):
     dtype_str = re.escape(wp.types.type_repr(dtype))
     scalar_type_str = wp.types.type_repr(scalar_type)
 
-    @wp.kernel
-    def kernel(arr: wp.array(dtype=dtype)):
+    @wp.kernel(module="unique")
+    def kernel(arr: wp.array[dtype]):
         wp.atomic_max(arr, 0, dtype(scalar_type(0)))
 
     arr = wp.zeros(1, dtype=dtype, device=device)
     with test.assertRaisesRegex(
         RuntimeError,
         (
-            r"atomic_max\(\) operations only work on arrays with \[u\]int32, \[u\]int64, float32, or float64 "
+            r"atomic_max\(\) operations only work on arrays with \[u\]int32, \[u\]int64, bfloat16, float32, or float64 "
             rf"as the underlying scalar types, but got {dtype_str} \(with scalar type {scalar_type_str}\)$"
         ),
     ):
@@ -243,6 +310,10 @@ add_function_test(TestAtomic, "test_atomic_vec4", test_atomic_vec4, devices=devi
 add_function_test(TestAtomic, "test_atomic_mat22", test_atomic_mat22, devices=devices)
 add_function_test(TestAtomic, "test_atomic_mat33", test_atomic_mat33, devices=devices)
 add_function_test(TestAtomic, "test_atomic_mat44", test_atomic_mat44, devices=devices)
+add_function_test(TestAtomic, "test_atomic_return_int", test_atomic_return_int, devices=devices)
+add_function_test(TestAtomic, "test_atomic_return_long", test_atomic_return_long, devices=devices)
+add_function_test(TestAtomic, "test_atomic_return_float", test_atomic_return_float, devices=devices)
+add_function_test(TestAtomic, "test_atomic_return_double", test_atomic_return_double, devices=devices)
 
 for dtype in (
     wp.int32,
@@ -250,6 +321,7 @@ for dtype in (
     wp.int64,
     wp.uint64,
     wp.float16,
+    wp.bfloat16,
     wp.float32,
     wp.float64,
     wp.vec3i,
@@ -261,12 +333,16 @@ for dtype in (
     wp.vec3d,
 ):
     scalar_type = getattr(dtype, "_wp_scalar_type_", dtype)
+    # bfloat16 requires arch >= 80
+    dtype_devices = [d for d in devices if not d.is_cuda or d.arch >= 80] if scalar_type is wp.bfloat16 else devices
 
     add_function_test(
         TestAtomic,
         f"test_atomic_add_supported_dtypes_{dtype.__name__}",
         test_atomic_add_supported_dtypes,
-        devices=devices,
+        devices=dtype_devices,
+        # bfloat16 .numpy() emits a UserWarning about raw uint16 representation
+        check_output=scalar_type is not wp.bfloat16,
         dtype=dtype,
     )
 
@@ -275,14 +351,16 @@ for dtype in (
             TestAtomic,
             f"test_atomic_min_supported_dtypes_{dtype.__name__}",
             test_atomic_min_supported_dtypes,
-            devices=devices,
+            devices=dtype_devices,
+            check_output=scalar_type is not wp.bfloat16,
             dtype=dtype,
         )
         add_function_test(
             TestAtomic,
             f"test_atomic_max_supported_dtypes_{dtype.__name__}",
             test_atomic_max_supported_dtypes,
-            devices=devices,
+            devices=dtype_devices,
+            check_output=scalar_type is not wp.bfloat16,
             dtype=dtype,
         )
 
@@ -328,5 +406,4 @@ for dtype in (
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

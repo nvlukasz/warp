@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from __future__ import annotations
 
@@ -26,14 +14,14 @@ from warp.tests.unittest_utils import *
 
 # types to test fabric arrays
 _fabric_types = [
-    *wp.types.scalar_types,
-    *[wp.types.vector(2, T) for T in wp.types.scalar_types],
-    *[wp.types.vector(3, T) for T in wp.types.scalar_types],
-    *[wp.types.vector(4, T) for T in wp.types.scalar_types],
-    *[wp.types.matrix((2, 2), T) for T in wp.types.scalar_types],
-    *[wp.types.matrix((3, 3), T) for T in wp.types.scalar_types],
-    *[wp.types.matrix((4, 4), T) for T in wp.types.scalar_types],
-    *[wp.types.quaternion(T) for T in wp.types.float_types],
+    *wp._src.types.scalar_types,
+    *[wp.types.vector(2, T) for T in wp._src.types.scalar_types],
+    *[wp.types.vector(3, T) for T in wp._src.types.scalar_types],
+    *[wp.types.vector(4, T) for T in wp._src.types.scalar_types],
+    *[wp.types.matrix((2, 2), T) for T in wp._src.types.scalar_types],
+    *[wp.types.matrix((3, 3), T) for T in wp._src.types.scalar_types],
+    *[wp.types.matrix((4, 4), T) for T in wp._src.types.scalar_types],
+    *[wp.types.quaternion(T) for T in wp._src.types.float_types],
 ]
 
 
@@ -226,7 +214,7 @@ def _create_fabric_array_array_interface(data: list, attrib: str, bucket_sizes: 
 
 
 @wp.kernel
-def fa_kernel(a: wp.fabricarray(dtype=float), expected: wp.array(dtype=float)):
+def fa_kernel(a: wp.fabricarray[float], expected: wp.array[float]):
     i = wp.tid()
 
     wp.expect_eq(a[i], expected[i])
@@ -239,7 +227,7 @@ def fa_kernel(a: wp.fabricarray(dtype=float), expected: wp.array(dtype=float)):
 
 
 @wp.kernel
-def fa_kernel_indexed(a: wp.indexedfabricarray(dtype=float), expected: wp.indexedarray(dtype=float)):
+def fa_kernel_indexed(a: wp.indexedfabricarray[float], expected: wp.indexedarray[float]):
     i = wp.tid()
 
     wp.expect_eq(a[i], expected[i])
@@ -282,13 +270,13 @@ def test_fabricarray_kernel(test, device):
 
 
 @wp.kernel
-def fa_generic_dtype_kernel(a: wp.fabricarray(dtype=Any), b: wp.fabricarray(dtype=Any)):
+def fa_generic_dtype_kernel(a: wp.fabricarray[Any], b: wp.fabricarray[Any]):
     i = wp.tid()
     b[i] = a[i] + a[i]
 
 
 @wp.kernel
-def fa_generic_dtype_kernel_indexed(a: wp.indexedfabricarray(dtype=Any), b: wp.indexedfabricarray(dtype=Any)):
+def fa_generic_dtype_kernel_indexed(a: wp.indexedfabricarray[Any], b: wp.indexedfabricarray[Any]):
     i = wp.tid()
     b[i] = a[i] + a[i]
 
@@ -296,9 +284,9 @@ def fa_generic_dtype_kernel_indexed(a: wp.indexedfabricarray(dtype=Any), b: wp.i
 def test_fabricarray_generic_dtype(test, device):
     for T in _fabric_types:
         if hasattr(T, "_wp_scalar_type_"):
-            nptype = wp.types.warp_type_to_np_dtype[T._wp_scalar_type_]
+            nptype = wp.dtype_to_numpy(T._wp_scalar_type_)
         else:
-            nptype = wp.types.warp_type_to_np_dtype[T]
+            nptype = wp.dtype_to_numpy(T)
 
         data = wp.array(data=np.arange(10, dtype=nptype), device=device)
         data_iface = _create_fabric_array_interface(data, "foo", copy=True)
@@ -345,9 +333,9 @@ def fa_generic_array_kernel(a: Any, b: Any):
 def test_fabricarray_generic_array(test, device):
     for T in _fabric_types:
         if hasattr(T, "_wp_scalar_type_"):
-            nptype = wp.types.warp_type_to_np_dtype[T._wp_scalar_type_]
+            nptype = wp.dtype_to_numpy(T._wp_scalar_type_)
         else:
-            nptype = wp.types.warp_type_to_np_dtype[T]
+            nptype = wp.dtype_to_numpy(T)
 
         data = wp.array(data=np.arange(100, dtype=nptype), device=device)
         data_iface = _create_fabric_array_interface(data, "foo", copy=True)
@@ -461,7 +449,7 @@ def test_fabricarray_empty(test, device):
         test.assertEqual(ifa.list(), [])
 
     # test with scalars, vectors, and matrices
-    for nptype, wptype in wp.types.np_dtype_to_warp_type.items():
+    for nptype, wptype in wp._src.types.np_dtype_to_warp_type.items():
         # scalars
         test_empty_ops(0, 0, wptype, nptype)
 
@@ -473,7 +461,7 @@ def test_fabricarray_empty(test, device):
 
 
 def test_fabricarray_fill_scalar(test, device):
-    for nptype, wptype in wp.types.np_dtype_to_warp_type.items():
+    for nptype, wptype in wp._src.types.np_dtype_to_warp_type.items():
         # create a data array
         data = wp.zeros(100, dtype=wptype, device=device)
         iface = _create_fabric_array_interface(data, "foo", copy=True)
@@ -489,7 +477,7 @@ def test_fabricarray_fill_scalar(test, device):
         fa.zero_()
         assert_np_equal(fa.numpy(), np.zeros(fa.shape, dtype=nptype))
 
-        if wptype in wp.types.float_types:
+        if wptype in wp._src.types.float_types:
             # fill with float value
             fill_value = 13.37
             fa.fill_(fill_value)
@@ -524,7 +512,7 @@ def test_fabricarray_fill_scalar(test, device):
         assert_np_equal(ifa.numpy(), np.zeros(ifa.shape, dtype=nptype))
         assert_np_equal(ifb.numpy(), np.zeros(ifb.shape, dtype=nptype))
 
-        if wptype in wp.types.float_types:
+        if wptype in wp._src.types.float_types:
             # fill with float value
             fill_value = 13.37
             ifa.fill_(fill_value)
@@ -541,7 +529,7 @@ def test_fabricarray_fill_scalar(test, device):
 def test_fabricarray_fill_vector(test, device):
     # test filling a vector array with scalar or vector values (vec_type, list, or numpy array)
 
-    for nptype, wptype in wp.types.np_dtype_to_warp_type.items():
+    for nptype, wptype in wp._src.types.np_dtype_to_warp_type.items():
         # vector types
         vector_types = [
             wp.types.vector(2, wptype),
@@ -593,7 +581,7 @@ def test_fabricarray_fill_vector(test, device):
             fa.fill_(fill_vec)
             assert_np_equal(fa.numpy(), expected)
 
-            if wptype in wp.types.float_types:
+            if wptype in wp._src.types.float_types:
                 # fill with float scalar
                 fill_value = 13.37
                 fa.fill_(fill_value)
@@ -661,7 +649,7 @@ def test_fabricarray_fill_vector(test, device):
             assert_np_equal(ifa.numpy(), expected)
             assert_np_equal(ifb.numpy(), np.zeros((*ifb.shape, vec_len), dtype=nptype))
 
-            if wptype in wp.types.float_types:
+            if wptype in wp._src.types.float_types:
                 # fill with float scalar
                 fill_value = 13.37
                 ifa.fill_(fill_value)
@@ -682,7 +670,7 @@ def test_fabricarray_fill_vector(test, device):
 def test_fabricarray_fill_matrix(test, device):
     # test filling a matrix array with scalar or matrix values (mat_type, nested list, or 2d numpy array)
 
-    for nptype, wptype in wp.types.np_dtype_to_warp_type.items():
+    for nptype, wptype in wp._src.types.np_dtype_to_warp_type.items():
         # matrix types
         matrix_types = [
             # square matrices only
@@ -833,7 +821,7 @@ def test_fabricarray_fill_matrix(test, device):
 
 @wp.kernel
 def fa_kernel_indexing_types(
-    a: wp.fabricarray(dtype=wp.int32),
+    a: wp.fabricarray[wp.int32],
 ):
     x = a[wp.uint8(0)]
     y = a[wp.int16(1)]
@@ -864,7 +852,7 @@ def test_fabricarray_indexing_types(test, device):
 
 
 @wp.kernel
-def fa_generic_sums_kernel(a: wp.fabricarrayarray(dtype=Any), sums: wp.array(dtype=Any)):
+def fa_generic_sums_kernel(a: wp.fabricarrayarray(dtype=Any), sums: wp.array[Any]):
     i = wp.tid()
 
     # get sub-array using wp::view()
@@ -879,7 +867,7 @@ def fa_generic_sums_kernel(a: wp.fabricarrayarray(dtype=Any), sums: wp.array(dty
 
 
 @wp.kernel
-def fa_generic_sums_kernel_indexed(a: wp.indexedfabricarrayarray(dtype=Any), sums: wp.array(dtype=Any)):
+def fa_generic_sums_kernel_indexed(a: wp.indexedfabricarrayarray(dtype=Any), sums: wp.array[Any]):
     i = wp.tid()
 
     # get sub-array using wp::view()
@@ -896,9 +884,9 @@ def fa_generic_sums_kernel_indexed(a: wp.indexedfabricarrayarray(dtype=Any), sum
 def test_fabricarrayarray(test, device):
     for T in _fabric_types:
         if hasattr(T, "_wp_scalar_type_"):
-            nptype = wp.types.warp_type_to_np_dtype[T._wp_scalar_type_]
+            nptype = wp.dtype_to_numpy(T._wp_scalar_type_)
         else:
-            nptype = wp.types.warp_type_to_np_dtype[T]
+            nptype = wp.dtype_to_numpy(T)
 
         n = 100
 
@@ -959,14 +947,14 @@ def test_fabricarrayarray(test, device):
 
 # explicit kernel overloads
 for T in _fabric_types:
-    wp.overload(fa_generic_dtype_kernel, [wp.fabricarray(dtype=T), wp.fabricarray(dtype=T)])
-    wp.overload(fa_generic_dtype_kernel_indexed, [wp.indexedfabricarray(dtype=T), wp.indexedfabricarray(dtype=T)])
+    wp.overload(fa_generic_dtype_kernel, [wp.fabricarray[T], wp.fabricarray[T]])
+    wp.overload(fa_generic_dtype_kernel_indexed, [wp.indexedfabricarray[T], wp.indexedfabricarray[T]])
 
-    wp.overload(fa_generic_array_kernel, [wp.fabricarray(dtype=T), wp.fabricarray(dtype=T)])
-    wp.overload(fa_generic_array_kernel, [wp.indexedfabricarray(dtype=T), wp.indexedfabricarray(dtype=T)])
+    wp.overload(fa_generic_array_kernel, [wp.fabricarray[T], wp.fabricarray[T]])
+    wp.overload(fa_generic_array_kernel, [wp.indexedfabricarray[T], wp.indexedfabricarray[T]])
 
-    wp.overload(fa_generic_sums_kernel, [wp.fabricarrayarray(dtype=T), wp.array(dtype=T)])
-    wp.overload(fa_generic_sums_kernel_indexed, [wp.indexedfabricarrayarray(dtype=T), wp.array(dtype=T)])
+    wp.overload(fa_generic_sums_kernel, [wp.fabricarrayarray(dtype=T), wp.array[T]])
+    wp.overload(fa_generic_sums_kernel_indexed, [wp.indexedfabricarrayarray(dtype=T), wp.array[T]])
 
 
 devices = get_test_devices()
@@ -994,5 +982,4 @@ add_function_test(TestFabricArray, "test_fabricarrayarray", test_fabricarrayarra
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

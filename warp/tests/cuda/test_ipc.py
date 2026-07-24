@@ -1,19 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import multiprocessing as mp
+import sys
 import unittest
 
 import warp as wp
@@ -43,25 +32,25 @@ def test_ipc_get_event_handle(test, device):
 
 
 def test_ipc_event_missing_interprocess_flag(test, device):
+    if sys.platform == "win32":
+        test.skipTest("Skipping test on Windows due to unreliable stdout capture")
     if device.is_ipc_supported is False:
         test.skipTest(f"IPC is not supported on {device}")
 
     e1 = wp.Event(device, interprocess=False)
 
     try:
-        capture = StdOutCapture()
+        capture = StdErrCapture()
         capture.begin()
         ipc_handle = e1.ipc_handle()
     finally:
         output = capture.end()
 
-    # Older Windows C runtimes have a bug where stdout sometimes does not get properly flushed.
-    if sys.platform != "win32":
-        test.assertRegex(output, r"Warp UserWarning: IPC event handle appears to be invalid.")
+    test.assertRegex(output, r"Warp UserWarning: IPC event handle appears to be invalid.")
 
 
 @wp.kernel
-def multiply_by_two(a: wp.array(dtype=wp.float32)):
+def multiply_by_two(a: wp.array[wp.float32]):
     i = wp.tid()
     a[i] = 2.0 * a[i]
 
@@ -120,5 +109,4 @@ add_function_test(
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

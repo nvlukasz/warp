@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
@@ -22,7 +10,7 @@ from warp.tests.unittest_utils import *
 
 
 @wp.kernel
-def bvh_query_aabb(bvh_id: wp.uint64, lower: wp.vec3, upper: wp.vec3, bounds_intersected: wp.array(dtype=int)):
+def bvh_query_aabb(bvh_id: wp.uint64, lower: wp.vec3, upper: wp.vec3, bounds_intersected: wp.array[int]):
     query = wp.bvh_query_aabb(bvh_id, lower, upper)
     bounds_nr = int(0)
 
@@ -31,7 +19,7 @@ def bvh_query_aabb(bvh_id: wp.uint64, lower: wp.vec3, upper: wp.vec3, bounds_int
 
 
 @wp.kernel
-def bvh_query_ray(bvh_id: wp.uint64, start: wp.vec3, dir: wp.vec3, bounds_intersected: wp.array(dtype=int)):
+def bvh_query_ray(bvh_id: wp.uint64, start: wp.vec3, dir: wp.vec3, bounds_intersected: wp.array[int]):
     query = wp.bvh_query_ray(bvh_id, start, dir)
     bounds_nr = int(0)
 
@@ -75,7 +63,7 @@ def intersect_ray_aabb(start, rcp_dir, lower, upper):
         return 0
 
 
-def test_bvh(test, type, device):
+def test_bvh(test, type, device, leaf_size, constructor=None):
     rng = np.random.default_rng(123)
 
     num_bounds = 100
@@ -85,7 +73,7 @@ def test_bvh(test, type, device):
     device_lowers = wp.array(lowers, dtype=wp.vec3, device=device)
     device_uppers = wp.array(uppers, dtype=wp.vec3, device=device)
 
-    bvh = wp.Bvh(device_lowers, device_uppers)
+    bvh = wp.Bvh(device_lowers, device_uppers, constructor=constructor, leaf_size=leaf_size)
 
     bounds_intersected = wp.zeros(shape=(num_bounds), dtype=int, device=device)
 
@@ -98,15 +86,13 @@ def test_bvh(test, type, device):
     for test_case in range(3):
         if type == "AABB":
             wp.launch(
-                kernel=bvh_query_aabb,
+                bvh_query_aabb,
                 dim=1,
                 inputs=[bvh.id, query_lower, query_upper, bounds_intersected],
                 device=device,
             )
         else:
-            wp.launch(
-                kernel=bvh_query_ray, dim=1, inputs=[bvh.id, query_start, query_dir, bounds_intersected], device=device
-            )
+            wp.launch(bvh_query_ray, dim=1, inputs=[bvh.id, query_start, query_dir, bounds_intersected], device=device)
 
         device_intersected = bounds_intersected.numpy()
 
@@ -134,44 +120,145 @@ def test_bvh(test, type, device):
 
 
 def test_bvh_query_aabb(test, device):
-    test_bvh(test, "AABB", device)
+    for leaf_size in [1, 2, 4]:
+        test_bvh(test, "AABB", device, leaf_size)
 
 
 def test_bvh_query_ray(test, device):
-    test_bvh(test, "ray", device)
+    for leaf_size in [1, 2, 4]:
+        test_bvh(test, "ray", device, leaf_size)
 
 
-def test_gh_288(test, device):
-    num_bounds = 1
-    lowers = ((0.5, -1.0, -1.0),) * num_bounds
-    uppers = ((1.0, 1.0, 1.0),) * num_bounds
+def test_bvh_cubql_constructor(test, device):
+    if not wp.is_cubql_available():
+        test.skipTest("cuBQL is not available")
+
+    for leaf_size in [1, 2, 4]:
+        test_bvh(test, "AABB", device, leaf_size, constructor="cubql")
+        test_bvh(test, "ray", device, leaf_size, constructor="cubql")
+
+
+def test_bvh_ray_query_inside_and_outside_bounds(test, device):
+    """Regression test for issue #288: BVH ray queries should detect intersections
+    regardless of whether the ray origin is inside or outside the bounding volumes.
+
+    Previously, rays starting outside the bounds would fail to detect intersections.
+    """
+    # Create a single AABB spanning x=[0.5, 1.0], extending across y and z axes
+    lowers = ((0.5, -1.0, -1.0),)
+    uppers = ((1.0, 1.0, 1.0),)
 
     device_lowers = wp.array(lowers, dtype=wp.vec3f, device=device)
     device_uppers = wp.array(uppers, dtype=wp.vec3f, device=device)
 
     bvh = wp.Bvh(device_lowers, device_uppers)
 
-    bounds_intersected = wp.zeros(shape=num_bounds, dtype=int, device=device)
+    bounds_intersected = wp.zeros(shape=1, dtype=int, device=device)
 
+    # Test both ray origins: outside (x=0.0) and inside (x=0.75) the AABB
     for x in (0.0, 0.75):
         query_start = wp.vec3(x, 0.0, 0.0)
-        query_dir = wp.vec3(1.0, 0.0, 0.0)
+        query_dir = wp.vec3(1.0, 0.0, 0.0)  # Ray pointing in +x direction
 
-        wp.launch(
-            kernel=bvh_query_ray, dim=1, inputs=[bvh.id, query_start, query_dir, bounds_intersected], device=device
-        )
+        wp.launch(bvh_query_ray, dim=1, inputs=[bvh.id, query_start, query_dir, bounds_intersected], device=device)
 
         device_intersected = bounds_intersected.numpy()
-        test.assertEqual(device_intersected.sum(), num_bounds)
+        # Both cases should detect the single intersection
+        test.assertEqual(device_intersected.sum(), 1)
 
 
-def get_random_aabbs(
-    n,
-    center,
-    relative_shift,
-    relative_size,
-    rng,
-):
+def test_bvh_refit_root_leaves(test, device):
+    """Refit CUDA BVHs whose root is represented as a leaf.
+
+    Single-node trees store the root leaf without a parent. LBVH can also pack
+    the root into a leaf when ``leaf_size`` covers all primitives. The old and
+    new AABBs occupy disjoint x-ranges, so the old query should miss after
+    refit and the new query should hit the updated bounds.
+    """
+    old_single_lower = wp.vec3(0.0, 0.0, 0.0)
+    old_single_upper = wp.vec3(1.0, 1.0, 1.0)
+    new_single_lower = wp.vec3(2.0, 0.0, 0.0)
+    new_single_upper = wp.vec3(3.0, 1.0, 1.0)
+
+    cases = [
+        (
+            f"single_leaf_{constructor}",
+            constructor,
+            1,
+            [old_single_lower],
+            [old_single_upper],
+            [new_single_lower],
+            [new_single_upper],
+            old_single_lower,
+            old_single_upper,
+            new_single_lower,
+            new_single_upper,
+            1,
+        )
+        for constructor in ("sah", "median", "lbvh")
+    ]
+    cases.append(
+        (
+            "packed_root_lbvh",
+            "lbvh",
+            2,
+            [wp.vec3(0.0, 0.0, 0.0), wp.vec3(2.0, 0.0, 0.0)],
+            [wp.vec3(1.0, 1.0, 1.0), wp.vec3(3.0, 1.0, 1.0)],
+            [wp.vec3(4.0, 0.0, 0.0), wp.vec3(6.0, 0.0, 0.0)],
+            [wp.vec3(5.0, 1.0, 1.0), wp.vec3(7.0, 1.0, 1.0)],
+            wp.vec3(0.0, 0.0, 0.0),
+            wp.vec3(3.0, 1.0, 1.0),
+            wp.vec3(4.0, 0.0, 0.0),
+            wp.vec3(7.0, 1.0, 1.0),
+            2,
+        )
+    )
+
+    for (
+        name,
+        constructor,
+        leaf_size,
+        old_lowers,
+        old_uppers,
+        new_lowers,
+        new_uppers,
+        old_query_lower,
+        old_query_upper,
+        new_query_lower,
+        new_query_upper,
+        expected_new_hits,
+    ) in cases:
+        with test.subTest(name=name):
+            lowers = wp.array(old_lowers, dtype=wp.vec3, device=device)
+            uppers = wp.array(old_uppers, dtype=wp.vec3, device=device)
+            bvh = wp.Bvh(lowers, uppers, constructor=constructor, leaf_size=leaf_size)
+
+            wp.copy(lowers, wp.array(new_lowers, dtype=wp.vec3, device=device))
+            wp.copy(uppers, wp.array(new_uppers, dtype=wp.vec3, device=device))
+            bvh.refit()
+
+            bounds_intersected = wp.zeros(shape=len(old_lowers), dtype=int, device=device)
+            wp.launch(
+                bvh_query_aabb,
+                dim=1,
+                inputs=[bvh.id, old_query_lower, old_query_upper, bounds_intersected],
+                device=device,
+            )
+            test.assertEqual(bounds_intersected.numpy().sum(), 0, f"Expected miss at old bounds ({name})")
+
+            bounds_intersected.zero_()
+            wp.launch(
+                bvh_query_aabb,
+                dim=1,
+                inputs=[bvh.id, new_query_lower, new_query_upper, bounds_intersected],
+                device=device,
+            )
+            test.assertEqual(
+                bounds_intersected.numpy().sum(), expected_new_hits, f"Expected hits at refit bounds ({name})"
+            )
+
+
+def get_random_aabbs(n, center, relative_shift, relative_size, rng):
     centers = rng.uniform(-0.5, 0.5, size=n * 3).reshape(n, 3) * relative_shift + center
     diffs = 0.5 * rng.random(n * 3).reshape(n, 3) * relative_size
 
@@ -183,11 +270,11 @@ def get_random_aabbs(
 
 @wp.kernel
 def compute_num_contact_with_checksums(
-    lowers: wp.array(dtype=wp.vec3),
-    uppers: wp.array(dtype=wp.vec3),
+    lowers: wp.array[wp.vec3],
+    uppers: wp.array[wp.vec3],
     bvh_id: wp.uint64,
-    counts: wp.array(dtype=int),
-    check_sums: wp.array(dtype=int),
+    counts: wp.array[int],
+    check_sums: wp.array[int],
 ):
     tid = wp.tid()
 
@@ -255,7 +342,7 @@ def test_capture_bvh_rebuild(test, device):
             wp.copy(item_uppers, item_uppers_2)
             bvh_1.rebuild()
             wp.launch(
-                kernel=compute_num_contact_with_checksums,
+                compute_num_contact_with_checksums,
                 dim=num_test_bounds,
                 inputs=[test_lowers, test_uppers, bvh_1.id],
                 outputs=[counts_1, checksums_1],
@@ -278,7 +365,7 @@ def test_capture_bvh_rebuild(test, device):
 
             bvh_2 = wp.Bvh(item_lowers_2, item_uppers_2)
             wp.launch(
-                kernel=compute_num_contact_with_checksums,
+                compute_num_contact_with_checksums,
                 dim=num_test_bounds,
                 inputs=[test_lowers, test_uppers, bvh_2.id],
                 outputs=[counts_2, checksums_2],
@@ -289,8 +376,428 @@ def test_capture_bvh_rebuild(test, device):
             assert_array_equal(checksums_1, checksums_2)
 
 
+@wp.kernel
+def tile_bvh_query_aabb_kernel(
+    bvh_id: wp.uint64,
+    lower: wp.vec3,
+    upper: wp.vec3,
+    bounds_intersected: wp.array[int],
+):
+    query = wp.tile_bvh_query_aabb(bvh_id, lower, upper)
+
+    while wp.tile_query_valid(query):
+        result_tile = wp.tile_bvh_query_next(query)
+        result_idx = wp.untile(result_tile)
+
+        # Mark bounds as intersected using atomic add (skip -1 which means no result)
+        # This ensures we can verify that each bound is only reported once
+        if result_idx >= 0:
+            wp.atomic_add(bounds_intersected, result_idx, 1)
+
+
+@wp.kernel
+def tile_bvh_query_ray_kernel(
+    bvh_id: wp.uint64,
+    start: wp.vec3,
+    dir: wp.vec3,
+    bounds_intersected: wp.array[int],
+):
+    query = wp.tile_bvh_query_ray(bvh_id, start, dir)
+
+    while wp.tile_query_valid(query):
+        result_tile = wp.tile_bvh_query_next(query)
+        result_idx = wp.untile(result_tile)
+
+        # Mark bounds as intersected using atomic add (skip -1 which means no result)
+        # This ensures we can verify that each bound is only reported once
+        if result_idx >= 0:
+            wp.atomic_add(bounds_intersected, result_idx, 1)
+
+
+def test_tile_bvh_query(test, device):
+    """Test tile-based BVH query and compare with single-threaded version."""
+    rng = np.random.default_rng(456)
+
+    num_bounds = 100
+    lowers = rng.random(size=(num_bounds, 3)) * 5.0
+    uppers = lowers + rng.random(size=(num_bounds, 3)) * 5.0
+
+    device_lowers = wp.array(lowers, dtype=wp.vec3, device=device)
+    device_uppers = wp.array(uppers, dtype=wp.vec3, device=device)
+
+    bvh = wp.Bvh(device_lowers, device_uppers)
+
+    query_lower = wp.vec3(2.0, 2.0, 2.0)
+    query_upper = wp.vec3(8.0, 8.0, 8.0)
+
+    # Test with single-threaded version (ground truth)
+    bounds_intersected_single = wp.zeros(shape=(num_bounds), dtype=int, device=device)
+    wp.launch(
+        kernel=bvh_query_aabb,
+        dim=1,
+        inputs=[bvh.id, query_lower, query_upper, bounds_intersected_single],
+        device=device,
+    )
+
+    # Test with tile-based version
+    block_dim = 64
+    bounds_intersected_tile = wp.zeros(shape=(num_bounds), dtype=int, device=device)
+    wp.launch_tiled(
+        kernel=tile_bvh_query_aabb_kernel,
+        dim=1,
+        inputs=[bvh.id, query_lower, query_upper, bounds_intersected_tile],
+        device=device,
+        block_dim=block_dim,
+    )
+
+    # Compare results
+    single_result = bounds_intersected_single.numpy()
+    tile_result = bounds_intersected_tile.numpy()
+
+    for i in range(num_bounds):
+        test.assertEqual(
+            single_result[i],
+            tile_result[i],
+            f"Mismatch at bound {i}: single={single_result[i]}, tile={tile_result[i]}",
+        )
+
+    # Verify against CPU ground truth
+    for i in range(num_bounds):
+        lower = lowers[i]
+        upper = uppers[i]
+        if (
+            lower[0] < query_upper[0]
+            and upper[0] > query_lower[0]
+            and lower[1] < query_upper[1]
+            and upper[1] > query_lower[1]
+            and lower[2] < query_upper[2]
+            and upper[2] > query_lower[2]
+        ):
+            test.assertEqual(tile_result[i], 1, f"Expected bound {i} to be intersected")
+        else:
+            test.assertEqual(tile_result[i], 0, f"Expected bound {i} to not be intersected")
+
+    # Verify that no bound was reported more than once
+    # (all values should be 0 or 1, never > 1)
+    for i in range(num_bounds):
+        test.assertIn(
+            tile_result[i],
+            [0, 1],
+            f"Bound {i} was reported {tile_result[i]} times, expected 0 or 1. "
+            "This indicates the parallel BVH query reported the same bound multiple times.",
+        )
+
+    # Also test tile_query_valid-based loop
+    bounds_intersected_count = wp.zeros(shape=(num_bounds), dtype=int, device=device)
+    wp.launch_tiled(
+        kernel=tile_bvh_query_valid_aabb_kernel,
+        dim=1,
+        inputs=[bvh.id, query_lower, query_upper, bounds_intersected_count],
+        device=device,
+        block_dim=block_dim,
+    )
+    count_result = bounds_intersected_count.numpy()
+    for i in range(num_bounds):
+        test.assertEqual(
+            single_result[i],
+            count_result[i],
+            f"tile_query_valid mismatch at bound {i}: single={single_result[i]}, count={count_result[i]}",
+        )
+
+
+def test_tile_bvh_query_ray(test, device):
+    """Test tile-based BVH ray query and compare with single-threaded version."""
+    rng = np.random.default_rng(789)
+
+    num_bounds = 100
+    lowers = rng.random(size=(num_bounds, 3)) * 5.0
+    uppers = lowers + rng.random(size=(num_bounds, 3)) * 5.0
+
+    device_lowers = wp.array(lowers, dtype=wp.vec3, device=device)
+    device_uppers = wp.array(uppers, dtype=wp.vec3, device=device)
+
+    bvh = wp.Bvh(device_lowers, device_uppers)
+
+    query_start = wp.vec3(0.0, 0.0, 0.0)
+    query_dir = wp.normalize(wp.vec3(1.0, 1.0, 1.0))
+
+    # Test with single-threaded version (ground truth)
+    bounds_intersected_single = wp.zeros(shape=(num_bounds), dtype=int, device=device)
+    wp.launch(
+        kernel=bvh_query_ray,
+        dim=1,
+        inputs=[bvh.id, query_start, query_dir, bounds_intersected_single],
+        device=device,
+    )
+
+    # Test with tile-based version
+    block_dim = 64
+    bounds_intersected_tile = wp.zeros(shape=(num_bounds), dtype=int, device=device)
+    wp.launch_tiled(
+        kernel=tile_bvh_query_ray_kernel,
+        dim=1,
+        inputs=[bvh.id, query_start, query_dir, bounds_intersected_tile],
+        device=device,
+        block_dim=block_dim,
+    )
+
+    # Compare results
+    single_result = bounds_intersected_single.numpy()
+    tile_result = bounds_intersected_tile.numpy()
+
+    for i in range(num_bounds):
+        test.assertEqual(
+            single_result[i],
+            tile_result[i],
+            f"Mismatch at bound {i}: single={single_result[i]}, tile={tile_result[i]}",
+        )
+
+    # Verify against CPU ground truth
+    for i in range(num_bounds):
+        lower = lowers[i]
+        upper = uppers[i]
+        host_intersected = intersect_ray_aabb(query_start, 1.0 / query_dir, lower, upper)
+        test.assertEqual(tile_result[i], host_intersected, f"Expected bound {i} intersection to be {host_intersected}")
+
+    # Verify that no bound was reported more than once
+    # (all values should be 0 or 1, never > 1)
+    for i in range(num_bounds):
+        test.assertIn(
+            tile_result[i],
+            [0, 1],
+            f"Bound {i} was reported {tile_result[i]} times, expected 0 or 1. "
+            "This indicates the parallel BVH query reported the same bound multiple times.",
+        )
+
+    # Also test tile_query_valid-based loop
+    bounds_intersected_count = wp.zeros(shape=(num_bounds), dtype=int, device=device)
+    wp.launch_tiled(
+        kernel=tile_bvh_query_valid_ray_kernel,
+        dim=1,
+        inputs=[bvh.id, query_start, query_dir, bounds_intersected_count],
+        device=device,
+        block_dim=block_dim,
+    )
+    count_result = bounds_intersected_count.numpy()
+    for i in range(num_bounds):
+        test.assertEqual(
+            single_result[i],
+            count_result[i],
+            f"tile_query_valid mismatch at bound {i}: single={single_result[i]}, count={count_result[i]}",
+        )
+
+
+# Tests for new bvh_query_*_tiled() API (primary naming convention)
+@wp.kernel
+def bvh_query_aabb_tiled_kernel(
+    bvh_id: wp.uint64,
+    lower: wp.vec3,
+    upper: wp.vec3,
+    bounds_intersected: wp.array[int],
+):
+    query = wp.bvh_query_aabb_tiled(bvh_id, lower, upper)
+
+    while wp.tile_query_valid(query):
+        result_tile = wp.bvh_query_next_tiled(query)
+        result_idx = wp.untile(result_tile)
+
+        # Mark bounds as intersected using atomic add (skip -1 which means no result)
+        if result_idx >= 0:
+            wp.atomic_add(bounds_intersected, result_idx, 1)
+
+
+@wp.kernel
+def bvh_query_ray_tiled_kernel(
+    bvh_id: wp.uint64,
+    start: wp.vec3,
+    dir: wp.vec3,
+    bounds_intersected: wp.array[int],
+):
+    query = wp.bvh_query_ray_tiled(bvh_id, start, dir)
+
+    while wp.tile_query_valid(query):
+        result_tile = wp.bvh_query_next_tiled(query)
+        result_idx = wp.untile(result_tile)
+
+        # Mark bounds as intersected using atomic add (skip -1 which means no result)
+        if result_idx >= 0:
+            wp.atomic_add(bounds_intersected, result_idx, 1)
+
+
+def test_bvh_query_aabb_tiled(test, device):
+    """Test bvh_query_aabb_tiled() API (new primary naming convention)."""
+    rng = np.random.default_rng(456)
+
+    num_bounds = 100
+    lowers = rng.random(size=(num_bounds, 3)) * 5.0
+    uppers = lowers + rng.random(size=(num_bounds, 3)) * 5.0
+
+    device_lowers = wp.array(lowers, dtype=wp.vec3, device=device)
+    device_uppers = wp.array(uppers, dtype=wp.vec3, device=device)
+
+    bvh = wp.Bvh(device_lowers, device_uppers)
+
+    query_lower = wp.vec3(2.0, 2.0, 2.0)
+    query_upper = wp.vec3(8.0, 8.0, 8.0)
+
+    # Test with single-threaded version (ground truth)
+    bounds_intersected_single = wp.zeros(shape=(num_bounds), dtype=int, device=device)
+    wp.launch(
+        kernel=bvh_query_aabb,
+        dim=1,
+        inputs=[bvh.id, query_lower, query_upper, bounds_intersected_single],
+        device=device,
+    )
+
+    # Test with new tiled API
+    block_dim = 64
+    bounds_intersected_tiled = wp.zeros(shape=(num_bounds), dtype=int, device=device)
+    wp.launch_tiled(
+        kernel=bvh_query_aabb_tiled_kernel,
+        dim=1,
+        inputs=[bvh.id, query_lower, query_upper, bounds_intersected_tiled],
+        device=device,
+        block_dim=block_dim,
+    )
+
+    # Compare results
+    single_result = bounds_intersected_single.numpy()
+    tiled_result = bounds_intersected_tiled.numpy()
+
+    for i in range(num_bounds):
+        test.assertEqual(
+            single_result[i],
+            tiled_result[i],
+            f"Mismatch at bound {i}: single={single_result[i]}, tiled={tiled_result[i]}",
+        )
+
+    # Verify against CPU ground truth
+    for i in range(num_bounds):
+        lower = lowers[i]
+        upper = uppers[i]
+        if (
+            lower[0] < query_upper[0]
+            and upper[0] > query_lower[0]
+            and lower[1] < query_upper[1]
+            and upper[1] > query_lower[1]
+            and lower[2] < query_upper[2]
+            and upper[2] > query_lower[2]
+        ):
+            test.assertEqual(tiled_result[i], 1, f"Expected bound {i} to be intersected")
+        else:
+            test.assertEqual(tiled_result[i], 0, f"Expected bound {i} to not be intersected")
+
+    # Verify that no bound was reported more than once
+    for i in range(num_bounds):
+        test.assertIn(
+            tiled_result[i],
+            [0, 1],
+            f"Bound {i} was reported {tiled_result[i]} times, expected 0 or 1. "
+            "This indicates the parallel BVH query reported the same bound multiple times.",
+        )
+
+
+def test_bvh_query_ray_tiled(test, device):
+    """Test bvh_query_ray_tiled() API (new primary naming convention)."""
+    rng = np.random.default_rng(789)
+
+    num_bounds = 100
+    lowers = rng.random(size=(num_bounds, 3)) * 5.0
+    uppers = lowers + rng.random(size=(num_bounds, 3)) * 5.0
+
+    device_lowers = wp.array(lowers, dtype=wp.vec3, device=device)
+    device_uppers = wp.array(uppers, dtype=wp.vec3, device=device)
+
+    bvh = wp.Bvh(device_lowers, device_uppers)
+
+    query_start = wp.vec3(0.0, 0.0, 0.0)
+    query_dir = wp.normalize(wp.vec3(1.0, 1.0, 1.0))
+
+    # Test with single-threaded version (ground truth)
+    bounds_intersected_single = wp.zeros(shape=(num_bounds), dtype=int, device=device)
+    wp.launch(
+        kernel=bvh_query_ray,
+        dim=1,
+        inputs=[bvh.id, query_start, query_dir, bounds_intersected_single],
+        device=device,
+    )
+
+    # Test with new tiled API
+    block_dim = 64
+    bounds_intersected_tiled = wp.zeros(shape=(num_bounds), dtype=int, device=device)
+    wp.launch_tiled(
+        kernel=bvh_query_ray_tiled_kernel,
+        dim=1,
+        inputs=[bvh.id, query_start, query_dir, bounds_intersected_tiled],
+        device=device,
+        block_dim=block_dim,
+    )
+
+    # Compare results
+    single_result = bounds_intersected_single.numpy()
+    tiled_result = bounds_intersected_tiled.numpy()
+
+    for i in range(num_bounds):
+        test.assertEqual(
+            single_result[i],
+            tiled_result[i],
+            f"Mismatch at bound {i}: single={single_result[i]}, tiled={tiled_result[i]}",
+        )
+
+    # Verify against CPU ground truth
+    for i in range(num_bounds):
+        lower = lowers[i]
+        upper = uppers[i]
+        host_intersected = intersect_ray_aabb(query_start, 1.0 / query_dir, lower, upper)
+        test.assertEqual(tiled_result[i], host_intersected, f"Expected bound {i} intersection to be {host_intersected}")
+
+    # Verify that no bound was reported more than once
+    for i in range(num_bounds):
+        test.assertIn(
+            tiled_result[i],
+            [0, 1],
+            f"Bound {i} was reported {tiled_result[i]} times, expected 0 or 1. "
+            "This indicates the parallel BVH query reported the same bound multiple times.",
+        )
+
+
+@wp.kernel
+def tile_bvh_query_valid_aabb_kernel(
+    bvh_id: wp.uint64,
+    lower: wp.vec3,
+    upper: wp.vec3,
+    bounds_intersected: wp.array[int],
+):
+    query = wp.tile_bvh_query_aabb(bvh_id, lower, upper)
+
+    while wp.tile_query_valid(query):
+        result_tile = wp.tile_bvh_query_next(query)
+        result_idx = wp.untile(result_tile)
+
+        if result_idx >= 0:
+            wp.atomic_add(bounds_intersected, result_idx, 1)
+
+
+@wp.kernel
+def tile_bvh_query_valid_ray_kernel(
+    bvh_id: wp.uint64,
+    start: wp.vec3,
+    dir: wp.vec3,
+    bounds_intersected: wp.array[int],
+):
+    query = wp.tile_bvh_query_ray(bvh_id, start, dir)
+
+    while wp.tile_query_valid(query):
+        result_tile = wp.tile_bvh_query_next(query)
+        result_idx = wp.untile(result_tile)
+
+        if result_idx >= 0:
+            wp.atomic_add(bounds_intersected, result_idx, 1)
+
+
 devices = get_test_devices()
 cuda_devices = get_cuda_test_devices()
+cuda_devices_with_mempool = get_cuda_test_devices_with_mempool()
 
 
 class TestBvh(unittest.TestCase):
@@ -319,13 +826,33 @@ class TestBvh(unittest.TestCase):
         instance = wp.Bvh.__new__(wp.Bvh)
         instance.__del__()
 
+    def test_bvh_cubql_groups_error(self):
+        lowers = wp.array([wp.vec3(0.0, 0.0, 0.0)], dtype=wp.vec3, device="cpu")
+        uppers = wp.array([wp.vec3(1.0, 1.0, 1.0)], dtype=wp.vec3, device="cpu")
+        groups = wp.array([0], dtype=int, device="cpu")
+
+        with self.assertRaisesRegex(RuntimeError, "Grouped BVHs"):
+            wp.Bvh(lowers, uppers, constructor="cubql", groups=groups)
+
 
 add_function_test(TestBvh, "test_bvh_aabb", test_bvh_query_aabb, devices=devices)
 add_function_test(TestBvh, "test_bvh_ray", test_bvh_query_ray, devices=devices)
-add_function_test(TestBvh, "test_gh_288", test_gh_288, devices=devices)
+add_function_test(TestBvh, "test_bvh_cubql_constructor", test_bvh_cubql_constructor, devices=devices)
+add_function_test(
+    TestBvh,
+    "test_bvh_ray_query_inside_and_outside_bounds",
+    test_bvh_ray_query_inside_and_outside_bounds,
+    devices=devices,
+)
+add_function_test(TestBvh, "test_bvh_refit_root_leaves", test_bvh_refit_root_leaves, devices=cuda_devices)
+add_function_test(TestBvh, "test_tile_bvh_query_aabb", test_tile_bvh_query, devices=cuda_devices)
+add_function_test(TestBvh, "test_tile_bvh_query_ray", test_tile_bvh_query_ray, devices=cuda_devices)
 
-add_function_test(TestBvh, "test_capture_bvh_rebuild", test_capture_bvh_rebuild, devices=cuda_devices)
+# Tests for new bvh_query_*_tiled() API
+add_function_test(TestBvh, "test_bvh_query_aabb_tiled", test_bvh_query_aabb_tiled, devices=cuda_devices)
+add_function_test(TestBvh, "test_bvh_query_ray_tiled", test_bvh_query_ray_tiled, devices=cuda_devices)
+
+add_function_test(TestBvh, "test_capture_bvh_rebuild", test_capture_bvh_rebuild, devices=cuda_devices_with_mempool)
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

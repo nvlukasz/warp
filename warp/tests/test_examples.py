@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """Test Warp examples with unittest.
 
 This module tests the Warp examples registered in it using the unittest
@@ -39,23 +27,23 @@ import os
 import platform
 import subprocess
 import sys
+import tempfile
 import unittest
-from typing import Any, Dict, Optional, Type
+from typing import Any
 
 import warp as wp
 import warp.tests.unittest_utils
 from warp.tests.unittest_utils import (
     USD_AVAILABLE,
+    add_function_test,
     get_selected_cuda_test_devices,
+    get_selected_cuda_test_devices_with_mempool,
     get_test_devices,
     sanitize_identifier,
 )
-from warp.utils import check_p2p
-
-wp.init()  # For wp.context.runtime.core.wp_is_debug_enabled()
 
 
-def _build_command_line_options(test_options: Dict[str, Any]) -> list:
+def _build_command_line_options(test_options: dict[str, Any]) -> list:
     """Helper function to build command-line options from the test options dictionary."""
     additional_options = []
 
@@ -64,27 +52,18 @@ def _build_command_line_options(test_options: Dict[str, Any]) -> list:
             additional_options.extend(["--headless"])
         else:
             # Just add --key value
-            additional_options.extend(["--" + key, str(value)])
+            additional_options.extend(["--" + key.replace("_", "-"), str(value)])
 
     return additional_options
 
 
-def _merge_options(base_options: Dict[str, Any], device_options: Dict[str, Any]) -> Dict[str, Any]:
-    """Helper function to merge base test options with device-specific test options."""
-    merged_options = base_options.copy()
-
-    #  Update options with device-specific dictionary, overwriting existing keys with the more-specific values
-    merged_options.update(device_options)
-    return merged_options
-
-
 def add_example_test(
-    cls: Type,
+    cls: type,
     name: str,
-    devices: Optional[list] = None,
-    test_options: Optional[Dict[str, Any]] = None,
-    test_options_cpu: Optional[Dict[str, Any]] = None,
-    test_options_cuda: Optional[Dict[str, Any]] = None,
+    devices: list | None = None,
+    test_options: dict[str, Any] | None = None,
+    test_options_cpu: dict[str, Any] | None = None,
+    test_options_cuda: dict[str, Any] | None = None,
 ):
     """Registers a Warp example to run on ``devices`` as a TestCase."""
 
@@ -97,15 +76,15 @@ def add_example_test(
 
     def run(test, device):
         if wp.get_device(device).is_cuda:
-            options = _merge_options(test_options, test_options_cuda)
+            options = test_options | test_options_cuda
         else:
-            options = _merge_options(test_options, test_options_cpu)
+            options = test_options | test_options_cpu
 
         # Mark the test as skipped if Torch is not installed but required
         torch_required = options.pop("torch_required", False)
         if torch_required:
             try:
-                import torch
+                import torch  # noqa: PLC0415
 
                 if wp.get_device(device).is_cuda and not torch.cuda.is_available():
                     # Ensure torch has CUDA support
@@ -123,20 +102,22 @@ def add_example_test(
         pillow_required = options.pop("pillow_required", False)
         if pillow_required:
             try:
-                import PIL  # noqa: F401
+                import PIL  # noqa: PLC0415,F401
             except ImportError:
                 test.skipTest("Requires pillow")
 
-        # Find the current Warp cache
-        warp_cache_path = wp.config.kernel_cache_dir
-
         env_vars = os.environ.copy()
-        if warp_cache_path is not None:
-            env_vars["WARP_CACHE_PATH"] = warp_cache_path
+
+        # Propagate the kernel cache location to the subprocess.  We pass the
+        # original WARP_CACHE_PATH (if set) rather than the resolved
+        # kernel_cache_dir, because init_kernel_cache() appends a version
+        # subdirectory and we don't want the subprocess to double-append it.
+        # When WARP_CACHE_PATH is not set the subprocess will compute the same
+        # default cache path on its own.
+        if "WARP_CACHE_PATH" in os.environ:
+            env_vars["WARP_CACHE_PATH"] = os.environ["WARP_CACHE_PATH"]
 
         if warp.tests.unittest_utils.coverage_enabled:
-            import tempfile
-
             # Generate a random coverage data file name - file is deleted along with containing directory
             with tempfile.NamedTemporaryFile(
                 dir=warp.tests.unittest_utils.coverage_temp_dir, delete=False
@@ -147,6 +128,9 @@ def add_example_test(
 
             if warp.tests.unittest_utils.coverage_branch:
                 command.append("--branch")
+
+            # Only measure warp package to avoid NumPy 2.4+ "cannot load module more than once" error
+            command.extend(["--source", "warp"])
 
         else:
             command = [sys.executable]
@@ -164,7 +148,7 @@ def add_example_test(
         )
 
         if stage_path:
-            command.extend(["--stage_path", stage_path])
+            command.extend(["--stage-path", stage_path])
             try:
                 os.remove(stage_path)
             except OSError:
@@ -195,12 +179,11 @@ def add_example_test(
             except OSError:
                 pass
 
-    from warp.tests.unittest_utils import add_function_test
-
     add_function_test(cls, f"test_{name}", run, devices=devices, check_output=False)
 
 
 cuda_test_devices = get_selected_cuda_test_devices(mode="basic")  # Don't test on multiple GPUs to save time
+cuda_test_devices_with_mempool = get_selected_cuda_test_devices_with_mempool(mode="basic")
 test_devices = get_test_devices(mode="basic")
 
 # NOTE: To give the parallel test runner more opportunities to parallelize test cases,
@@ -273,32 +256,20 @@ add_example_test(
     devices=test_devices,
     test_options={"headless": True, "num_frames": 1000, "torch_required": True},
 )
+add_example_test(TestCoreExamples, name="core.example_custom_allocator", devices=cuda_test_devices)
 add_example_test(TestCoreExamples, name="core.example_wave", devices=test_devices)
+add_example_test(
+    TestCoreExamples,
+    name="core.example_fft_poisson_navier_stokes_2d",
+    devices=cuda_test_devices,
+    test_options={"headless": True, "num_steps": 100, "sim_substeps": 10},
+)
 
 
 class TestOptimExamples(unittest.TestCase):
     pass
 
 
-add_example_test(
-    TestOptimExamples,
-    name="optim.example_bounce",
-    devices=test_devices,
-    test_options_cpu={"train_iters": 3},
-)
-add_example_test(
-    TestOptimExamples,
-    name="optim.example_drone",
-    devices=test_devices,
-    test_options={"headless": True},
-    test_options_cpu={"num_frames": 10},
-)
-add_example_test(
-    TestOptimExamples,
-    name="optim.example_cloth_throw",
-    devices=test_devices,
-    test_options_cpu={"train_iters": 3},
-)
 add_example_test(
     TestOptimExamples,
     name="optim.example_diffray",
@@ -309,184 +280,90 @@ add_example_test(
 add_example_test(
     TestOptimExamples,
     name="optim.example_fluid_checkpoint",
-    devices=cuda_test_devices,
+    devices=cuda_test_devices_with_mempool,
     test_options={"headless": True, "train_iters": 5, "num_frames": 300, "pillow_required": True},
 )
-add_example_test(TestOptimExamples, name="optim.example_inverse_kinematics", devices=test_devices)
 add_example_test(
     TestOptimExamples,
-    name="optim.example_inverse_kinematics_torch",
-    devices=test_devices,
-    test_options={"torch_required": True},
-)
-add_example_test(TestOptimExamples, name="optim.example_spring_cage", devices=test_devices)
-add_example_test(
-    TestOptimExamples,
-    name="optim.example_trajectory",
-    devices=test_devices,
-    test_options={"headless": True, "train_iters": 50},
+    name="optim.example_particle_repulsion",
+    devices=cuda_test_devices,
+    test_options={"headless": True, "num_frames": 100},
 )
 add_example_test(
     TestOptimExamples,
-    name="optim.example_softbody_properties",
-    devices=test_devices,
-    test_options_cuda={
-        "train_iters": 1 if warp.context.runtime.core.wp_is_debug_enabled() else 3,
-    },
-    test_options_cpu={"train_iters": 1},
+    name="optim.example_navier_stokes_perturbation",
+    devices=cuda_test_devices_with_mempool,
+    test_options={"headless": True, "train_iters": 5, "lead_steps": 5, "spin_up_steps": 10},
 )
 
 
-class TestSimExamples(unittest.TestCase):
+class TestTileExamples(unittest.TestCase):
     pass
 
 
-add_example_test(TestSimExamples, name="sim.example_cartpole", devices=test_devices)
 add_example_test(
-    TestSimExamples,
-    name="sim.example_cloth",
+    TestTileExamples,
+    name="tile.example_tile_block_cholesky",
     devices=test_devices,
-    test_options={"usd_required": True},
-    test_options_cpu={"num_frames": 10},
+    test_options={"headless": True, "N": 2},
 )
 add_example_test(
-    TestSimExamples, name="sim.example_granular", devices=test_devices, test_options_cpu={"num_frames": 10}
-)
-add_example_test(TestSimExamples, name="sim.example_granular_collision_sdf", devices=cuda_test_devices)
-add_example_test(TestSimExamples, name="sim.example_jacobian_ik", devices=test_devices)
-add_example_test(TestSimExamples, name="sim.example_particle_chain", devices=test_devices)
-add_example_test(
-    TestSimExamples, name="sim.example_quadruped", devices=test_devices, test_options_cpu={"num_frames": 100}
-)
-add_example_test(TestSimExamples, name="sim.example_rigid_chain", devices=test_devices)
-add_example_test(
-    TestSimExamples,
-    name="sim.example_rigid_contact",
+    TestTileExamples,
+    name="tile.example_tile_cholesky",
     devices=test_devices,
-    test_options={"usd_required": True},
-    test_options_cpu={"num_frames": 3},
-)
-add_example_test(
-    TestSimExamples, name="sim.example_rigid_soft_contact", devices=test_devices, test_options_cpu={"num_frames": 10}
-)
-add_example_test(TestSimExamples, name="sim.example_rigid_force", devices=test_devices)
-add_example_test(TestSimExamples, name="sim.example_rigid_gyroscopic", devices=test_devices)
-add_example_test(
-    TestSimExamples, name="sim.example_soft_body", devices=test_devices, test_options_cpu={"num_frames": 10}
-)
-
-
-class TestFemExamples(unittest.TestCase):
-    pass
-
-
-class TestFemDiffusionExamples(unittest.TestCase):
-    pass
-
-
-# MGPU tests may fail on systems where P2P transfers are misconfigured
-if check_p2p():
-    add_example_test(
-        TestFemDiffusionExamples,
-        name="fem.example_diffusion_mgpu",
-        devices=get_selected_cuda_test_devices(mode="basic"),
-        test_options={"headless": True},
-    )
-
-add_example_test(
-    TestFemExamples,
-    name="fem.example_apic_fluid",
-    devices=get_selected_cuda_test_devices(mode="basic"),
-    test_options={"num_frames": 5, "voxel_size": 2.0},
-)
-add_example_test(
-    TestFemExamples,
-    name="fem.example_adaptive_grid",
-    devices=get_selected_cuda_test_devices(mode="basic"),
-    test_options={"headless": True, "div_conforming": True},
-)
-
-# The following examples do not need CUDA
-add_example_test(
-    TestFemDiffusionExamples,
-    name="fem.example_diffusion",
-    devices=test_devices,
-    test_options={"resolution": 10, "mesh": "tri", "headless": True},
-)
-add_example_test(
-    TestFemDiffusionExamples, name="fem.example_diffusion_3d", devices=test_devices, test_options={"headless": True}
-)
-add_example_test(
-    TestFemExamples,
-    name="fem.example_deformed_geometry",
-    devices=test_devices,
-    test_options={"resolution": 10, "mesh": "tri", "headless": True},
-)
-add_example_test(
-    TestFemExamples,
-    name="fem.example_convection_diffusion",
-    devices=test_devices,
-    test_options={"resolution": 20, "headless": True},
-)
-add_example_test(
-    TestFemExamples,
-    name="fem.example_burgers",
-    devices=test_devices,
-    test_options={"resolution": 20, "num_frames": 25, "degree": 1, "headless": True},
-)
-add_example_test(
-    TestFemExamples,
-    name="fem.example_convection_diffusion_dg",
-    devices=test_devices,
-    test_options={"resolution": 20, "num_frames": 25, "headless": True},
-)
-add_example_test(
-    TestFemExamples,
-    name="fem.example_mixed_elasticity",
-    devices=test_devices,
-    test_options={"nonconforming_stresses": True, "mesh": "quad", "headless": True},
-)
-add_example_test(
-    TestFemExamples, name="fem.example_stokes_transfer", devices=test_devices, test_options={"headless": True}
-)
-add_example_test(
-    TestFemExamples,
-    name="fem.example_stokes",
-    devices=test_devices,
-    test_options={"resolution": 10, "nonconforming_pressures": True, "headless": True},
-)
-add_example_test(
-    TestFemExamples,
-    name="fem.example_navier_stokes",
-    devices=test_devices,
-    test_options={"num_frames": 101, "resolution": 10, "tri_mesh": True, "headless": True},
-)
-add_example_test(
-    TestFemExamples,
-    name="fem.example_streamlines",
-    devices=get_selected_cuda_test_devices(),
     test_options={"headless": True},
 )
 add_example_test(
-    TestFemExamples,
-    name="fem.example_distortion_energy",
-    devices=get_selected_cuda_test_devices(),
-    test_options={"headless": True, "resolution": 16},
+    TestTileExamples,
+    name="tile.example_tile_convolution",
+    devices=cuda_test_devices,
+    test_options={"headless": True},
 )
 add_example_test(
-    TestFemExamples,
-    name="fem.example_magnetostatics",
-    devices=test_devices,
-    test_options={"headless": True, "resolution": 16},
+    TestTileExamples,
+    name="tile.example_tile_fft",
+    devices=cuda_test_devices,
+    test_options={"headless": True},
 )
 add_example_test(
-    TestFemExamples,
-    name="fem.example_nonconforming_contact",
-    devices=test_devices,
-    test_options={"headless": True, "resolution": 16, "num_steps": 2},
+    TestTileExamples,
+    name="tile.example_tile_filtering",
+    devices=cuda_test_devices,
+    test_options={"headless": True},
 )
+add_example_test(
+    TestTileExamples,
+    name="tile.example_tile_matmul",
+    devices=test_devices,
+    test_options={"headless": True},
+)
+add_example_test(
+    TestTileExamples,
+    name="tile.example_tile_mcgp",
+    devices=test_devices,
+    test_options={"height": 128, "headless": True},
+    test_options_cpu={"slices": 2},
+    test_options_cuda={"slices": 5},
+)
+add_example_test(
+    TestTileExamples,
+    name="tile.example_tile_mlp",
+    devices=cuda_test_devices,
+    test_options_cuda={"train_iters": 10, "headless": True},
+)
+add_example_test(
+    TestTileExamples,
+    name="tile.example_tile_nbody",
+    devices=test_devices,
+    test_options={"headless": True, "num_frames": 10, "N": 128},
+)
+add_example_test(
+    TestTileExamples,
+    name="tile.example_tile_stream_compaction",
+    devices=cuda_test_devices,
+)
+
 
 if __name__ == "__main__":
     # force rebuild of all kernels
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

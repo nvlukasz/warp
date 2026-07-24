@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
@@ -29,7 +17,7 @@ def identity_function(input_bool: wp.bool, plain_bool: bool):
 
 
 @wp.kernel
-def identity_test(data: wp.array(dtype=wp.bool)):
+def identity_test(data: wp.array[wp.bool]):
     i = wp.tid()
 
     data[i] = data[i] and True
@@ -78,7 +66,7 @@ def test_bool_identity_ops(test, device):
 
 
 @wp.kernel
-def check_compile_constant(result: wp.array(dtype=wp.bool)):
+def check_compile_constant(result: wp.array[wp.bool]):
     if TRUE_CONSTANT:
         result[0] = TRUE_CONSTANT
     else:
@@ -96,12 +84,12 @@ def test_bool_constant(test, device):
     test.assertTrue(compile_constant_value.numpy()[0])
 
 
-vec3bool = wp.vec(length=3, dtype=wp.bool)
+vec3bool = wp.types.vector(length=3, dtype=wp.bool)
 bool_selector_vec = wp.constant(vec3bool([True, False, True]))
 
 
 @wp.kernel
-def sum_from_bool_vec(sum_array: wp.array(dtype=wp.int32)):
+def sum_from_bool_vec(sum_array: wp.array[wp.int32]):
     i = wp.tid()
 
     if bool_selector_vec[0]:
@@ -120,12 +108,12 @@ def test_bool_constant_vec(test, device):
     assert_np_equal(result_array.numpy(), np.full(result_array.shape, 5))
 
 
-mat22bool = wp.mat((2, 2), dtype=wp.bool)
+mat22bool = wp.types.matrix((2, 2), dtype=wp.bool)
 bool_selector_mat = wp.constant(mat22bool([True, False, False, True]))
 
 
 @wp.kernel
-def sum_from_bool_mat(sum_array: wp.array(dtype=wp.int32)):
+def sum_from_bool_mat(sum_array: wp.array[wp.int32]):
     i = wp.tid()
 
     if bool_selector_mat[0, 0]:
@@ -152,11 +140,11 @@ vec3bool_type = wp.types.vector(length=3, dtype=bool)
 @wp.kernel
 def test_bool_vec_anonymous_typing():
     # Zero initialize
-    wp.expect_eq(vec3bool_type(), wp.vector(False, False, False))
+    wp.expect_eq(vec3bool_type(), wp.types.vector(False, False, False))
     # Scalar initialize
-    wp.expect_eq(vec3bool_type(True), wp.vector(True, True, True))
+    wp.expect_eq(vec3bool_type(True), wp.types.vector(True, True, True))
     # Component-wise initialize
-    wp.expect_eq(vec3bool_type(True, False, True), wp.vector(True, False, True))
+    wp.expect_eq(vec3bool_type(True, False, True), wp.types.vector(True, False, True))
 
 
 def test_bool_vec_typing(test, device):
@@ -179,11 +167,11 @@ mat22bool_type = wp.types.matrix((2, 2), dtype=bool)
 @wp.kernel
 def test_bool_mat_anonymous_typing():
     # Zero initialize
-    wp.expect_eq(mat22bool_type(), wp.matrix(False, False, False, False, shape=(2, 2)))
+    wp.expect_eq(mat22bool_type(), wp.types.matrix(False, False, False, False, shape=(2, 2)))
     # Scalar initialize
-    wp.expect_eq(mat22bool_type(True), wp.matrix(True, True, True, True, shape=(2, 2)))
+    wp.expect_eq(mat22bool_type(True), wp.types.matrix(True, True, True, True, shape=(2, 2)))
     # Component-wise initialize
-    wp.expect_eq(mat22bool_type(True, False, True, False), wp.matrix(True, False, True, False, shape=(2, 2)))
+    wp.expect_eq(mat22bool_type(True, False, True, False), wp.types.matrix(True, False, True, False, shape=(2, 2)))
 
 
 def test_bool_mat_typing(test, device):
@@ -200,6 +188,36 @@ def test_bool_mat_typing(test, device):
     wp.launch(test_bool_mat_anonymous_typing, (1,), inputs=[], device=device)
 
 
+@wp.func
+def bool_vec_assign():
+    v = vec3bool_type(True, False, True)
+
+    v[0] = False
+    v[2] = False
+
+    wp.expect_eq(v[0], False)
+    wp.expect_eq(v[1], False)
+    wp.expect_eq(v[2], False)
+
+    v[-1] = True
+    v[-3] = True
+
+    wp.expect_eq(v[-1], True)
+    wp.expect_eq(v[-2], False)
+    wp.expect_eq(v[-3], True)
+
+
+@wp.kernel
+def run_bool_vec_assign():
+    bool_vec_assign()
+
+
+def test_bool_vec_assign(test, device):
+    wp.launch(run_bool_vec_assign, 1, device=device)
+    wp.synchronize_device(device)
+    bool_vec_assign()
+
+
 devices = get_test_devices()
 
 
@@ -213,8 +231,8 @@ add_function_test(TestBool, "test_bool_constant_vec", test_bool_constant_vec, de
 add_function_test(TestBool, "test_bool_constant_mat", test_bool_constant_mat, devices=devices)
 add_function_test(TestBool, "test_bool_vec_typing", test_bool_vec_typing, devices=devices)
 add_function_test(TestBool, "test_bool_mat_typing", test_bool_mat_typing, devices=devices)
+add_function_test(TestBool, "test_bool_vec_assign", test_bool_vec_assign, devices=devices)
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

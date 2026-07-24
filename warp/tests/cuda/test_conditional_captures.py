@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import os
 import tempfile
@@ -20,42 +8,31 @@ import unittest
 import numpy as np
 
 import warp as wp
-from warp.context import assert_conditional_graph_support
 from warp.tests.unittest_utils import *
 
 
-def check_conditional_graph_support():
-    try:
-        assert_conditional_graph_support()
-    except Exception:
-        return False
-    return True
-
-
 @wp.kernel
-def multiply_by_one_kernel(array: wp.array(dtype=wp.float32)):
+def multiply_by_one_kernel(array: wp.array[wp.float32]):
     tid = wp.tid()
     array[tid] = array[tid] * 1.0
 
 
-def launch_multiply_by_one(array: wp.array(dtype=wp.float32)):
+def launch_multiply_by_one(array: wp.array[wp.float32]):
     wp.launch(multiply_by_one_kernel, dim=array.size, inputs=[array])
 
 
 @wp.kernel
-def multiply_by_two_kernel(array: wp.array(dtype=wp.float32)):
+def multiply_by_two_kernel(array: wp.array[wp.float32]):
     tid = wp.tid()
     array[tid] = array[tid] * 2.0
 
 
-def launch_multiply_by_two(array: wp.array(dtype=wp.float32)):
+def launch_multiply_by_two(array: wp.array[wp.float32]):
     wp.launch(multiply_by_two_kernel, dim=array.size, inputs=[array])
 
 
 @wp.kernel
-def multiply_by_two_kernel_limited(
-    array: wp.array(dtype=wp.float32), condition: wp.array(dtype=wp.int32), limit: float
-):
+def multiply_by_two_kernel_limited(array: wp.array[wp.float32], condition: wp.array[wp.int32], limit: float):
     tid = wp.tid()
     array[tid] = array[tid] * 2.0
 
@@ -64,61 +41,61 @@ def multiply_by_two_kernel_limited(
         condition[0] = 0
 
 
-def launch_multiply_by_two_until_limit(array: wp.array(dtype=wp.float32), cond: wp.array(dtype=wp.int32), limit: float):
+def launch_multiply_by_two_until_limit(array: wp.array[wp.float32], cond: wp.array[wp.int32], limit: float):
     wp.launch(multiply_by_two_kernel_limited, dim=array.size, inputs=[array, cond, limit])
 
 
 @wp.kernel
-def multiply_by_three_kernel(array: wp.array(dtype=wp.float32)):
+def multiply_by_three_kernel(array: wp.array[wp.float32]):
     tid = wp.tid()
     array[tid] = array[tid] * 3.0
 
 
-def launch_multiply_by_three(array: wp.array(dtype=wp.float32)):
+def launch_multiply_by_three(array: wp.array[wp.float32]):
     wp.launch(multiply_by_three_kernel, dim=array.size, inputs=[array])
 
 
 @wp.kernel
-def multiply_by_five_kernel(array: wp.array(dtype=wp.float32)):
+def multiply_by_five_kernel(array: wp.array[wp.float32]):
     tid = wp.tid()
     array[tid] = array[tid] * 5.0
 
 
-def launch_multiply_by_five(array: wp.array(dtype=wp.float32)):
+def launch_multiply_by_five(array: wp.array[wp.float32]):
     wp.launch(multiply_by_five_kernel, dim=array.size, inputs=[array])
 
 
 @wp.kernel
-def multiply_by_seven_kernel(array: wp.array(dtype=wp.float32)):
+def multiply_by_seven_kernel(array: wp.array[wp.float32]):
     tid = wp.tid()
     array[tid] = array[tid] * 7.0
 
 
-def launch_multiply_by_seven(array: wp.array(dtype=wp.float32)):
+def launch_multiply_by_seven(array: wp.array[wp.float32]):
     wp.launch(multiply_by_seven_kernel, dim=array.size, inputs=[array])
 
 
 @wp.kernel
-def multiply_by_eleven_kernel(array: wp.array(dtype=wp.float32)):
+def multiply_by_eleven_kernel(array: wp.array[wp.float32]):
     tid = wp.tid()
     array[tid] = array[tid] * 11.0
 
 
-def launch_multiply_by_eleven(array: wp.array(dtype=wp.float32)):
+def launch_multiply_by_eleven(array: wp.array[wp.float32]):
     wp.launch(multiply_by_eleven_kernel, dim=array.size, inputs=[array])
 
 
 @wp.kernel
-def multiply_by_thirteen_kernel(array: wp.array(dtype=wp.float32)):
+def multiply_by_thirteen_kernel(array: wp.array[wp.float32]):
     tid = wp.tid()
     array[tid] = array[tid] * 13.0
 
 
-def launch_multiply_by_thirteen(array: wp.array(dtype=wp.float32)):
+def launch_multiply_by_thirteen(array: wp.array[wp.float32]):
     wp.launch(multiply_by_thirteen_kernel, dim=array.size, inputs=[array])
 
 
-def launch_multiply_by_two_or_thirteen(array: wp.array(dtype=wp.float32), cond: wp.array(dtype=wp.int32)):
+def launch_multiply_by_two_or_thirteen(array: wp.array[wp.float32], cond: wp.array[wp.int32]):
     wp.capture_if(
         cond,
         lambda: launch_multiply_by_two(array),
@@ -126,7 +103,7 @@ def launch_multiply_by_two_or_thirteen(array: wp.array(dtype=wp.float32), cond: 
     )
 
 
-def launch_multiply_by_three_or_eleven(array: wp.array(dtype=wp.float32), cond: wp.array(dtype=wp.int32)):
+def launch_multiply_by_three_or_eleven(array: wp.array[wp.float32], cond: wp.array[wp.int32]):
     wp.capture_if(
         cond,
         lambda: launch_multiply_by_three(array),
@@ -134,7 +111,7 @@ def launch_multiply_by_three_or_eleven(array: wp.array(dtype=wp.float32), cond: 
     )
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_if_capture(test, device):
     assert device.is_cuda
 
@@ -168,7 +145,7 @@ def test_if_capture(test, device):
             np.testing.assert_array_equal(array.numpy(), expected)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_if_capture_with_subgraph(test, device):
     assert device.is_cuda
 
@@ -253,7 +230,7 @@ def test_if_with_subgraph(test, device):
             np.testing.assert_array_equal(array.numpy(), expected)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_if_else_capture(test, device):
     assert device.is_cuda
 
@@ -288,7 +265,7 @@ def test_if_else_capture(test, device):
             np.testing.assert_array_equal(array.numpy(), expected)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_if_else_capture_with_subgraph(test, device):
     assert device.is_cuda
 
@@ -384,7 +361,7 @@ def test_if_else_with_subgraph(test, device):
             np.testing.assert_array_equal(array.numpy(), expected)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_else_capture(test, device):
     assert device.is_cuda
 
@@ -418,7 +395,7 @@ def test_else_capture(test, device):
             np.testing.assert_array_equal(array.numpy(), expected)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_else_capture_with_subgraph(test, device):
     assert device.is_cuda
 
@@ -505,7 +482,7 @@ def test_else_with_subgraph(test, device):
             np.testing.assert_array_equal(array.numpy(), expected)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_while_capture(test, device):
     assert device.is_cuda
 
@@ -544,7 +521,7 @@ def test_while_capture(test, device):
             np.testing.assert_array_equal(array.numpy(), expected)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_while_capture_with_subgraph(test, device):
     assert device.is_cuda
 
@@ -641,7 +618,7 @@ def test_while_with_subgraph(test, device):
             np.testing.assert_array_equal(array.numpy(), expected)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_complex_capture(test, device):
     assert device.is_cuda
 
@@ -728,7 +705,7 @@ def test_complex_capture(test, device):
                         np.testing.assert_array_equal(array.numpy(), base)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_complex_capture_with_subgraphs(test, device):
     assert device.is_cuda
 
@@ -980,6 +957,84 @@ def test_graph_debug_dot_print(test, device):
 
 
 # ================================================================================================================
+# freeing parent-graph allocations during body capture
+# ================================================================================================================
+
+
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
+def test_free_during_body_capture(test, device):
+    """Test freeing a parent-graph allocation while a conditional body graph is being captured.
+
+    Dropping the last reference to an array allocated in the parent graph while a
+    conditional body graph is being captured must not add a free node to the body
+    graph or latch a CUDA error. The allocation is retained for the lifetime of the
+    graph instead.
+    """
+    with wp.ScopedDevice(device):
+        # preload module before graph capture
+        wp.load_module(device=device)
+
+        for branch in ("on_true", "on_false", "while"):
+            array = wp.zeros(4, dtype=wp.float32)
+            condition = wp.zeros(1, dtype=wp.int32)
+            holder = {}
+
+            def if_body(holder=holder, array=array):
+                launch_multiply_by_two(array)
+                holder.pop("temp")  # drop the last reference during body capture
+
+            def while_body(holder=holder, array=array, condition=condition):
+                launch_multiply_by_two_until_limit(array, condition, 16.0)
+                holder.pop("temp")  # drop the last reference during body capture
+
+            stderr_capture = StdErrCapture()
+            stderr_capture.begin()
+            try:
+                with wp.ScopedCapture(force_module_load=False) as capture:
+                    # allocated in the parent graph, freed during body capture
+                    holder["temp"] = wp.zeros(1024, dtype=wp.float32)
+                    launch_multiply_by_one(holder["temp"])
+                    if branch == "on_true":
+                        wp.capture_if(condition, on_true=if_body)
+                    elif branch == "on_false":
+                        wp.capture_if(condition, on_false=if_body)
+                    else:
+                        wp.capture_while(condition, while_body=while_body)
+            finally:
+                output = stderr_capture.end()
+
+            test.assertEqual(output, "", f"unexpected stderr output during capture ({branch}): {output}")
+
+            # test different conditions
+            for cond in [0, 1]:
+                array.assign([1.0, 2.0, 3.0, 4.0])
+                condition.assign([cond])
+
+                wp.capture_launch(capture.graph)
+
+                if branch == "on_true":
+                    factor = 2.0 if cond else 1.0
+                    expected = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32) * factor
+                elif branch == "on_false":
+                    factor = 1.0 if cond else 2.0
+                    expected = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32) * factor
+                else:
+                    if cond:
+                        # multiplied by two until an element exceeds the limit of 16
+                        expected = np.array([8.0, 16.0, 24.0, 32.0], dtype=np.float32)
+                    else:
+                        expected = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+
+                np.testing.assert_array_equal(array.numpy(), expected)
+
+            # a latched CUDA error would poison this non-contiguous clone
+            src = wp.zeros((8, 8), dtype=wp.float32)
+            clone = wp.clone(src[::2])
+            wp.synchronize_device()
+            test.assertEqual(clone.shape, (4, 8))
+
+
+# ================================================================================================================
 # test exceptions
 # ================================================================================================================
 
@@ -989,7 +1044,7 @@ def body_with_alloc():
     wp.zeros(10)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_error_alloc_if(test, device):
     with wp.ScopedDevice(device):
         cond = wp.ones(1, dtype=wp.int32)
@@ -1000,7 +1055,7 @@ def test_error_alloc_if(test, device):
                 wp.capture_if(condition=cond, on_true=body_with_alloc)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_error_alloc_else(test, device):
     with wp.ScopedDevice(device):
         cond = wp.ones(1, dtype=wp.int32)
@@ -1011,7 +1066,7 @@ def test_error_alloc_else(test, device):
                 wp.capture_if(condition=cond, on_false=body_with_alloc)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_error_alloc_while(test, device):
     with wp.ScopedDevice(device):
         cond = wp.ones(1, dtype=wp.int32)
@@ -1022,7 +1077,7 @@ def test_error_alloc_while(test, device):
                 wp.capture_while(condition=cond, while_body=body_with_alloc)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_error_alloc_if_subgraph(test, device):
     with wp.ScopedDevice(device):
         # capture body subgraph
@@ -1037,7 +1092,7 @@ def test_error_alloc_if_subgraph(test, device):
                 wp.capture_if(condition=cond, on_true=body_capture.graph)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_error_alloc_else_subgraph(test, device):
     with wp.ScopedDevice(device):
         # capture body subgraph
@@ -1052,7 +1107,7 @@ def test_error_alloc_else_subgraph(test, device):
                 wp.capture_if(condition=cond, on_false=body_capture.graph)
 
 
-@unittest.skipUnless(check_conditional_graph_support(), "Conditional graph nodes not supported")
+@unittest.skipUnless(wp.is_conditional_graph_supported(), "Conditional graph nodes not supported")
 def test_error_alloc_while_subgraph(test, device):
     with wp.ScopedDevice(device):
         # capture body subgraph
@@ -1069,6 +1124,7 @@ def test_error_alloc_while_subgraph(test, device):
 
 devices = get_test_devices()
 cuda_devices = get_cuda_test_devices()
+cuda_devices_with_mempool = get_cuda_test_devices_with_mempool()
 
 
 class TestConditionalCaptures(unittest.TestCase):
@@ -1128,20 +1184,41 @@ add_function_test(
     TestConditionalCaptures, "test_graph_debug_dot_print", test_graph_debug_dot_print, devices=cuda_devices
 )
 
-add_function_test(TestConditionalCaptures, "test_error_alloc_if", test_error_alloc_if, devices=cuda_devices)
-add_function_test(TestConditionalCaptures, "test_error_alloc_else", test_error_alloc_else, devices=cuda_devices)
-add_function_test(TestConditionalCaptures, "test_error_alloc_while", test_error_alloc_while, devices=cuda_devices)
 add_function_test(
-    TestConditionalCaptures, "test_error_alloc_if_subgraph", test_error_alloc_if_subgraph, devices=cuda_devices
+    TestConditionalCaptures,
+    "test_free_during_body_capture",
+    test_free_during_body_capture,
+    devices=cuda_devices_with_mempool,
+)
+
+add_function_test(
+    TestConditionalCaptures, "test_error_alloc_if", test_error_alloc_if, devices=cuda_devices_with_mempool
 )
 add_function_test(
-    TestConditionalCaptures, "test_error_alloc_else_subgraph", test_error_alloc_else_subgraph, devices=cuda_devices
+    TestConditionalCaptures, "test_error_alloc_else", test_error_alloc_else, devices=cuda_devices_with_mempool
 )
 add_function_test(
-    TestConditionalCaptures, "test_error_alloc_while_subgraph", test_error_alloc_while_subgraph, devices=cuda_devices
+    TestConditionalCaptures, "test_error_alloc_while", test_error_alloc_while, devices=cuda_devices_with_mempool
+)
+add_function_test(
+    TestConditionalCaptures,
+    "test_error_alloc_if_subgraph",
+    test_error_alloc_if_subgraph,
+    devices=cuda_devices_with_mempool,
+)
+add_function_test(
+    TestConditionalCaptures,
+    "test_error_alloc_else_subgraph",
+    test_error_alloc_else_subgraph,
+    devices=cuda_devices_with_mempool,
+)
+add_function_test(
+    TestConditionalCaptures,
+    "test_error_alloc_while_subgraph",
+    test_error_alloc_while_subgraph,
+    devices=cuda_devices_with_mempool,
 )
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2, failfast=True)

@@ -13,7 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ruff: noqa: RUF059
+
 import warp as wp
+
+from ..benchmarks_utils import clear_kernel_cache
 
 wp.set_module_options({"enable_backward": False, "block_dim": 128})
 
@@ -46,8 +50,8 @@ class ColdCompileCholeskyLTO:
 
     def setup(self):
         wp.init()
-        wp.build.clear_kernel_cache()
-        wp.build.clear_lto_cache()
+        clear_kernel_cache()
+        wp.clear_lto_cache()
 
     def teardown(self):
         cholesky.module.unload()
@@ -64,10 +68,10 @@ class WarmCompileCholeskyLTO:
 
     def setup(self):
         wp.init()
-        wp.build.clear_kernel_cache()
-        wp.build.clear_lto_cache()
+        clear_kernel_cache()
+        wp.clear_lto_cache()
         wp.load_module(device="cuda:0")
-        wp.build.clear_kernel_cache()
+        clear_kernel_cache()
         cholesky.module.unload()
 
     def teardown(self):
@@ -75,5 +79,5 @@ class WarmCompileCholeskyLTO:
 
     def time_cuda_codegen(self):
         wp.load_module(device="cuda:0")
-        wp.build.clear_kernel_cache()
+        clear_kernel_cache()
         cholesky.module.unload()

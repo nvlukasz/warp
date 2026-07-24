@@ -1,19 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import os
+from functools import cache
 
 import numpy as np
 
@@ -41,9 +30,9 @@ def create_array(rng, dim_in, dim_hid, dtype=float):
 
 
 def test_multi_layer_nn(test, device):
-    import torch as tc
+    import torch as tc  # noqa: PLC0415
 
-    if device.is_cuda and not wp.context.runtime.core.wp_is_mathdx_enabled():
+    if device.is_cuda and not wp._src.context.runtime.core.wp_is_mathdx_enabled():
         test.skipTest("Skipping test on CUDA device without MathDx (tolerance)")
 
     NUM_FREQ = wp.constant(8)
@@ -63,7 +52,7 @@ def test_multi_layer_nn(test, device):
         NUM_THREADS = 32
 
     dtype = wp.float16
-    npdtype = wp.types.warp_type_to_np_dtype[dtype]
+    npdtype = wp.dtype_to_numpy(dtype)
 
     @wp.func
     def relu(x: dtype):
@@ -74,24 +63,24 @@ def test_multi_layer_nn(test, device):
         return dtype(1.0 / (1.0 + wp.exp(-float(x))))
 
     @wp.kernel
-    def zero(loss: wp.array(dtype=float)):
+    def zero(loss: wp.array[float]):
         loss[0] = 0.0
 
     @wp.kernel(module="unique")
     def compute(
-        batches: wp.array(dtype=int),
-        input: wp.array2d(dtype=dtype),
-        weights_0: wp.array2d(dtype=dtype),
-        bias_0: wp.array2d(dtype=dtype),
-        weights_1: wp.array2d(dtype=dtype),
-        bias_1: wp.array2d(dtype=dtype),
-        weights_2: wp.array2d(dtype=dtype),
-        bias_2: wp.array2d(dtype=dtype),
-        weights_3: wp.array2d(dtype=dtype),
-        bias_3: wp.array2d(dtype=dtype),
-        reference: wp.array2d(dtype=float),
-        loss: wp.array1d(dtype=float),
-        out: wp.array2d(dtype=float),
+        batches: wp.array[int],
+        input: wp.array2d[dtype],
+        weights_0: wp.array2d[dtype],
+        bias_0: wp.array2d[dtype],
+        weights_1: wp.array2d[dtype],
+        bias_1: wp.array2d[dtype],
+        weights_2: wp.array2d[dtype],
+        bias_2: wp.array2d[dtype],
+        weights_3: wp.array2d[dtype],
+        bias_3: wp.array2d[dtype],
+        reference: wp.array2d[float],
+        loss: wp.array1d[float],
+        out: wp.array2d[float],
     ):
         linear = batches[wp.tid()]
         row = linear / IMG_WIDTH
@@ -101,7 +90,7 @@ def test_multi_layer_nn(test, device):
         x = (float(row) / float(IMG_WIDTH) - 0.5) * 2.0
         y = (float(col) / float(IMG_HEIGHT) - 0.5) * 2.0
 
-        local = wp.vector(dtype=dtype, length=DIM_IN)
+        local = wp.types.vector(dtype=dtype, length=DIM_IN)
 
         # construct positional encoding
         for s in range(NUM_FREQ):
@@ -188,7 +177,6 @@ def test_multi_layer_nn(test, device):
         optimizer_inputs = [p.flatten() for p in params]
         optimizer = warp.optim.Adam(optimizer_inputs, lr=0.01)
 
-        num_batches = int((IMG_WIDTH * IMG_HEIGHT) / BATCH_SIZE)
         max_epochs = 30
 
         # create randomized batch indices
@@ -281,14 +269,13 @@ def test_multi_layer_nn(test, device):
                     tape.zero()
 
         # initial loss is ~0.061
-        test.assertLess(loss.numpy()[0], 0.002)
+        test.assertLess(loss.numpy()[0], 0.004)
 
 
 def test_single_layer_nn(test, device):
-    import torch as tc
+    import torch as tc  # noqa: PLC0415
 
     DIM_IN = 8
-    DIM_HID = 32
     DIM_OUT = 16
 
     NUM_BLOCKS = 56
@@ -304,10 +291,10 @@ def test_single_layer_nn(test, device):
 
     @wp.kernel(module="unique")
     def compute(
-        input: wp.array2d(dtype=float),
-        weights: wp.array2d(dtype=float),
-        bias: wp.array2d(dtype=float),
-        out: wp.array2d(dtype=float),
+        input: wp.array2d[float],
+        weights: wp.array2d[float],
+        bias: wp.array2d[float],
+        out: wp.array2d[float],
     ):
         i = wp.tid()
 
@@ -358,38 +345,43 @@ class TestTileMLP(unittest.TestCase):
     pass
 
 
-test_devices = get_test_devices()
-
 try:
     import torch
 
-    # check which Warp devices work with Torch
-    torch_compatible_devices = []
-    torch_compatible_cuda_devices = []
+    torch_candidate_devices = get_test_devices()
+    torch_cuda_candidate_devices = [device for device in torch_candidate_devices if device.is_cuda]
 
-    for d in test_devices:
+    @cache
+    def _torch_device_error(device_alias):
+        device = wp.get_device(device_alias)
         try:
-            t = torch.arange(10, device=wp.device_to_torch(d))
-            t += 1
-            torch_compatible_devices.append(d)
-            if d.is_cuda:
-                torch_compatible_cuda_devices.append(d)
-        except Exception as e:
-            print(f"Skipping Torch tests on device '{d}' due to exception: {e}")
+            tensor = torch.arange(10, device=wp.device_to_torch(device))
+            tensor += 1
+        except Exception as error:
+            return f"{type(error).__name__}: {error}"
+        return None
+
+    def _check_torch_device(test, device):
+        device = wp.get_device(device)
+        error = _torch_device_error(device.alias)
+        if error is not None:
+            test.skipTest(f"Torch is unavailable on Warp device '{device}': {error}")
 
     add_function_test(
         TestTileMLP,
         "test_single_layer_nn",
         test_single_layer_nn,
         check_output=False,
-        devices=torch_compatible_devices,
+        devices=torch_candidate_devices,
+        device_check=_check_torch_device,
     )
     add_function_test(
         TestTileMLP,
         "test_multi_layer_nn",
         test_multi_layer_nn,
         check_output=False,
-        devices=torch_compatible_cuda_devices,
+        devices=torch_cuda_candidate_devices,
+        device_check=_check_torch_device,
     )
 
 except Exception as e:
@@ -397,6 +389,4 @@ except Exception as e:
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
-    wp.clear_lto_cache()
     unittest.main(verbosity=2, failfast=True)

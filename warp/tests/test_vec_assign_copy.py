@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
@@ -30,7 +18,7 @@ def tearDownModule():
 
 
 @wp.kernel
-def vec_assign_subscript(x: wp.array(dtype=float), y: wp.array(dtype=wp.vec3)):
+def vec_assign_subscript(x: wp.array[float], y: wp.array[wp.vec3]):
     i = wp.tid()
 
     a = wp.vec3()
@@ -41,7 +29,7 @@ def vec_assign_subscript(x: wp.array(dtype=float), y: wp.array(dtype=wp.vec3)):
 
 
 @wp.kernel
-def vec_assign_attribute(x: wp.array(dtype=float), y: wp.array(dtype=wp.vec3)):
+def vec_assign_attribute(x: wp.array[float], y: wp.array[wp.vec3]):
     i = wp.tid()
 
     a = wp.vec3()
@@ -72,7 +60,7 @@ def test_vec_assign(test, device):
 
 def test_vec_assign_copy(test, device):
     @wp.kernel(module="unique")
-    def vec_assign_overwrite(x: wp.array(dtype=wp.vec3), y: wp.array(dtype=wp.vec3)):
+    def vec_assign_overwrite(x: wp.array[wp.vec3], y: wp.array[wp.vec3]):
         tid = wp.tid()
 
         a = wp.vec3()
@@ -98,7 +86,7 @@ def test_vec_assign_copy(test, device):
 
 def test_vec_slicing_assign_backward(test, device):
     @wp.kernel(module="unique")
-    def kernel(arr_x: wp.array(dtype=wp.vec2), arr_y: wp.array(dtype=wp.vec4)):
+    def kernel(arr_x: wp.array[wp.vec2], arr_y: wp.array[wp.vec4]):
         i = wp.tid()
 
         x = arr_x[i]
@@ -124,6 +112,30 @@ def test_vec_slicing_assign_backward(test, device):
     assert_np_equal(x.grad.numpy(), np.array(((1.0, 1.0),), dtype=float))
 
 
+vec3bool = wp.types.vector(length=3, dtype=bool)
+
+
+def test_bool_vec_assign_copy(test, device):
+    @wp.kernel(module="unique")
+    def bool_vec_assign_copy_kernel():
+        a = vec3bool(True, True, True)
+        b = a
+        b[1] = False
+
+        # a should be unchanged (copy semantics)
+        wp.expect_eq(a[0], True)
+        wp.expect_eq(a[1], True)
+        wp.expect_eq(a[2], True)
+
+        # b should reflect the mutation
+        wp.expect_eq(b[0], True)
+        wp.expect_eq(b[1], False)
+        wp.expect_eq(b[2], True)
+
+    wp.launch(bool_vec_assign_copy_kernel, 1, device=device)
+    wp.synchronize_device(device)
+
+
 devices = get_test_devices()
 
 
@@ -133,11 +145,11 @@ class TestVecAssignCopy(unittest.TestCase):
 
 add_function_test(TestVecAssignCopy, "test_vec_assign", test_vec_assign, devices=devices)
 add_function_test(TestVecAssignCopy, "test_vec_assign_copy", test_vec_assign_copy, devices=devices)
+add_function_test(TestVecAssignCopy, "test_bool_vec_assign_copy", test_bool_vec_assign_copy, devices=devices)
 add_function_test(
     TestVecAssignCopy, "test_vec_slicing_assign_backward", test_vec_slicing_assign_backward, devices=devices
 )
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2, failfast=True)

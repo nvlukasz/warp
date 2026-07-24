@@ -1,19 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
+from functools import cache
 
 import numpy as np
 
@@ -22,72 +11,78 @@ from warp.tests.unittest_utils import *
 
 
 @wp.kernel
-def op_kernel(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+def op_kernel(x: wp.array[float], y: wp.array[float]):
     tid = wp.tid()
     y[tid] = 0.5 - x[tid] * 2.0
 
 
 @wp.kernel
-def inc(a: wp.array(dtype=float)):
+def inc(a: wp.array[float]):
     tid = wp.tid()
     a[tid] = a[tid] + 1.0
 
 
 @wp.kernel
-def inc_vector(a: wp.array(dtype=wp.vec3f)):
+def inc_vector(a: wp.array[wp.vec3f]):
     tid = wp.tid()
     a[tid] = a[tid] + wp.vec3f(1.0)
 
 
 @wp.kernel
-def inc_matrix(a: wp.array(dtype=wp.mat22f)):
+def inc_matrix(a: wp.array[wp.mat22f]):
     tid = wp.tid()
     a[tid] = a[tid] + wp.mat22f(1.0)
 
 
 @wp.kernel
-def arange(start: int, step: int, a: wp.array(dtype=int)):
+def arange(start: int, step: int, a: wp.array[int]):
     tid = wp.tid()
     a[tid] = start + step * tid
 
 
 # copy elements between non-contiguous 1d arrays of float
 @wp.kernel
-def copy1d_float_kernel(dst: wp.array(dtype=float), src: wp.array(dtype=float)):
+def copy1d_float_kernel(dst: wp.array[float], src: wp.array[float]):
     i = wp.tid()
     dst[i] = src[i]
 
 
 # copy elements between non-contiguous 2d arrays of float
 @wp.kernel
-def copy2d_float_kernel(dst: wp.array2d(dtype=float), src: wp.array2d(dtype=float)):
+def copy2d_float_kernel(dst: wp.array2d[float], src: wp.array2d[float]):
     i, j = wp.tid()
     dst[i, j] = src[i, j]
 
 
 # copy elements between non-contiguous 3d arrays of float
 @wp.kernel
-def copy3d_float_kernel(dst: wp.array3d(dtype=float), src: wp.array3d(dtype=float)):
+def copy3d_float_kernel(dst: wp.array3d[float], src: wp.array3d[float]):
     i, j, k = wp.tid()
     dst[i, j, k] = src[i, j, k]
 
 
 # copy elements between non-contiguous 2d arrays of vec3
 @wp.kernel
-def copy2d_vec3_kernel(dst: wp.array2d(dtype=wp.vec3), src: wp.array2d(dtype=wp.vec3)):
+def copy2d_vec3_kernel(dst: wp.array2d[wp.vec3], src: wp.array2d[wp.vec3]):
     i, j = wp.tid()
     dst[i, j] = src[i, j]
 
 
 # copy elements between non-contiguous 2d arrays of mat22
 @wp.kernel
-def copy2d_mat22_kernel(dst: wp.array2d(dtype=wp.mat22), src: wp.array2d(dtype=wp.mat22)):
+def copy2d_mat22_kernel(dst: wp.array2d[wp.mat22], src: wp.array2d[wp.mat22]):
     i, j = wp.tid()
     dst[i, j] = src[i, j]
 
 
+def _import_torch():
+    import torch  # noqa: PLC0415
+
+    return torch
+
+
 def test_dtype_from_torch(test, device):
-    import torch
+    torch = _import_torch()
 
     def test_conversions(torch_type, warp_type):
         test.assertEqual(wp.dtype_from_torch(torch_type), warp_type)
@@ -104,7 +99,7 @@ def test_dtype_from_torch(test, device):
 
 
 def test_dtype_to_torch(test, device):
-    import torch
+    torch = _import_torch()
 
     def test_conversions(warp_type, torch_type):
         test.assertEqual(wp.dtype_to_torch(warp_type), torch_type)
@@ -130,7 +125,7 @@ def test_device_conversion(test, device):
 
 
 def test_torch_zerocopy(test, device):
-    import torch
+    torch = _import_torch()
 
     a = wp.zeros(10, dtype=wp.float32, device=device)
     t = wp.to_torch(a)
@@ -144,7 +139,7 @@ def test_torch_zerocopy(test, device):
 
 
 def test_from_torch(test, device):
-    import torch
+    torch = _import_torch()
 
     torch_device = wp.device_to_torch(device)
 
@@ -237,7 +232,7 @@ def test_from_torch(test, device):
 
 
 def test_array_ctype_from_torch(test, device):
-    import torch
+    torch = _import_torch()
 
     torch_device = wp.device_to_torch(device)
 
@@ -391,8 +386,10 @@ def test_array_ctype_from_torch(test, device):
 
 
 def test_cuda_array_interface(test, device):
-    # We should be able to construct Torch tensors from Warp arrays via __cuda_array_interface__ on GPU.
-    # Note that Torch does not support __array_interface__ on CPU.
+    """Construct Torch tensors from Warp arrays via ``__cuda_array_interface__`` on GPU.
+
+    Torch does not support ``__array_interface__`` on CPU.
+    """
 
     torch_device = wp.device_to_torch(device)
     n = 10
@@ -412,7 +409,7 @@ def test_cuda_array_interface(test, device):
 
 
 @wp.kernel
-def vec_sum_kernel(x: wp.array(dtype=wp.vec3), y: wp.array(dtype=wp.vec3), z: wp.array(dtype=wp.vec3)):
+def vec_sum_kernel(x: wp.array[wp.vec3], y: wp.array[wp.vec3], z: wp.array[wp.vec3]):
     tid = wp.tid()
     z[tid] = x[tid] + y[tid]
 
@@ -444,7 +441,7 @@ def test_tensor_in_warp_kernel(test, device):
 
 
 def test_to_torch(test, device):
-    import torch
+    torch = _import_torch()
 
     def wrap_scalar_array(warp_dtype, expected_torch_dtype):
         a = wp.zeros(10, dtype=warp_dtype, device=device)
@@ -492,7 +489,7 @@ def test_to_torch(test, device):
 
 
 def test_from_torch_slices(test, device):
-    import torch
+    torch = _import_torch()
 
     torch_device = wp.device_to_torch(device)
 
@@ -567,7 +564,7 @@ def test_from_torch_slices(test, device):
 
 
 def test_from_torch_zero_strides(test, device):
-    import torch
+    torch = _import_torch()
 
     torch_device = wp.device_to_torch(device)
 
@@ -605,7 +602,7 @@ def test_from_torch_zero_strides(test, device):
 
 
 def test_torch_mgpu_from_torch(test, device):
-    import torch
+    torch = _import_torch()
 
     n = 32
 
@@ -650,7 +647,7 @@ def test_torch_mgpu_to_torch(test, device):
 
 
 def test_torch_mgpu_interop(test, device):
-    import torch
+    torch = _import_torch()
 
     n = 1024 * 1024
 
@@ -674,10 +671,25 @@ def test_torch_mgpu_interop(test, device):
     assert_np_equal(t1.cpu().numpy(), expected)
 
 
+def test_torch_retain_grad_from_torch(test, device):
+    """Test that retain_grad can be set when converting from PyTorch via from_torch"""
+    torch = _import_torch()
+
+    torch_device = wp.device_to_torch(device)
+
+    t = torch.zeros(10, dtype=torch.float32, device=torch_device, requires_grad=True)
+    a = wp.from_torch(t, requires_grad=True, retain_grad=True)
+    test.assertTrue(a.retain_grad)
+
+    # Default should be False
+    a2 = wp.from_torch(t, requires_grad=True)
+    test.assertFalse(a2.retain_grad)
+
+
 def test_torch_autograd(test, device):
     """Test torch autograd with a custom Warp op"""
 
-    import torch
+    torch = _import_torch()
 
     # custom autograd op
     class TestFunc(torch.autograd.Function):
@@ -739,7 +751,7 @@ def test_torch_graph_torch_stream(test, device):
 
     wp.load_module(device=device)
 
-    import torch
+    torch = _import_torch()
 
     torch_device = wp.device_to_torch(device)
 
@@ -779,7 +791,7 @@ def test_torch_graph_torch_stream(test, device):
 def test_torch_graph_warp_stream(test, device):
     """Capture Torch graph on Warp stream"""
 
-    import torch
+    torch = _import_torch()
 
     torch_device = wp.device_to_torch(device)
 
@@ -789,11 +801,17 @@ def test_torch_graph_warp_stream(test, device):
 
     g = torch.cuda.CUDAGraph()
 
-    # make torch use the warp stream from the given device
-    torch_stream = wp.stream_to_torch(device)
+    # PyTorch 2.12 rejects CUDA graph capture on blocking streams because its
+    # capture bookkeeping touches the legacy stream. Warp's own streams are
+    # currently created with CU_STREAM_DEFAULT (blocking), so we route capture
+    # through a PyTorch-created non-blocking stream wrapped as a Warp stream.
+    # Revisit if Warp gains an API for creating non-blocking streams.
+    base_torch_stream = torch.cuda.Stream(device=torch_device)
+    warp_stream = wp.stream_from_torch(base_torch_stream)
+    torch_stream = wp.stream_to_torch(warp_stream)
 
     # capture graph
-    with wp.ScopedDevice(device), torch.cuda.graph(g, stream=torch_stream):
+    with wp.ScopedStream(warp_stream), torch.cuda.graph(g, stream=torch_stream):
         wp.capture_begin(force_module_load=False, external=True)
         try:
             t += 1.0
@@ -815,7 +833,7 @@ def test_torch_graph_warp_stream(test, device):
 def test_warp_graph_warp_stream(test, device):
     """Capture Warp graph on Warp stream"""
 
-    import torch
+    torch = _import_torch()
 
     torch_device = wp.device_to_torch(device)
 
@@ -851,7 +869,7 @@ def test_warp_graph_torch_stream(test, device):
 
     wp.load_module(device=device)
 
-    import torch
+    torch = _import_torch()
 
     torch_device = wp.device_to_torch(device)
 
@@ -889,7 +907,7 @@ def test_warp_graph_torch_stream(test, device):
 def test_direct(test, device):
     """Pass Torch tensors to Warp kernels directly"""
 
-    import torch
+    torch = _import_torch()
 
     torch_device = wp.device_to_torch(device)
     n = 12
@@ -909,93 +927,290 @@ def test_direct(test, device):
     assert torch.equal(m.reshape(n), expected)
 
 
+def test_torch_to_warp_types(test, device):
+    """Test constructing warp vectors, quaternions, matrices, and transforms from torch tensors."""
+
+    torch = _import_torch()
+
+    v = wp.vec3(torch.tensor([1.0, 2.0, 3.0]))
+    test.assertEqual(list(v), [1.0, 2.0, 3.0])
+
+    v2 = wp.vec4()
+    v2[1:] = torch.tensor([1.0, 2.0, 3.0])
+    test.assertEqual(list(v2), [0.0, 1.0, 2.0, 3.0])
+
+    q = wp.quat(torch.tensor([1.0, 2.0, 3.0, 4.0]))
+    test.assertEqual(list(q), [1.0, 2.0, 3.0, 4.0])
+
+    m1 = wp.mat22(torch.tensor([1.0, 2.0, 3.0, 4.0]))
+    test.assertEqual(m1[0, 0], 1.0)
+    test.assertEqual(m1[0, 1], 2.0)
+    test.assertEqual(m1[1, 0], 3.0)
+    test.assertEqual(m1[1, 1], 4.0)
+
+    m2 = wp.mat22()
+    m2[0, 0:2] = torch.tensor([5.0, 6.0])
+    m2[1, 0:2] = torch.tensor([7.0, 8.0])
+    test.assertEqual(m2[0, 0], 5.0)
+    test.assertEqual(m2[0, 1], 6.0)
+    test.assertEqual(m2[1, 0], 7.0)
+    test.assertEqual(m2[1, 1], 8.0)
+
+    p = torch.tensor([1.0, 2.0, 3.0])
+    q = torch.tensor([4.0, 5.0, 6.0, 7.0])
+    t = wp.transform(p, q)
+    test.assertEqual(list(t), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
+
+
+bf16_vec3 = wp.types.vector(3, dtype=wp.bfloat16)
+bf16_mat22 = wp.types.matrix(shape=(2, 2), dtype=wp.bfloat16)
+
+
+@wp.kernel
+def bf16_to_f32_kernel(input: wp.array[wp.bfloat16], output: wp.array[wp.float32]):
+    tid = wp.tid()
+    output[tid] = wp.float32(input[tid])
+
+
+def test_bf16_interop_torch(test, device):
+    torch = _import_torch()
+
+    wp_arr = wp.zeros(4, dtype=wp.bfloat16, device=device)
+    torch_tensor = wp.to_torch(wp_arr)
+    test.assertEqual(torch_tensor.dtype, torch.bfloat16)
+
+    torch_device = wp.device_to_torch(device)
+    t = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.bfloat16, device=torch_device)
+    wp_from_torch = wp.from_torch(t)
+    test.assertEqual(wp_from_torch.dtype, wp.bfloat16)
+
+    # Verify values survive Warp -> Torch -> Warp round-trip
+    n = 4
+    input_data = np.array([1.0, 2.5, -3.0, 4.0], dtype=np.float32)
+    bf16_arr = wp.array(input_data, dtype=wp.bfloat16, device=device)
+
+    torch_rt = wp.to_torch(bf16_arr)
+    wp_rt = wp.from_torch(torch_rt)
+
+    result_f32 = wp.zeros(n, dtype=wp.float32, device=device)
+    wp.launch(bf16_to_f32_kernel, dim=n, inputs=[wp_rt, result_f32], device=device)
+    np.testing.assert_allclose(result_f32.numpy(), input_data, rtol=1e-2)
+
+
+def test_bf16_torch_compound_types(test, device):
+    """Test that compound bfloat16 types (vectors, matrices) round-trip correctly through Torch."""
+    torch = _import_torch()
+
+    # Test vector type
+    vec_data = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
+    vec_arr = wp.array(vec_data, dtype=bf16_vec3, device=device)
+    torch_vec = wp.to_torch(vec_arr)
+    test.assertEqual(torch_vec.dtype, torch.bfloat16)
+    test.assertEqual(torch_vec.shape, (2, 3))
+    np.testing.assert_allclose(torch_vec.float().cpu().numpy(), vec_data, rtol=1e-2)
+
+    # Test matrix type
+    mat_data = np.array([[[1.0, 2.0], [3.0, 4.0]]], dtype=np.float32)
+    mat_arr = wp.array(mat_data, dtype=bf16_mat22, device=device)
+    torch_mat = wp.to_torch(mat_arr)
+    test.assertEqual(torch_mat.dtype, torch.bfloat16)
+    test.assertEqual(torch_mat.shape, (1, 2, 2))
+    np.testing.assert_allclose(torch_mat.float().cpu().numpy(), mat_data, rtol=1e-2)
+
+
 class TestTorch(unittest.TestCase):
     pass
 
 
-test_devices = get_test_devices()
-
 try:
     import torch
+except Exception as error:
+    print(f"Skipping Torch tests due to exception: {error}")
+else:
+    torch_candidate_devices = get_test_devices()
+    torch_cuda_candidate_devices = [device for device in torch_candidate_devices if device.is_cuda]
 
-    # check which Warp devices work with Torch
-    # CUDA devices may fail if Torch was not compiled with CUDA support
-    torch_compatible_devices = []
-    torch_compatible_cuda_devices = []
-
-    for d in test_devices:
+    @cache
+    def _torch_device_error(device_alias):
+        device = wp.get_device(device_alias)
         try:
-            t = torch.arange(10, device=wp.device_to_torch(d))
-            t += 1
-            torch_compatible_devices.append(d)
-            if d.is_cuda:
-                torch_compatible_cuda_devices.append(d)
-        except Exception as e:
-            print(f"Skipping Torch tests on device '{d}' due to exception: {e}")
+            tensor = torch.arange(10, device=wp.device_to_torch(device))
+            tensor += 1
+        except Exception as error:
+            return f"{type(error).__name__}: {error}"
+        return None
+
+    def _check_torch_device(test, device):
+        device = wp.get_device(device)
+        error = _torch_device_error(device.alias)
+        if error is not None:
+            test.skipTest(f"Torch is unavailable on Warp device '{device}': {error}")
+
+    def _check_required_torch_cuda_devices(test, _device):
+        for device in ("cuda:0", "cuda:1"):
+            _check_torch_device(test, device)
 
     add_function_test(TestTorch, "test_dtype_from_torch", test_dtype_from_torch, devices=None)
     add_function_test(TestTorch, "test_dtype_to_torch", test_dtype_to_torch, devices=None)
 
-    if torch_compatible_devices:
-        add_function_test(TestTorch, "test_device_conversion", test_device_conversion, devices=torch_compatible_devices)
-        add_function_test(TestTorch, "test_from_torch", test_from_torch, devices=torch_compatible_devices)
-        add_function_test(TestTorch, "test_from_torch_slices", test_from_torch_slices, devices=torch_compatible_devices)
+    if torch_candidate_devices:
         add_function_test(
-            TestTorch, "test_array_ctype_from_torch", test_array_ctype_from_torch, devices=torch_compatible_devices
+            TestTorch,
+            "test_device_conversion",
+            test_device_conversion,
+            devices=torch_candidate_devices,
+            device_check=_check_torch_device,
+        )
+        add_function_test(
+            TestTorch,
+            "test_from_torch",
+            test_from_torch,
+            devices=torch_candidate_devices,
+            device_check=_check_torch_device,
+        )
+        add_function_test(
+            TestTorch,
+            "test_from_torch_slices",
+            test_from_torch_slices,
+            devices=torch_candidate_devices,
+            device_check=_check_torch_device,
+        )
+        add_function_test(
+            TestTorch,
+            "test_array_ctype_from_torch",
+            test_array_ctype_from_torch,
+            devices=torch_candidate_devices,
+            device_check=_check_torch_device,
         )
         add_function_test(
             TestTorch,
             "test_from_torch_zero_strides",
             test_from_torch_zero_strides,
-            devices=torch_compatible_devices,
+            devices=torch_candidate_devices,
+            device_check=_check_torch_device,
         )
-        add_function_test(TestTorch, "test_to_torch", test_to_torch, devices=torch_compatible_devices)
-        add_function_test(TestTorch, "test_torch_zerocopy", test_torch_zerocopy, devices=torch_compatible_devices)
-        add_function_test(TestTorch, "test_torch_autograd", test_torch_autograd, devices=torch_compatible_devices)
-        add_function_test(TestTorch, "test_direct", test_direct, devices=torch_compatible_devices)
         add_function_test(
-            TestTorch, "test_tensor_in_warp_kernel", test_tensor_in_warp_kernel, devices=torch_compatible_devices
+            TestTorch,
+            "test_to_torch",
+            test_to_torch,
+            devices=torch_candidate_devices,
+            device_check=_check_torch_device,
+        )
+        add_function_test(
+            TestTorch,
+            "test_torch_zerocopy",
+            test_torch_zerocopy,
+            devices=torch_candidate_devices,
+            device_check=_check_torch_device,
+        )
+        add_function_test(
+            TestTorch,
+            "test_torch_autograd",
+            test_torch_autograd,
+            devices=torch_candidate_devices,
+            device_check=_check_torch_device,
+        )
+        add_function_test(
+            TestTorch,
+            "test_torch_retain_grad_from_torch",
+            test_torch_retain_grad_from_torch,
+            devices=torch_candidate_devices,
+            device_check=_check_torch_device,
+        )
+        add_function_test(
+            TestTorch,
+            "test_direct",
+            test_direct,
+            devices=torch_candidate_devices,
+            device_check=_check_torch_device,
+        )
+        add_function_test(
+            TestTorch,
+            "test_tensor_in_warp_kernel",
+            test_tensor_in_warp_kernel,
+            devices=torch_candidate_devices,
+            device_check=_check_torch_device,
         )
 
-    if torch_compatible_cuda_devices:
+    if torch_cuda_candidate_devices:
         add_function_test(
             TestTorch,
             "test_torch_graph_torch_stream",
             test_torch_graph_torch_stream,
-            devices=torch_compatible_cuda_devices,
+            devices=torch_cuda_candidate_devices,
+            device_check=_check_torch_device,
         )
         add_function_test(
             TestTorch,
             "test_torch_graph_warp_stream",
             test_torch_graph_warp_stream,
-            devices=torch_compatible_cuda_devices,
+            devices=torch_cuda_candidate_devices,
+            device_check=_check_torch_device,
         )
         add_function_test(
             TestTorch,
             "test_warp_graph_warp_stream",
             test_warp_graph_warp_stream,
-            devices=torch_compatible_cuda_devices,
+            devices=torch_cuda_candidate_devices,
+            device_check=_check_torch_device,
         )
         add_function_test(
             TestTorch,
             "test_warp_graph_torch_stream",
             test_warp_graph_torch_stream,
-            devices=torch_compatible_cuda_devices,
+            devices=torch_cuda_candidate_devices,
+            device_check=_check_torch_device,
         )
         add_function_test(
-            TestTorch, "test_cuda_array_interface", test_cuda_array_interface, devices=torch_compatible_cuda_devices
+            TestTorch,
+            "test_cuda_array_interface",
+            test_cuda_array_interface,
+            devices=torch_cuda_candidate_devices,
+            device_check=_check_torch_device,
         )
 
     # multi-GPU tests
-    if len(torch_compatible_cuda_devices) > 1:
-        add_function_test(TestTorch, "test_torch_mgpu_from_torch", test_torch_mgpu_from_torch)
-        add_function_test(TestTorch, "test_torch_mgpu_to_torch", test_torch_mgpu_to_torch)
-        add_function_test(TestTorch, "test_torch_mgpu_interop", test_torch_mgpu_interop)
+    if len(torch_cuda_candidate_devices) > 1:
+        add_function_test(
+            TestTorch,
+            "test_torch_mgpu_from_torch",
+            test_torch_mgpu_from_torch,
+            device_check=_check_required_torch_cuda_devices,
+        )
+        add_function_test(
+            TestTorch,
+            "test_torch_mgpu_to_torch",
+            test_torch_mgpu_to_torch,
+            device_check=_check_required_torch_cuda_devices,
+        )
+        add_function_test(
+            TestTorch,
+            "test_torch_mgpu_interop",
+            test_torch_mgpu_interop,
+            device_check=_check_required_torch_cuda_devices,
+        )
 
-except Exception as e:
-    print(f"Skipping Torch tests due to exception: {e}")
+    add_function_test(TestTorch, "test_torch_to_warp_types", test_torch_to_warp_types)
 
+    # bfloat16 tests require arch >= 80
+    bf16_torch_devices = [
+        device for device in torch_candidate_devices if device.is_cpu or (device.is_cuda and device.arch >= 80)
+    ]
+    if bf16_torch_devices:
+        add_function_test(
+            TestTorch,
+            "test_bf16_interop_torch",
+            test_bf16_interop_torch,
+            devices=bf16_torch_devices,
+            device_check=_check_torch_device,
+        )
+        add_function_test(
+            TestTorch,
+            "test_bf16_torch_compound_types",
+            test_bf16_torch_compound_types,
+            devices=bf16_torch_devices,
+            device_check=_check_torch_device,
+        )
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

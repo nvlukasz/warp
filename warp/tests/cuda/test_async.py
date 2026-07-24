@@ -1,25 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
 import numpy as np
 
 import warp as wp
+from warp._src.utils import check_p2p
+from warp.tests.test_fabricarray import _create_fabric_array_interface
 from warp.tests.unittest_utils import *
-from warp.utils import check_p2p
 
 
 class Capturable:
@@ -51,7 +40,7 @@ class Capturable:
 
 
 @wp.kernel
-def inc(a: wp.array(dtype=float)):
+def inc(a: wp.array[float]):
     tid = wp.tid()
     a[tid] = a[tid] + 1.0
 
@@ -294,8 +283,6 @@ def as_indexed_array(data, device=None, **kwargs):
 
 
 def as_fabric_array(data, device=None, **kwargs):
-    from warp.tests.test_fabricarray import _create_fabric_array_interface
-
     a = wp.array(data=data, device=device)
     iface = _create_fabric_array_interface(a, "foo")
     fa = wp.fabricarray(data=iface, attrib="foo")
@@ -304,8 +291,6 @@ def as_fabric_array(data, device=None, **kwargs):
 
 
 def as_indexed_fabric_array(data, device=None, **kwargs):
-    from warp.tests.test_fabricarray import _create_fabric_array_interface
-
     a = wp.array(data=data, device=device)
     shape = (*a.shape[:-1], 2 * a.shape[-1])
     # allocate double the elements so we can index half of them
@@ -343,10 +328,11 @@ class CopyParams:
 
 def copy_template(test, src_ctor, dst_ctor, src_device, dst_device, n, params: CopyParams):
     # activate the given memory pool configuration
-    with wp.ScopedMempool(src_device, params.src_use_mempool), wp.ScopedMempool(
-        dst_device, params.dst_use_mempool
-    ), wp.ScopedMempoolAccess(dst_device, src_device, params.access_dst_src), wp.ScopedMempoolAccess(
-        src_device, dst_device, params.access_src_dst
+    with (
+        wp.ScopedMempool(src_device, params.src_use_mempool),
+        wp.ScopedMempool(dst_device, params.dst_use_mempool),
+        wp.ScopedMempoolAccess(dst_device, src_device, params.access_dst_src),
+        wp.ScopedMempoolAccess(src_device, dst_device, params.access_src_dst),
     ):
         # make sure the data are different between tests by adding a unique offset
         # this avoids aliasing issues with older memory
@@ -426,13 +412,13 @@ def copy_template(test, src_ctor, dst_ctor, src_device, dst_device, n, params: C
         if expected_error_type is not None:
             # disable error output from Warp if we expect an exception
             try:
-                saved_error_output_enabled = wp.context.runtime.core.wp_is_error_output_enabled()
-                wp.context.runtime.core.wp_set_error_output_enabled(False)
+                saved_error_output_enabled = wp._src.context.runtime.core.wp_is_error_output_enabled()
+                wp._src.context.runtime.core.wp_set_error_output_enabled(False)
                 with test.assertRaisesRegex(expected_error_type, expected_error_regex):
                     with Capturable(use_graph=params.use_graph, stream=stream):
                         wp.copy(dst, src, stream=stream_arg)
             finally:
-                wp.context.runtime.core.wp_set_error_output_enabled(saved_error_output_enabled)
+                wp._src.context.runtime.core.wp_set_error_output_enabled(saved_error_output_enabled)
                 wp.synchronize()
 
                 # print(f"SUCCESSFUL ERROR PREDICTION: {expected_error_regex}")
@@ -672,5 +658,4 @@ for src_type, src_ctor in array_constructors.items():
 #                     value_offset=0))
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

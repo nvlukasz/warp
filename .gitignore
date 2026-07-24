@@ -15,6 +15,7 @@ warp_lang.egg-info
 /build
 /dist
 /docs/_build
+/docs/**/_generated
 
 # IDE and editor files
 .idea/
@@ -22,12 +23,19 @@ warp_lang.egg-info
 .vs/
 .history
 
+# Claude Code
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/worktrees/
+/docs/superpowers/
+
 # Development and testing
 *.o
 *.exp
 *.dll
 *.lib
 *.cpp.obj
+*.cpp.warp*.obj
 *.pdb
 *.log
 *.bak
@@ -35,8 +43,6 @@ outputs/
 
 # USD and extension files
 .usd_cache/
-exts/omni.warp/omni/warp/ogn/tests/usd
-exts/omni.warp/config/extension.gen.toml
 
 # External dependencies
 /external/llvm-project
@@ -50,3 +56,6 @@ asv/env
 asv/results
 asv/html
 asv/warp-lang
+
+# Core dumps
+core.[0-9]*

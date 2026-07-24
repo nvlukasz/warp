@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
@@ -49,24 +37,21 @@ def test_pinned(test: unittest.TestCase, device):
 
     wp.synchronize_device(device)
 
-    with wp.ScopedTimer("Synchronous copy", print=False) as pageable_timer:
-        wp.copy(a_device, a_pageable1)
-        wp.copy(a_pageable2, a_device)
+    wp.copy(a_device, a_pageable1)
+    wp.copy(a_pageable2, a_device)
 
     wp.synchronize_device(device)
 
-    with wp.ScopedTimer("Asynchronous copy", print=False) as pinned_timer:
-        wp.copy(a_device, a_pinned1)
-        wp.copy(a_pinned2, a_device)
+    # Keep this as a correctness test. Timing comparisons between pinned and
+    # pageable transfers are too runner-dependent for CI and belong in benchmarks.
+    wp.copy(a_device, a_pinned1)
+    wp.copy(a_pinned2, a_device)
 
     wp.synchronize_device(device)
 
     # ensure correct results
     assert_np_equal(a_pageable2.numpy(), ones)
     assert_np_equal(a_pinned2.numpy(), ones)
-
-    # ensure that launching asynchronous transfers took less CPU time
-    test.assertTrue(pinned_timer.elapsed < pageable_timer.elapsed, "Pinned transfers did not take less CPU time")
 
 
 devices = get_selected_cuda_test_devices()
@@ -80,5 +65,4 @@ add_function_test(TestPinned, "test_pinned", test_pinned, devices=devices)
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

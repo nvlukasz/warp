@@ -1,22 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 from typing import Any
 
 import warp as wp
+import warp.tests.aux_test_instancing_gc as gc_test_module  # use a helper module with a known kernel count
 import warp.tests.aux_test_name_clash1 as name_clash_module_1
 import warp.tests.aux_test_name_clash2 as name_clash_module_2
 from warp.tests.unittest_utils import *
@@ -25,7 +14,7 @@ from warp.tests.unittest_utils import *
 
 
 @wp.kernel
-def global_kernel(a: wp.array(dtype=int)):
+def global_kernel(a: wp.array[int]):
     a[0] = 17
 
 
@@ -33,7 +22,7 @@ global_kernel_1 = global_kernel
 
 
 @wp.kernel
-def global_kernel(a: wp.array(dtype=int)):
+def global_kernel(a: wp.array[int]):
     a[0] = 42
 
 
@@ -76,7 +65,7 @@ global_func_2 = global_func
 
 
 @wp.kernel
-def global_func_kernel(a: wp.array(dtype=int)):
+def global_func_kernel(a: wp.array[int]):
     a[0] = global_func()
     a[1] = global_func_1()
     a[2] = global_func_2()
@@ -111,7 +100,7 @@ GlobalStruct2 = GlobalStruct
 
 
 @wp.kernel
-def global_struct_args_kernel(s0: GlobalStruct, s1: GlobalStruct1, s2: GlobalStruct2, a: wp.array(dtype=float)):
+def global_struct_args_kernel(s0: GlobalStruct, s1: GlobalStruct1, s2: GlobalStruct2, a: wp.array[float]):
     a[0] = s0.v[0]
     a[1] = s0.v[1]
     a[2] = s1.v
@@ -137,7 +126,7 @@ def test_global_struct_args_redefine(test, device):
 
 
 @wp.kernel
-def global_struct_ctor_kernel(a: wp.array(dtype=float)):
+def global_struct_ctor_kernel(a: wp.array[float]):
     s0 = GlobalStruct()
     s1 = GlobalStruct1()
     s2 = GlobalStruct2()
@@ -181,7 +170,7 @@ def global_func_po(x: int):
 
 
 @wp.kernel
-def global_overload_primary_kernel(a: wp.array(dtype=float)):
+def global_overload_primary_kernel(a: wp.array[float]):
     # use primary (int) overload
     a[0] = float(global_func_po(2))
     # use secondary (float) overload
@@ -218,7 +207,7 @@ def global_func_so(x: float):
 
 
 @wp.kernel
-def global_overload_secondary_kernel(a: wp.array(dtype=float)):
+def global_overload_secondary_kernel(a: wp.array[float]):
     # use primary (int) overload
     a[0] = float(global_func_so(2))
     # use secondary (float) overload
@@ -237,7 +226,7 @@ def test_global_overload_secondary_redefine(test, device):
 
 
 @wp.kernel
-def global_generic_kernel(x: Any, a: wp.array(dtype=Any)):
+def global_generic_kernel(x: Any, a: wp.array[Any]):
     a[0] = x * x
 
 
@@ -245,7 +234,7 @@ global_generic_kernel_1 = global_generic_kernel
 
 
 @wp.kernel
-def global_generic_kernel(x: Any, a: wp.array(dtype=Any)):
+def global_generic_kernel(x: Any, a: wp.array[Any]):
     a[0] = x * x * x
 
 
@@ -295,7 +284,7 @@ global_generic_func_2 = global_generic_func
 
 
 @wp.kernel
-def global_generic_func_kernel(ai: wp.array(dtype=int), af: wp.array(dtype=float)):
+def global_generic_func_kernel(ai: wp.array[int], af: wp.array[float]):
     ai[0] = global_generic_func(2)
     af[0] = global_generic_func(2.0)
 
@@ -323,7 +312,7 @@ def test_global_generic_func_redefine(test, device):
 def create_kernel_simple():
     # not a closure
     @wp.kernel
-    def k(a: wp.array(dtype=int)):
+    def k(a: wp.array[int]):
         a[0] = 17
 
     return k
@@ -362,7 +351,7 @@ simple_func_2 = create_func_simple()
 
 
 @wp.kernel
-def simple_func_kernel(a: wp.array(dtype=int)):
+def simple_func_kernel(a: wp.array[int]):
     a[0] = simple_func_1()
     a[1] = simple_func_2()
 
@@ -391,7 +380,7 @@ SimpleStruct2 = create_struct_simple()
 
 
 @wp.kernel
-def simple_struct_args_kernel(s1: SimpleStruct1, s2: SimpleStruct2, a: wp.array(dtype=int)):
+def simple_struct_args_kernel(s1: SimpleStruct1, s2: SimpleStruct2, a: wp.array[int]):
     a[0] = s1.x
     a[1] = s2.x
 
@@ -409,7 +398,7 @@ def test_create_struct_simple_args(test, device):
 
 
 @wp.kernel
-def simple_struct_ctor_kernel(a: wp.array(dtype=int)):
+def simple_struct_ctor_kernel(a: wp.array[int]):
     s1 = SimpleStruct1()
     s2 = SimpleStruct2()
     s1.x = 17
@@ -432,7 +421,7 @@ def test_create_struct_simple_ctor(test, device):
 def create_generic_kernel_simple():
     # not a closure
     @wp.kernel
-    def k(x: Any, a: wp.array(dtype=Any)):
+    def k(x: Any, a: wp.array[Any]):
         a[0] = x * x
 
     return k
@@ -477,8 +466,8 @@ simple_generic_func_2 = create_generic_func_simple()
 
 @wp.kernel
 def simple_generic_func_kernel(
-    ai: wp.array(dtype=int),
-    af: wp.array(dtype=float),
+    ai: wp.array[int],
+    af: wp.array[float],
 ):
     ai[0] = simple_generic_func_1(2)
     af[0] = simple_generic_func_1(2.0)
@@ -504,12 +493,12 @@ def create_kernel_cond(cond):
     if cond:
 
         @wp.kernel
-        def k(a: wp.array(dtype=int)):
+        def k(a: wp.array[int]):
             a[0] = 17
     else:
 
         @wp.kernel
-        def k(a: wp.array(dtype=int)):
+        def k(a: wp.array[int]):
             a[0] = 42
 
     return k
@@ -554,7 +543,7 @@ cond_func_2 = create_func_cond(False)
 
 
 @wp.kernel
-def cond_func_kernel(a: wp.array(dtype=int)):
+def cond_func_kernel(a: wp.array[int]):
     a[0] = cond_func_1()
     a[1] = cond_func_2()
 
@@ -590,7 +579,7 @@ CondStruct2 = create_struct_cond(False)
 
 
 @wp.kernel
-def cond_struct_args_kernel(s1: CondStruct1, s2: CondStruct2, a: wp.array(dtype=float)):
+def cond_struct_args_kernel(s1: CondStruct1, s2: CondStruct2, a: wp.array[float]):
     a[0] = s1.v
     a[1] = s2.v[0]
     a[2] = s2.v[1]
@@ -609,7 +598,7 @@ def test_create_struct_cond_args(test, device):
 
 
 @wp.kernel
-def cond_struct_ctor_kernel(a: wp.array(dtype=float)):
+def cond_struct_ctor_kernel(a: wp.array[float]):
     s1 = CondStruct1()
     s2 = CondStruct2()
     s1.v = 1.0
@@ -634,12 +623,12 @@ def create_generic_kernel_cond(cond):
     if cond:
 
         @wp.kernel
-        def k(x: Any, a: wp.array(dtype=Any)):
+        def k(x: Any, a: wp.array[Any]):
             a[0] = x * x
     else:
 
         @wp.kernel
-        def k(x: Any, a: wp.array(dtype=Any)):
+        def k(x: Any, a: wp.array[Any]):
             a[0] = x * x * x
 
     return k
@@ -690,8 +679,8 @@ cond_generic_func_2 = create_generic_func_cond(False)
 
 @wp.kernel
 def cond_generic_func_kernel(
-    ai: wp.array(dtype=int),
-    af: wp.array(dtype=float),
+    ai: wp.array[int],
+    af: wp.array[float],
 ):
     ai[0] = cond_generic_func_1(2)
     af[0] = cond_generic_func_1(2.0)
@@ -716,7 +705,7 @@ def test_create_generic_func_cond(test, device):
 def create_kernel_closure(value: int):
     # closure
     @wp.kernel
-    def k(a: wp.array(dtype=int)):
+    def k(a: wp.array[int]):
         a[0] = value
 
     return k
@@ -755,7 +744,7 @@ closure_func_2 = create_func_closure(42)
 
 
 @wp.kernel
-def closure_func_kernel(a: wp.array(dtype=int)):
+def closure_func_kernel(a: wp.array[int]):
     a[0] = closure_func_1()
     a[1] = closure_func_2()
 
@@ -789,7 +778,7 @@ closure_func_overload_2 = create_func_closure_overload(3)
 
 
 @wp.kernel
-def closure_func_overload_kernel(a: wp.array(dtype=int)):
+def closure_func_overload_kernel(a: wp.array[int]):
     a[0] = closure_func_overload_1()
     a[1] = closure_func_overload_1(2)
     a[2] = closure_func_overload_2()
@@ -826,7 +815,7 @@ closure_func_overload_selfref_2 = create_func_closure_overload_selfref(3)
 
 
 @wp.kernel
-def closure_func_overload_selfref_kernel(a: wp.array(dtype=int)):
+def closure_func_overload_selfref_kernel(a: wp.array[int]):
     a[0] = closure_func_overload_selfref_1()
     a[1] = closure_func_overload_selfref_1(2)
     a[2] = closure_func_overload_selfref_2()
@@ -862,8 +851,8 @@ closure_func_nonoverload_4 = create_func_closure_nonoverload(float, 3.0)
 
 @wp.kernel
 def closure_func_nonoverload_kernel(
-    ai: wp.array(dtype=int),
-    af: wp.array(dtype=float),
+    ai: wp.array[int],
+    af: wp.array[float],
 ):
     ai[0] = closure_func_nonoverload_1(2)
     af[0] = closure_func_nonoverload_2(2.0)
@@ -892,7 +881,7 @@ def create_fk_closure(a, b):
 
     # closure
     @wp.kernel
-    def k(a: wp.array(dtype=int)):
+    def k(a: wp.array[int]):
         a[0] = f() + b
 
     return f, k
@@ -904,7 +893,7 @@ fk_closure_func_2, fk_closure_kernel_2 = create_fk_closure(40, 2)
 
 # use generated functions in a new kernel
 @wp.kernel
-def fk_closure_combine_kernel(a: wp.array(dtype=int)):
+def fk_closure_combine_kernel(a: wp.array[int]):
     a[0] = fk_closure_func_1() + fk_closure_func_2()
 
 
@@ -928,7 +917,7 @@ def test_create_fk_closure(test, device):
 
 def create_generic_kernel_closure(value):
     @wp.kernel
-    def k(x: Any, a: wp.array(dtype=Any)):
+    def k(x: Any, a: wp.array[Any]):
         a[0] = x * type(x)(value)
 
     return k
@@ -960,11 +949,11 @@ def test_create_generic_kernel_closure(test, device):
 
 def create_generic_kernel_overload_closure(value, dtype):
     @wp.kernel
-    def k(x: Any, a: wp.array(dtype=Any)):
+    def k(x: Any, a: wp.array[Any]):
         a[0] = x * type(x)(value)
 
     # return only the overload, not the generic kernel
-    return wp.overload(k, [dtype, wp.array(dtype=dtype)])
+    return wp.overload(k, [dtype, wp.array[dtype]])
 
 
 generic_closure_kernel_overload_i1 = create_generic_kernel_overload_closure(2, int)
@@ -1007,8 +996,8 @@ generic_closure_func_2 = create_generic_func_closure(3)
 
 @wp.kernel
 def closure_generic_func_kernel(
-    ai: wp.array(dtype=int),
-    af: wp.array(dtype=float),
+    ai: wp.array[int],
+    af: wp.array[float],
 ):
     ai[0] = generic_closure_func_1(2)
     af[0] = generic_closure_func_1(2.0)
@@ -1049,8 +1038,8 @@ generic_closure_func_overload_2 = create_generic_func_closure_overload(3)
 
 @wp.kernel
 def generic_closure_func_overload_kernel(
-    ai: wp.array(dtype=int),
-    af: wp.array(dtype=float),
+    ai: wp.array[int],
+    af: wp.array[float],
 ):
     ai[0] = generic_closure_func_overload_1(1)  # 1 * 2 = 2
     ai[1] = generic_closure_func_overload_2(1)  # 1 * 3 = 3
@@ -1168,7 +1157,7 @@ def test_type_closure_struct(test, device):
 
 
 @wp.kernel
-def name_clash_func_kernel(a: wp.array(dtype=int)):
+def name_clash_func_kernel(a: wp.array[int]):
     a[0] = name_clash_module_1.same_func()
     a[1] = name_clash_module_2.same_func()
     a[2] = name_clash_module_1.different_func()
@@ -1192,7 +1181,7 @@ def name_clash_structs_args_kernel(
     s2: name_clash_module_2.SameStruct,
     d1: name_clash_module_1.DifferentStruct,
     d2: name_clash_module_2.DifferentStruct,
-    a: wp.array(dtype=float),
+    a: wp.array[float],
 ):
     a[0] = s1.x
     a[1] = s2.x
@@ -1221,7 +1210,7 @@ def test_name_clash_struct_args(test, device):
 
 @wp.kernel
 def name_clash_structs_ctor_kernel(
-    a: wp.array(dtype=float),
+    a: wp.array[float],
 ):
     s1 = name_clash_module_1.SameStruct()
     s2 = name_clash_module_2.SameStruct()
@@ -1297,10 +1286,6 @@ def test_module_mark_modified(test, device):
 
 def test_garbage_collection(test, device):
     """Test that dynamically generated kernels without user references are not retained in the module."""
-
-    # use a helper module with a known kernel count
-    import warp.tests.aux_test_instancing_gc as gc_test_module
-
     with wp.ScopedDevice(device):
         a = wp.zeros(1, dtype=int)
 
@@ -1314,11 +1299,96 @@ def test_garbage_collection(test, device):
             # since we don't keep references to the previous kernels,
             # they should be garbage-collected and not appear in the module
             k.module.load(device=device)
-            test.assertEqual(len(k.module.live_kernels), 1)
+            test.assertEqual(len(k.module._get_live_kernels()), 1)
 
             # test the kernel
             wp.launch(k, dim=1, inputs=[a])
             test.assertEqual(a.numpy()[0], i)
+
+
+# =======================================================================
+
+
+def test_create_kernel_loop_hooks_bounded(test, device):
+    """
+    Relaunching an identical recreated kernel must not grow the per-ModuleExec hook cache
+    (regression for an Adjoint leak when hooks were keyed by kernel.adj).
+    """
+
+    def make():
+        @wp.kernel
+        def k(a: wp.array[int]):
+            a[0] = 17
+
+        return k
+
+    with wp.ScopedDevice(device):
+        a = wp.zeros(1, dtype=int)
+
+        k0 = make()
+        wp.launch(k0, dim=1, inputs=[a])
+        wp.synchronize_device()
+        module = k0.module
+        del k0
+
+        def hook_count():
+            return sum(len(module_exec.kernel_hooks) for module_exec in module.execs.values())
+
+        baseline = hook_count()
+        for _ in range(16):
+            k = make()
+            wp.launch(k, dim=1, inputs=[a])
+            wp.synchronize_device()
+            del k
+
+        # Identical kernel each iteration: no reload, so the hook cache must not grow.
+        test.assertEqual(hook_count(), baseline)
+        test.assertEqual(a.numpy()[0], 17)
+
+
+# =======================================================================
+
+# Module-level constant used as a fallback when the closure cell is empty.
+_CELL_CONTENT = wp.constant(42)
+
+
+def _make_kernel_with_empty_cell():
+    """Create a kernel where a closure variable's cell is empty at definition time.
+
+    ``_CELL_CONTENT`` is assigned later in this function, which makes
+    Python treat it as a local variable and create a closure cell for
+    ``_template``.  Using ``module="unique"`` forces eager hashing (which
+    calls ``resolve_external_reference``) at ``wp.kernel()`` time, before
+    the assignment executes.  The empty cell must not raise ``ValueError``;
+    it falls through to the global for hashing purposes.  At launch time
+    the cell is populated, so the kernel sees the local value (99).
+    """
+
+    def _template(a: wp.array[int]):
+        a[0] = _CELL_CONTENT
+
+    # module="unique" triggers eager hashing at kernel creation time,
+    # while _CELL_CONTENT's closure cell is still empty.
+    k = wp.kernel(_template, module="unique")
+
+    # This assignment causes _CELL_CONTENT to be a local in this
+    # function, creating a closure cell in _template that is empty when
+    # wp.kernel() processes it above.
+    _CELL_CONTENT = wp.constant(99)
+    return k
+
+
+_empty_cell_kernel = _make_kernel_with_empty_cell()
+
+
+def test_empty_closure_cell(test, device):
+    """Test that a kernel with an empty closure cell at hash time does not
+    raise ``ValueError: Cell is empty``
+    """
+    with wp.ScopedDevice(device):
+        a = wp.zeros(1, dtype=int)
+        wp.launch(_empty_cell_kernel, dim=1, inputs=[a])
+        test.assertEqual(a.numpy()[0], 99)
 
 
 # =======================================================================
@@ -1488,8 +1558,16 @@ add_function_test(
     TestCodeGenInstancing, func=test_module_mark_modified, name="test_module_mark_modified", devices=devices
 )
 add_function_test(TestCodeGenInstancing, func=test_garbage_collection, name="test_garbage_collection", devices=devices)
+add_function_test(
+    TestCodeGenInstancing,
+    func=test_create_kernel_loop_hooks_bounded,
+    name="test_create_kernel_loop_hooks_bounded",
+    devices=None,
+)
+
+# empty closure cell fallback
+add_function_test(TestCodeGenInstancing, func=test_empty_closure_cell, name="test_empty_closure_cell", devices=devices)
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

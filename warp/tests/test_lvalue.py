@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
@@ -22,7 +10,7 @@ from warp.tests.unittest_utils import *
 
 
 @wp.kernel
-def rmw_array_kernel(foos: wp.array(dtype=wp.uint32)):
+def rmw_array_kernel(foos: wp.array[wp.uint32]):
     i = wp.tid()
 
     foos[i] += wp.uint32(1)
@@ -42,7 +30,7 @@ class RmwFoo:
 
 
 @wp.kernel
-def rmw_array_struct_kernel(foos: wp.array(dtype=RmwFoo)):
+def rmw_array_struct_kernel(foos: wp.array[RmwFoo]):
     i = wp.tid()
     foos[i].field += wp.uint32(1)
 
@@ -59,12 +47,12 @@ def test_rmw_array_struct(test, device):
 
 
 @wp.func
-def lookup(foos: wp.array(dtype=wp.uint32), index: int):
+def lookup(foos: wp.array[wp.uint32], index: int):
     return foos[index]
 
 
 @wp.kernel
-def lookup_kernel(foos: wp.array(dtype=wp.uint32)):
+def lookup_kernel(foos: wp.array[wp.uint32]):
     i = wp.tid()
 
     x = lookup(foos, i)
@@ -80,12 +68,12 @@ def test_lookup(test, device):
 
 
 @wp.func
-def lookup3(foos: wp.array(dtype=wp.float32), index: int):
+def lookup3(foos: wp.array[wp.float32], index: int):
     return foos[index]
 
 
 @wp.kernel
-def grad_kernel(foos: wp.array(dtype=wp.float32), bars: wp.array(dtype=wp.float32)):
+def grad_kernel(foos: wp.array[wp.float32], bars: wp.array[wp.float32]):
     i = wp.tid()
 
     x = lookup3(foos, i)
@@ -116,7 +104,7 @@ def test_grad(test, device):
 
 
 @wp.func
-def lookup2(foos: wp.array(dtype=wp.uint32), index: int):
+def lookup2(foos: wp.array[wp.uint32], index: int):
     if index % 2 == 0:
         x = foos[index]
         x = wp.uint32(0)
@@ -126,7 +114,7 @@ def lookup2(foos: wp.array(dtype=wp.uint32), index: int):
 
 
 @wp.kernel
-def lookup2_kernel(foos: wp.array(dtype=wp.uint32)):
+def lookup2_kernel(foos: wp.array[wp.uint32]):
     i = wp.tid()
 
     x = lookup2(foos, i)
@@ -142,7 +130,7 @@ def test_lookup2(test, device):
 
 
 @wp.kernel
-def unary_kernel(foos: wp.array(dtype=wp.uint32)):
+def unary_kernel(foos: wp.array[wp.uint32]):
     i = wp.tid()
 
     foos[i] = wp.uint32(-1)
@@ -159,7 +147,7 @@ def test_unary(test, device):
 
 
 @wp.kernel
-def rvalue_kernel(foos: wp.array(dtype=wp.uint32)):
+def rvalue_kernel(foos: wp.array[wp.uint32]):
     i = wp.tid()
 
     if foos[i] < wp.uint32(1):
@@ -177,7 +165,7 @@ def test_rvalue(test, device):
 # Tests, among other things, that assigning a reference to a new variable does
 # not create a reference
 @wp.kernel
-def intermediate_kernel(foos: wp.array(dtype=wp.uint32)):
+def intermediate_kernel(foos: wp.array[wp.uint32]):
     i = wp.tid()
 
     x = foos[i]
@@ -194,7 +182,7 @@ def test_intermediate(test, device):
 
 
 @wp.kernel
-def array_kernel(foos: wp.array(dtype=wp.uint32)):
+def array_kernel(foos: wp.array[wp.uint32]):
     i = wp.tid()
     foos[i] = wp.uint32(1)
 
@@ -213,7 +201,7 @@ def increment(arg: wp.uint32):
 
 
 @wp.kernel
-def array_call_kernel(foos: wp.array(dtype=wp.uint32)):
+def array_call_kernel(foos: wp.array[wp.uint32]):
     i = wp.tid()
     foos[i] = increment(foos[i])
 
@@ -221,7 +209,7 @@ def array_call_kernel(foos: wp.array(dtype=wp.uint32)):
 def test_array_call_assign(test, device):
     arr = wp.zeros((10,), dtype=wp.uint32, device=device)
 
-    wp.launch(kernel=array_kernel, dim=(10,), inputs=[arr], device=device)
+    wp.launch(kernel=array_call_kernel, dim=(10,), inputs=[arr], device=device)
 
     assert_np_equal(arr.numpy(), np.ones(10))
 
@@ -232,7 +220,7 @@ class Foo:
 
 
 @wp.kernel
-def array_struct_kernel(foos: wp.array(dtype=Foo)):
+def array_struct_kernel(foos: wp.array[Foo]):
     i = wp.tid()
     foos[i].field = wp.uint32(1)
 
@@ -262,7 +250,7 @@ class Baz:
 
 
 @wp.kernel
-def array_struct_struct_kernel(foos: wp.array(dtype=Baz)):
+def array_struct_struct_kernel(foos: wp.array[Baz]):
     i = wp.tid()
     foos[i].bar.field = wp.uint32(1)
 
@@ -295,7 +283,7 @@ class F:
 
 
 @wp.kernel
-def complex_kernel(foos: wp.array(dtype=F)):
+def complex_kernel(foos: wp.array[F]):
     i = wp.tid()
     foos[i].x += wp.float32(1.0)
     foos[i].y = wp.int32(2)
@@ -334,7 +322,7 @@ class Fvec:
 
 
 @wp.kernel
-def swizzle_kernel(foos: wp.array(dtype=Fvec)):
+def swizzle_kernel(foos: wp.array[Fvec]):
     i = wp.tid()
 
     foos[i].x += wp.vec2f(1.0, 2.0)
@@ -366,7 +354,7 @@ def test_swizzle(test, device):
 
 
 @wp.kernel
-def slice_kernel(a: wp.array2d(dtype=wp.vec3), b: wp.array2d(dtype=wp.vec3), c: wp.array2d(dtype=wp.vec3)):
+def slice_kernel(a: wp.array2d[wp.vec3], b: wp.array2d[wp.vec3], c: wp.array2d[wp.vec3]):
     tid = wp.tid()
     c[tid][0] = a[tid][0] + b[tid][0]
 
@@ -423,5 +411,4 @@ add_function_test(TestLValue, "test_slice", test_slice, devices=devices)
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

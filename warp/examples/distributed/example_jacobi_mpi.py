@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """An example implementation of a distributed Jacobi solver using MPI.
 
 This example shows how to solve the Laplace equation using Jacobi iteration on
@@ -33,16 +21,13 @@ References:
 
 import math
 import sys
-from typing import Tuple
 
 import numpy as np
 from mpi4py import MPI
 
 import warp as wp
-import warp.context
-from warp.types import warp_type_to_np_dtype
 
-wp.config.quiet = True  # Suppress wp.init() output
+wp.config.log_level = wp.LOG_WARNING  # Suppress wp.init() info/debug output
 
 
 tol = 1e-8
@@ -50,7 +35,7 @@ wptype = wp.float32  # Global precision setting, can set wp.float64 here for dou
 pi = wptype(math.pi)  # GitHub #485
 
 
-def calc_default_device(mpi_comm: "MPI.Comm") -> warp.context.Device:
+def calc_default_device(mpi_comm: "MPI.Comm") -> wp.Device:
     """Return the device that should be used for the current rank.
 
     This function is used to ensure that multiple MPI ranks running on the same
@@ -72,7 +57,7 @@ def calc_default_device(mpi_comm: "MPI.Comm") -> warp.context.Device:
     local_size = local_mpi_comm.Get_size()
     local_rank = local_mpi_comm.Get_rank()
 
-    num_cuda_devices = warp.get_cuda_device_count()
+    num_cuda_devices = wp.get_cuda_device_count()
 
     if 1 < num_cuda_devices < local_size:
         raise RuntimeError(
@@ -81,12 +66,12 @@ def calc_default_device(mpi_comm: "MPI.Comm") -> warp.context.Device:
 
     if 1 < num_cuda_devices:
         # Get the device based on local_rank
-        return warp.get_cuda_device(local_rank)
+        return wp.get_cuda_device(local_rank)
     else:
-        return warp.get_device()
+        return wp.get_device()
 
 
-def calc_decomp_1d(total_points: int, rank: int, total_ranks: int) -> Tuple[int, int]:
+def calc_decomp_1d(total_points: int, rank: int, total_ranks: int) -> tuple[int, int]:
     """Calculate a 1-D decomposition to divide ``total_points`` among ``total_ranks`` domains.
 
     Returns a tuple containing the starting index of the decomposition followed
@@ -109,13 +94,13 @@ def calc_decomp_1d(total_points: int, rank: int, total_ranks: int) -> Tuple[int,
 
 @wp.kernel
 def jacobi_update(
-    a: wp.array2d(dtype=wptype),
+    a: wp.array2d[wptype],
     iy_start: int,
     iy_end: int,
     nx: int,
     calculate_norm: bool,
-    a_new: wp.array2d(dtype=wptype),
-    l2_norm: wp.array(dtype=wptype),
+    a_new: wp.array2d[wptype],
+    l2_norm: wp.array[wptype],
 ):
     i, j = wp.tid()
 
@@ -145,8 +130,8 @@ def initialize_boundaries(
     nx: int,
     ny: int,
     offset: int,
-    a: wp.array2d(dtype=wptype),
-    a_new: wp.array2d(dtype=wptype),
+    a: wp.array2d[wptype],
+    a_new: wp.array2d[wptype],
 ):
     i = wp.tid()
 
@@ -387,7 +372,7 @@ class Example:
     def run(self) -> None:
         """Run the Jacobi relaxation on multiple GPUs using MPI and compare with single-GPU results."""
         iter = 0
-        l2_norm = np.array([1.0], dtype=warp_type_to_np_dtype[wptype])
+        l2_norm = np.array([1.0], dtype=wp.dtype_to_numpy(wptype))
 
         start_time = MPI.Wtime()
 
@@ -441,7 +426,7 @@ class Example:
                 )
 
     def check_results(self, tol: float = 1e-8) -> bool:
-        """Returns ``True`` if multi-GPU result is within ``tol`` of the single-GPU result.
+        """Return ``True`` if multi-GPU result is within ``tol`` of the single-GPU result.
 
         Comparison is performed on the host in a serial manner.
         """
@@ -482,7 +467,7 @@ if __name__ == "__main__":
     parser.add_argument("--nccheck", type=int, default=1, help="Check convergence every nccheck iterations.")
     parser.add_argument("--nx", type=int, default=16384, help="Total resolution in x.")
     parser.add_argument("--ny", type=int, default=16384, help="Total resolution in y.")
-    parser.add_argument("-csv", action="store_true", help="Print results as CSV values.")
+    parser.add_argument("--csv", action="store_true", help="Print results as CSV values.")
     parser.add_argument(
         "--visualize",
         action="store_true",

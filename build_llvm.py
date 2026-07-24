@@ -1,46 +1,40 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 """Functions to build Clang/LLVM from source and to build the CPU-only Warp library."""
 
+import hashlib
+import io
 import os
+import platform
+import shutil
+import stat
 import subprocess
 import sys
+import tarfile
+import urllib.request
 
-from warp.build_dll import *
+from warp._src.build_dll import *
 
 # set build output path off this file
 base_path = os.path.dirname(os.path.realpath(__file__))
 build_path = os.path.join(base_path, "warp")
 
-llvm_project_path = os.path.join(base_path, "external/llvm-project")
-llvm_build_path = os.path.join(llvm_project_path, "out/build/")
-llvm_install_path = os.path.join(llvm_project_path, "out/install/")
+llvm_project_path = os.path.join(base_path, "external", "llvm-project")
+llvm_build_path = os.path.join(llvm_project_path, "out", "build")
+llvm_install_path = os.path.join(llvm_project_path, "out", "install")
 
 
 # Fetch prebuilt Clang/LLVM libraries
 def fetch_prebuilt_libraries(arch):
     if os.name == "nt":
-        packman = "tools\\packman\\packman.cmd"
+        packman = os.path.join(base_path, "tools", "packman", "packman.cmd")
         packages = {"x86_64": "15.0.7-windows-x86_64-ptx-vs142"}
     else:
-        packman = "./tools/packman/packman"
+        packman = os.path.join(base_path, "tools", "packman", "packman")
         if sys.platform == "darwin":
             packages = {
                 "aarch64": "15.0.7-darwin-aarch64-macos11",
-                "x86_64": "15.0.7-darwin-x86_64-macos11",
             }
         else:
             packages = {
@@ -48,22 +42,107 @@ def fetch_prebuilt_libraries(arch):
                 "x86_64": "18.1.3-linux-x86_64-gcc9.4",
             }
 
+    # Reuse the current interpreter so packman skips downloading its bundled Python,
+    # whose manylinux_2_35 build can't run on older-glibc CI images. Use it only as a
+    # default: a pre-set PM_PYTHON_EXT wins, since cross-compilation (e.g. aarch64) needs
+    # the build-platform Python instead of sys.executable's crossenv wrapper.
+    packman_env = {"PM_PYTHON_EXT": sys.executable, **os.environ}
+
+    packman_cmd = [
+        packman,
+        "install",
+        "-l",
+        os.path.join(base_path, "_build", "host-deps", "llvm-project", f"release-{arch}"),
+        "clang+llvm-warp",
+        packages[arch],
+    ]
+
+    def _run_packman_install():
+        subprocess.check_output(packman_cmd, stderr=subprocess.STDOUT, text=True, env=packman_env)
+
     try:
-        subprocess.check_output(
-            [
-                packman,
-                "install",
-                "-l",
-                f"./_build/host-deps/llvm-project/release-{arch}",
-                "clang+llvm-warp",
-                packages[arch],
-            ],
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
+        _run_packman_install()
     except subprocess.CalledProcessError as e:
-        print(e.output)
-        raise e
+        output = e.output or ""
+        is_intel_mac = sys.platform == "darwin" and platform.machine() == "x86_64"
+        # Intel Mac runners cross-compile to aarch64 but can't exec the aarch64-only
+        # 7zz packman 8.2.2 installs. Remove this branch and
+        # _patch_packman_7zz_for_intel_mac once the internal Mac CI runners migrate
+        # off Intel.
+        if is_intel_mac and "Bad CPU type in executable" in output and "7zz" in output:
+            _patch_packman_7zz_for_intel_mac()
+            try:
+                _run_packman_install()
+            except subprocess.CalledProcessError as retry_err:
+                print(retry_err.output)
+                raise
+        else:
+            print(output)
+            raise
+
+
+# ip7z 25.01 universal2 (arm64 + x86_64) Mac release, used to replace the
+# aarch64-only 7zz that packman 8.2.2 installs. Pinned + hash-verified.
+_IP7Z_MAC_URL = "https://github.com/ip7z/7zip/releases/download/25.01/7z2501-mac.tar.xz"
+_IP7Z_MAC_SHA256 = "26aa75bc262bb10bf0805617b95569c3035c2c590a99f7db55c7e9607b2685e0"
+
+
+def _patch_packman_7zz_for_intel_mac():
+    """Overwrite packman's cached mac-arm/64/7zz with a universal2 binary.
+
+    Packman 8.2.2 ships only an aarch64 7zz for macOS, so Intel Mac runners
+    can't exec the 7z helper needed to decompress downstream .7z packages.
+    Delete this function and the ``is_intel_mac`` branch in
+    ``fetch_prebuilt_libraries`` once the internal Mac CI runners migrate
+    off Intel.
+    """
+    pm_root = os.environ.get("PM_PACKAGES_ROOT") or os.path.expanduser("~/Library/Application Support/packman-cache")
+    bad_7zz = os.path.join(pm_root, "chk", "7zz", "25.01", "mac-arm", "64", "7zz")
+    if not os.path.exists(bad_7zz):
+        raise RuntimeError(f"Expected packman to have extracted 7zz to {bad_7zz}, but it's missing.")
+
+    print(f"Patching {bad_7zz} with universal2 7zz from {_IP7Z_MAC_URL}")
+    with urllib.request.urlopen(_IP7Z_MAC_URL, timeout=30) as resp:
+        tarball = resp.read()
+    digest = hashlib.sha256(tarball).hexdigest()
+    if digest != _IP7Z_MAC_SHA256:
+        raise RuntimeError(f"SHA256 mismatch for {_IP7Z_MAC_URL}: expected {_IP7Z_MAC_SHA256}, got {digest}")
+
+    with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:xz") as tar:
+        member = tar.getmember("7zz")
+        extracted = tar.extractfile(member)
+        if extracted is None:
+            raise RuntimeError(f"Tarball at {_IP7Z_MAC_URL} does not contain a regular 7zz file")
+        with open(bad_7zz, "wb") as f:
+            shutil.copyfileobj(extracted, f)
+    os.chmod(bad_7zz, stat.S_IRUSR | stat.S_IXUSR)
+
+
+def check_build_dependencies(verbose: bool = False) -> None:
+    """Check that required build dependencies are available in PATH.
+
+    Args:
+        verbose: If True, print location of found dependencies.
+
+    Raises:
+        RuntimeError: If any required dependencies (cmake, ninja, git) are missing.
+    """
+    missing = []
+
+    for tool in ["cmake", "ninja", "git"]:
+        tool_path = shutil.which(tool)
+        if tool_path:
+            if verbose:
+                print(f"Found {tool}: {tool_path}")
+        else:
+            missing.append(tool)
+
+    if missing:
+        raise RuntimeError(
+            "Missing required build dependencies:\n  "
+            + "\n  ".join(missing)
+            + "\n\nPlease install using your package manager."
+        )
 
 
 def build_llvm_clang_from_source_for_arch(args, arch: str, llvm_source: str) -> None:
@@ -77,29 +156,32 @@ def build_llvm_clang_from_source_for_arch(args, arch: str, llvm_source: str) -> 
 
     # Check out the LLVM project Git repository, unless it already exists
     if not os.path.exists(llvm_source):
-        # Install dependencies
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "gitpython"])
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "cmake"])
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "ninja"])
-
-        from git import Repo
+        # Check that build dependencies are available
+        check_build_dependencies(verbose=args.verbose)
 
         repo_url = "https://github.com/llvm/llvm-project.git"
-        print(f"Cloning LLVM project from {repo_url}...")
+        version = "21.1.0"
+        print(f"Cloning LLVM project from {repo_url} (branch llvmorg-{version})...")
 
-        shallow_clone = True  # https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
-        version = "18.1.3"
-        if shallow_clone:
-            repo = Repo.clone_from(
+        # Use shallow clone for faster download (depth=1, single branch only)
+        # See https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+        # For full clone: Remove --depth and --single-branch, then add:
+        #   subprocess.run(["git", "checkout", f"tags/llvmorg-{version}", "-b", f"llvm-{version}"],
+        #                  cwd=llvm_source, check=True)
+        subprocess.run(
+            [
+                "git",
+                "clone",
+                "--single-branch",
+                "--branch",
+                f"llvmorg-{version}",
+                "--depth",
+                "1",
                 repo_url,
-                to_path=llvm_source,
-                single_branch=True,
-                branch=f"llvmorg-{version}",
-                depth=1,
-            )
-        else:
-            repo = Repo.clone_from(repo_url, to_path=llvm_source)
-            repo.git.checkout(f"tags/llvmorg-{version}", "-b", f"llvm-{version}")
+                llvm_source,
+            ],
+            check=True,
+        )
 
     print(f"Using LLVM project source from {llvm_source}")
 
@@ -120,8 +202,9 @@ def build_llvm_clang_from_source_for_arch(args, arch: str, llvm_source: str) -> 
             cmake_build_type = "RelWithDebInfo"
 
     # Location of cmake and ninja installed through pip (see build.bat / build.sh)
-    python_bin = "python/Scripts" if sys.platform == "win32" else "python/bin"
-    os.environ["PATH"] = os.path.join(base_path, "_build/target-deps/" + python_bin) + os.pathsep + os.environ["PATH"]
+    python_dir = "Scripts" if sys.platform == "win32" else "bin"
+    python_path = os.path.join(base_path, "_build", "target-deps", python_dir)
+    os.environ["PATH"] = f"{python_path}{os.pathsep}{os.environ['PATH']}"
 
     if arch == "aarch64":
         target_backend = "AArch64"
@@ -210,7 +293,6 @@ def build_llvm_clang_from_source_for_arch(args, arch: str, llvm_source: str) -> 
         "-D", "CLANG_TOOL_LIBCLANG_BUILD=FALSE",
         "-D", "CLANG_TOOL_SCAN_BUILD_BUILD=FALSE",
         "-D", "CLANG_TOOL_SCAN_BUILD_PY_BUILD=FALSE",
-        "-D", "CLANG_TOOL_CLANG_OFFLOAD_BUNDLER_BUILD=FALSE",
         "-D", "CLANG_TOOL_SCAN_VIEW_BUILD=FALSE",
         "-D", "LLVM_ENABLE_BINDINGS=FALSE",
         "-D", "LLVM_ENABLE_OCAMLDOC=FALSE",
@@ -328,15 +410,12 @@ def build_llvm_clang_from_source(args) -> None:
     else:
         llvm_source = llvm_project_path
 
-    # build for the machine's architecture
-    build_llvm_clang_from_source_for_arch(args, machine_architecture(), llvm_source)
-
-    # for Apple systems also cross-compile for building a universal binary
+    # On macOS, always build for ARM64 (may be cross-compiled from Intel Mac)
+    # On other platforms, build for the machine's architecture
     if sys.platform == "darwin":
-        if machine_architecture() == "x86_64":
-            build_llvm_clang_from_source_for_arch(args, "aarch64", llvm_source)
-        else:
-            build_llvm_clang_from_source_for_arch(args, "x86_64", llvm_source)
+        build_llvm_clang_from_source_for_arch(args, "aarch64", llvm_source)
+    else:
+        build_llvm_clang_from_source_for_arch(args, machine_architecture(), llvm_source)
 
 
 # build warp-clang.dll
@@ -348,16 +427,21 @@ def build_warp_clang_for_arch(args, lib_name: str, arch: str) -> None:
         ]
         clang_cpp_paths = [os.path.join(build_path, cpp) for cpp in cpp_sources]
 
-        clang_dll_path = os.path.join(build_path, f"bin/{lib_name}")
+        clang_dll_path = os.path.join(build_path, "bin", lib_name)
 
-        if args.build_llvm:
+        if hasattr(args, "llvm_path") and args.llvm_path:
+            # Use existing LLVM installation (e.g., from Docker /opt/llvm)
+            libpath = os.path.join(args.llvm_path, "lib")
+            if not os.path.exists(libpath):
+                raise FileNotFoundError(f"LLVM library directory not found at {libpath}")
+        elif args.build_llvm:
             # obtain Clang and LLVM libraries from the local build
             install_path = os.path.join(llvm_install_path, f"{args.mode}-{arch}")
             libpath = os.path.join(install_path, "lib")
         else:
             # obtain Clang and LLVM libraries from packman
             fetch_prebuilt_libraries(arch)
-            libpath = os.path.join(base_path, f"_build/host-deps/llvm-project/release-{arch}/lib")
+            libpath = os.path.join(base_path, "_build", "host-deps", "llvm-project", f"release-{arch}", "lib")
 
         libs = []
 
@@ -366,8 +450,11 @@ def build_warp_clang_for_arch(args, lib_name: str, arch: str) -> None:
             break  # just the top level contains library files
 
         if os.name == "nt":
+            # skip non-library files, e.g. components.json in Conan-packaged LLVM
+            libs = [lib for lib in libs if os.path.splitext(lib)[1].lower() == ".lib"]
             libs.append("Version.lib")
             libs.append("Ws2_32.lib")
+            libs.append("ntdll.lib")
             libs.append(f'/LIBPATH:"{libpath}"')
         else:
             libs = [f"-l{lib[3:-2]}" for lib in libs if os.path.splitext(lib)[1] == ".a"]
@@ -395,23 +482,14 @@ def build_warp_clang_for_arch(args, lib_name: str, arch: str) -> None:
     except Exception as e:
         # output build error
         print(f"Warp Clang/LLVM build error: {e}")
-
-        # report error
-        sys.exit(1)
+        raise
 
 
 def build_warp_clang(args, lib_name: str) -> None:
     """Build the CPU-only Warp library using Clang/LLVM."""
 
     if sys.platform == "darwin":
-        # create a universal binary by combining x86-64 and AArch64 builds
-        build_warp_clang_for_arch(args, lib_name + "-x86_64", "x86_64")
-        build_warp_clang_for_arch(args, lib_name + "-aarch64", "aarch64")
-
-        dylib_path = os.path.join(build_path, f"bin/{lib_name}")
-        run_cmd(f"lipo -create -output {dylib_path} {dylib_path}-x86_64 {dylib_path}-aarch64")
-        os.remove(f"{dylib_path}-x86_64")
-        os.remove(f"{dylib_path}-aarch64")
-
+        # build for ARM64 only (may be cross-compiled from Intel Mac)
+        build_warp_clang_for_arch(args, lib_name, "aarch64")
     else:
         build_warp_clang_for_arch(args, lib_name, machine_architecture())

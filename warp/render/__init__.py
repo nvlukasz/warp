@@ -1,18 +1,28 @@
-# SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-from .render_opengl import OpenGLRenderer
-from .render_usd import UsdRenderer
-from .utils import bourke_color_map
+"""Rendering utilities for visualizing Warp simulations.
+
+This module provides a set of renderers that can be used for visualizing scenes
+involving shapes of various types.
+
+The :class:`OpenGLRenderer` provides an interactive renderer to play back animations
+in real time and is mostly intended for debugging, whereas more sophisticated rendering
+can be achieved with the help of the :class:`UsdRenderer`, which allows exporting the
+scene to a USD file that can then be rendered in an external 3D application or renderer
+of your choice.
+
+Usage:
+    This module must be explicitly imported::
+
+        import warp.render
+"""
+
+# isort: skip_file
+
+# The source-to-public Warp module declarations for `warp.render` live in the
+# top-level `warp/__init__.py`, so they are in effect before these imports run.
+
+from warp._src.render.render_opengl import OpenGLRenderer as OpenGLRenderer
+
+from warp._src.render.render_usd import UsdRenderer as UsdRenderer

@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
@@ -29,7 +17,7 @@ def test_tile_shared_mem_size(test, device):
     BLOCK_DIM = 256
 
     @wp.kernel(module="unique")
-    def compute(out: wp.array2d(dtype=float)):
+    def compute(out: wp.array2d[float]):
         a = wp.tile_ones(shape=(DIM_M, DIM_N), dtype=float, storage="shared")
         b = wp.tile_ones(shape=(DIM_M, DIM_N), dtype=float, storage="shared") * 2.0
 
@@ -65,7 +53,7 @@ def test_tile_shared_mem_large(test, device):
 
     # we disable backward kernel gen since 128k is not supported on most architectures
     @wp.kernel(enable_backward=False, module="unique")
-    def compute(out: wp.array2d(dtype=float)):
+    def compute(out: wp.array2d[float]):
         a = wp.tile_ones(shape=(DIM_M, DIM_N), dtype=float, storage="shared")
         b = wp.tile_ones(shape=(DIM_M, DIM_N), dtype=float, storage="shared") * 2.0
 
@@ -101,7 +89,7 @@ def test_tile_shared_mem_graph(test, device):
     BLOCK_DIM = 256
 
     @wp.kernel(module="unique")
-    def compute(out: wp.array2d(dtype=float)):
+    def compute(out: wp.array2d[float]):
         a = wp.tile_ones(shape=(DIM_M, DIM_N), dtype=float, storage="shared")
         b = wp.tile_ones(shape=(DIM_M, DIM_N), dtype=float, storage="shared") * 2.0
 
@@ -158,7 +146,7 @@ def test_tile_shared_mem_func(test, device):
         return a + b
 
     @wp.kernel(module="unique")
-    def compute(out: wp.array2d(dtype=float)):
+    def compute(out: wp.array2d[float]):
         s = add_tile_small()
         b = add_tile_big()
 
@@ -198,7 +186,7 @@ def test_tile_shared_non_aligned(test, device):
         return a + b
 
     @wp.kernel(module="unique")
-    def compute(out: wp.array2d(dtype=float)):
+    def compute(out: wp.array2d[float]):
         # This test the logic in the stack allocator, which should increment and
         # decrement the stack pointer each time foo() is called
         # Failing to do so correct will make b out of bounds and corrupt the results
@@ -228,7 +216,7 @@ def test_tile_shared_vec_accumulation(test, device):
     BLOCK_DIM = 256
 
     @wp.kernel(module="unique")
-    def compute(indices: wp.array(dtype=int), vecs: wp.array(dtype=wp.vec3), output: wp.array2d(dtype=float)):
+    def compute(indices: wp.array[int], vecs: wp.array[wp.vec3], output: wp.array2d[float]):
         i, j = wp.tid()
 
         idx_tile = wp.tile_load(indices, shape=BLOCK_DIM, offset=i * BLOCK_DIM)
@@ -289,7 +277,7 @@ def test_tile_shared_simple_reduction_add(test, device):
     BLOCK_DIM = 256
 
     @wp.kernel(module="unique")
-    def compute(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+    def compute(x: wp.array[float], y: wp.array[float]):
         i, j = wp.tid()
 
         t = wp.tile_load(x, shape=BLOCK_DIM, offset=BLOCK_DIM * i)
@@ -316,7 +304,7 @@ def test_tile_shared_simple_reduction_sub(test, device):
     BLOCK_DIM = 256
 
     @wp.kernel(module="unique")
-    def compute(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+    def compute(x: wp.array[float], y: wp.array[float]):
         i, j = wp.tid()
 
         t = wp.tile_load(x, shape=BLOCK_DIM, offset=BLOCK_DIM * i)
@@ -337,6 +325,633 @@ def test_tile_shared_simple_reduction_sub(test, device):
     wp.launch_tiled(compute, dim=4, inputs=[x], outputs=[y], block_dim=BLOCK_DIM, device=device)
 
     assert_np_equal(np.sum(y.numpy()), 0.0)
+
+
+def test_tile_scatter_add_basic(test, device):
+    """Each thread adds its index + 1 to a distinct slot; verify values."""
+    TILE_SIZE = 64
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(out: wp.array[float]):
+        _tile, i = wp.tid()
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=float, storage="shared")
+        wp.tile_scatter_add(t, i, float(i + 1), True)
+        out[i] = wp.tile_extract(t, i)
+
+    out = wp.zeros(TILE_SIZE, dtype=float, device=device)
+    wp.launch_tiled(compute, dim=[1], inputs=[out], block_dim=TILE_SIZE, device=device)
+
+    assert_np_equal(out.numpy(), np.arange(1, TILE_SIZE + 1, dtype=np.float32))
+
+
+def test_tile_scatter_add_conflicting(test, device):
+    """All threads add 1.0 to the same index; verify the sum equals block_dim."""
+    TILE_SIZE = 64
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(out: wp.array[float]):
+        _tile, i = wp.tid()
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=float, storage="shared")
+        wp.tile_scatter_add(t, 0, 1.0, True)
+        val = wp.tile_extract(t, 0)
+        if i == 0:
+            out[0] = val
+
+    out = wp.zeros(1, dtype=float, device=device)
+    wp.launch_tiled(compute, dim=[1], inputs=[out], block_dim=TILE_SIZE, device=device)
+
+    assert_np_equal(out.numpy()[0], float(TILE_SIZE))
+
+
+def test_tile_scatter_add_partial(test, device):
+    """Only even-indexed threads add; odd slots stay zero."""
+    TILE_SIZE = 64
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(out: wp.array[float]):
+        _tile, i = wp.tid()
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=float, storage="shared")
+        wp.tile_scatter_add(t, i, float(i + 1), (i % 2) == 0)
+        out[i] = wp.tile_extract(t, i)
+
+    out = wp.zeros(TILE_SIZE, dtype=float, device=device)
+    wp.launch_tiled(compute, dim=[1], inputs=[out], block_dim=TILE_SIZE, device=device)
+
+    result = out.numpy()
+    for i in range(TILE_SIZE):
+        if i % 2 == 0:
+            assert_np_equal(result[i], float(i + 1))
+        else:
+            assert_np_equal(result[i], 0.0)
+
+
+def test_tile_scatter_add_2d(test, device):
+    """Scatter-add with a 2D shared tile."""
+    ROWS = 8
+    COLS = 8
+    BLOCK_DIM = ROWS * COLS
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(out: wp.array2d[float]):
+        _tile, idx = wp.tid()
+        row = idx // COLS
+        col = idx % COLS
+        t = wp.tile_zeros(shape=(ROWS, COLS), dtype=float, storage="shared")
+        wp.tile_scatter_add(t, row, col, float(idx + 1), True)
+        out[row, col] = wp.tile_extract(t, row, col)
+
+    out = wp.zeros((ROWS, COLS), dtype=float, device=device)
+    wp.launch_tiled(compute, dim=[1], inputs=[out], block_dim=BLOCK_DIM, device=device)
+
+    expected = np.arange(1, BLOCK_DIM + 1, dtype=np.float32).reshape(ROWS, COLS)
+    assert_np_equal(out.numpy(), expected)
+
+
+def test_tile_scatter_add_grad_basic(test, device):
+    """Gradient flows through tile_scatter_add: output = input * 2 via shared tile."""
+    TILE_SIZE = 64
+
+    @wp.kernel(module="unique")
+    def compute(inp: wp.array[float], out: wp.array[float]):
+        _tile, i = wp.tid()
+        val = inp[i] * 2.0
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=float, storage="shared")
+        wp.tile_scatter_add(t, i, val, True)
+        out[i] = wp.tile_extract(t, i)
+
+    inp = wp.array(np.ones(TILE_SIZE, dtype=np.float32), requires_grad=True, device=device)
+    out = wp.zeros(TILE_SIZE, dtype=float, requires_grad=True, device=device)
+
+    with wp.Tape() as tape:
+        wp.launch_tiled(compute, dim=[1], inputs=[inp, out], block_dim=TILE_SIZE, device=device)
+
+    out.grad = wp.ones_like(out, device=device)
+    tape.backward()
+
+    assert_np_equal(out.numpy(), np.full(TILE_SIZE, 2.0))
+    assert_np_equal(inp.grad.numpy(), np.full(TILE_SIZE, 2.0))
+
+
+def test_tile_scatter_add_grad_partial(test, device):
+    """has_value gates the adjoint: only participating threads receive gradients."""
+    TILE_SIZE = 64
+
+    @wp.kernel(module="unique")
+    def compute(inp: wp.array[float], out: wp.array[float]):
+        _tile, i = wp.tid()
+        val = inp[i] * 2.0
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=float, storage="shared")
+        wp.tile_scatter_add(t, i, val, (i % 2) == 0)
+        out[i] = wp.tile_extract(t, i)
+
+    inp = wp.array(np.ones(TILE_SIZE, dtype=np.float32), requires_grad=True, device=device)
+    out = wp.zeros(TILE_SIZE, dtype=float, requires_grad=True, device=device)
+
+    with wp.Tape() as tape:
+        wp.launch_tiled(compute, dim=[1], inputs=[inp, out], block_dim=TILE_SIZE, device=device)
+
+    out.grad = wp.ones_like(out, device=device)
+    tape.backward()
+
+    expected_grad = np.zeros(TILE_SIZE, dtype=np.float32)
+    expected_grad[0::2] = 2.0
+    assert_np_equal(inp.grad.numpy(), expected_grad)
+
+
+def test_tile_scatter_add_grad_conflicting(test, device):
+    """Gradient fans out correctly when multiple threads scatter-add to the same index."""
+    TILE_SIZE = 64
+
+    @wp.kernel(module="unique")
+    def compute(inp: wp.array[float], out: wp.array[float]):
+        _tile, i = wp.tid()
+        val = inp[i]
+        t = wp.tile_zeros(shape=1, dtype=float, storage="shared")
+        wp.tile_scatter_add(t, 0, val, True)
+        result = wp.tile_extract(t, 0)
+        if i == 0:
+            out[0] = result
+
+    inp = wp.array(np.ones(TILE_SIZE, dtype=np.float32), requires_grad=True, device=device)
+    out = wp.zeros(1, dtype=float, requires_grad=True, device=device)
+
+    with wp.Tape() as tape:
+        wp.launch_tiled(compute, dim=[1], inputs=[inp, out], block_dim=TILE_SIZE, device=device)
+
+    out.grad = wp.ones_like(out, device=device)
+    tape.backward()
+
+    # Forward: out[0] = sum of all inp[i] = 64.0
+    assert_np_equal(out.numpy()[0], float(TILE_SIZE))
+    # Backward: d(out[0])/d(inp[i]) = 1.0 for all i
+    assert_np_equal(inp.grad.numpy(), np.ones(TILE_SIZE, dtype=np.float32))
+
+
+# ---- Non-atomic scatter-add tests (atomic=False) ----
+
+
+def test_tile_scatter_add_non_atomic_1d(test, device):
+    """Non-atomic scatter-add with unique indices per thread (1D)."""
+    TILE_SIZE = 64
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(out: wp.array[float]):
+        _tile, i = wp.tid()
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=float, storage="shared")
+        wp.tile_scatter_add(t, i, float(i + 1), True, atomic=False)
+        out[i] = wp.tile_extract(t, i)
+
+    out = wp.zeros(TILE_SIZE, dtype=float, device=device)
+    wp.launch_tiled(compute, dim=[1], inputs=[out], block_dim=TILE_SIZE, device=device)
+
+    assert_np_equal(out.numpy(), np.arange(1, TILE_SIZE + 1, dtype=np.float32))
+
+
+def test_tile_scatter_add_non_atomic_2d(test, device):
+    """Non-atomic scatter-add with unique (row, col) per thread (2D)."""
+    ROWS = 4
+    COLS = 16
+    TILE_SIZE = ROWS * COLS
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(out: wp.array2d[float]):
+        _tile, i = wp.tid()
+        row = i // COLS
+        col = i % COLS
+        t = wp.tile_zeros(shape=(ROWS, COLS), dtype=float, storage="shared")
+        wp.tile_scatter_add(t, row, col, float(i + 1), True, atomic=False)
+        out[row, col] = wp.tile_extract(t, row, col)
+
+    out = wp.zeros((ROWS, COLS), dtype=float, device=device)
+    wp.launch_tiled(compute, dim=[1], inputs=[out], block_dim=TILE_SIZE, device=device)
+
+    expected = np.arange(1, TILE_SIZE + 1, dtype=np.float32).reshape(ROWS, COLS)
+    assert_np_equal(out.numpy(), expected)
+
+
+def test_tile_scatter_add_non_atomic_grad(test, device):
+    """Gradient flows correctly through non-atomic tile_scatter_add."""
+    TILE_SIZE = 64
+
+    @wp.kernel(module="unique")
+    def compute(inp: wp.array[float], out: wp.array[float]):
+        _tile, i = wp.tid()
+        val = inp[i] * 2.0
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=float, storage="shared")
+        wp.tile_scatter_add(t, i, val, True, atomic=False)
+        out[i] = wp.tile_extract(t, i)
+
+    inp = wp.array(np.ones(TILE_SIZE, dtype=np.float32), requires_grad=True, device=device)
+    out = wp.zeros(TILE_SIZE, dtype=float, requires_grad=True, device=device)
+
+    with wp.Tape() as tape:
+        wp.launch_tiled(compute, dim=[1], inputs=[inp, out], block_dim=TILE_SIZE, device=device)
+
+    out.grad = wp.ones_like(out, device=device)
+    tape.backward()
+
+    assert_np_equal(out.numpy(), np.full(TILE_SIZE, 2.0))
+    assert_np_equal(inp.grad.numpy(), np.full(TILE_SIZE, 2.0))
+
+
+def test_tile_shared_coalesced_mat33(test, device):
+    """Shared tile load/store of mat33 exercises the coalesced byte-copy path (sizeof(mat33) = 36 > 16)."""
+    TILE_SIZE = 8
+    BLOCK_DIM = 64
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(
+        inp: wp.array[wp.mat33],
+        out: wp.array[wp.mat33],
+    ):
+        i = wp.tid()
+        t = wp.tile_load(inp, shape=TILE_SIZE, offset=0, storage="shared")
+        wp.tile_store(out, t, offset=0)
+
+    inp_np = np.arange(TILE_SIZE * 9, dtype=np.float32).reshape(TILE_SIZE, 3, 3)
+    inp = wp.array(inp_np, dtype=wp.mat33, device=device)
+    out = wp.zeros(TILE_SIZE, dtype=wp.mat33, device=device)
+
+    wp.launch_tiled(compute, dim=[1], inputs=[inp, out], block_dim=BLOCK_DIM, device=device)
+
+    np.testing.assert_allclose(out.numpy(), inp_np)
+
+
+def test_tile_shared_coalesced_mat44(test, device):
+    """Shared tile load/store of mat44 exercises the coalesced byte-copy path (sizeof(mat44) = 64 > 16)."""
+    TILE_SIZE = 4
+    BLOCK_DIM = 64
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(
+        inp: wp.array[wp.mat44],
+        out: wp.array[wp.mat44],
+    ):
+        i = wp.tid()
+        t = wp.tile_load(inp, shape=TILE_SIZE, offset=0, storage="shared")
+        wp.tile_store(out, t, offset=0)
+
+    inp_np = np.arange(TILE_SIZE * 16, dtype=np.float32).reshape(TILE_SIZE, 4, 4)
+    inp = wp.array(inp_np, dtype=wp.mat44, device=device)
+    out = wp.zeros(TILE_SIZE, dtype=wp.mat44, device=device)
+
+    wp.launch_tiled(compute, dim=[1], inputs=[inp, out], block_dim=BLOCK_DIM, device=device)
+
+    np.testing.assert_allclose(out.numpy(), inp_np)
+
+
+def test_tile_register_from_shared_reassign(test, device):
+    TILE_SIZE = 8
+    BLOCK_DIM = 64
+
+    @wp.kernel(module="unique")
+    def compute(
+        src: wp.array[float],
+        overwritten: wp.array[float],
+        reassigned: wp.array[float],
+        direct: wp.array[float],
+        iters: int,
+    ):
+        t = wp.tile_load(overwritten, shape=TILE_SIZE, offset=0, storage="register")
+        s = wp.tile_load(src, shape=TILE_SIZE, offset=0, storage="shared")
+
+        for _ in range(iters):
+            t = s
+
+        wp.tile_store(reassigned, t, offset=0)
+        wp.tile_store(direct, s, offset=0)
+
+    src_np = np.arange(TILE_SIZE, dtype=np.float32) + 1.0
+    overwritten_np = np.arange(TILE_SIZE, dtype=np.float32) + 101.0
+
+    src = wp.array(src_np, requires_grad=True, device=device)
+    overwritten = wp.array(overwritten_np, requires_grad=True, device=device)
+    reassigned = wp.zeros(TILE_SIZE, dtype=float, requires_grad=True, device=device)
+    direct = wp.zeros(TILE_SIZE, dtype=float, requires_grad=True, device=device)
+
+    with wp.Tape() as tape:
+        wp.launch_tiled(
+            compute,
+            dim=[1],
+            inputs=[src, overwritten, reassigned, direct, 2],
+            block_dim=BLOCK_DIM,
+            device=device,
+        )
+
+    np.testing.assert_allclose(reassigned.numpy(), src_np)
+    np.testing.assert_allclose(direct.numpy(), src_np)
+
+    tape.backward(
+        grads={
+            reassigned: wp.ones_like(reassigned, device=device),
+            direct: wp.ones_like(direct, device=device),
+        }
+    )
+
+    np.testing.assert_allclose(src.grad.numpy(), np.full(TILE_SIZE, 2.0, dtype=np.float32))
+    np.testing.assert_allclose(overwritten.grad.numpy(), np.zeros(TILE_SIZE, dtype=np.float32))
+
+
+def test_tile_scatter_masked_basic(test, device):
+    """Each thread writes its index; verify all values are visible after the call."""
+    TILE_SIZE = 64
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(out: wp.array[int]):
+        _tile, i = wp.tid()
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=int, storage="shared")
+        wp.tile_scatter_masked(t, i, i + 1, True)
+        out[i] = wp.tile_extract(t, i)
+
+    out = wp.zeros(TILE_SIZE, dtype=int, device=device)
+    wp.launch_tiled(compute, dim=[1], inputs=[out], block_dim=TILE_SIZE, device=device)
+
+    np.testing.assert_array_equal(out.numpy(), np.arange(1, TILE_SIZE + 1))
+
+
+def test_tile_scatter_masked_partial(test, device):
+    """Only even-indexed threads write; odd slots stay zero."""
+    TILE_SIZE = 64
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(out: wp.array[int]):
+        _tile, i = wp.tid()
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=int, storage="shared")
+        wp.tile_scatter_masked(t, i, i + 1, (i % 2) == 0)
+        out[i] = wp.tile_extract(t, i)
+
+    out = wp.zeros(TILE_SIZE, dtype=int, device=device)
+    wp.launch_tiled(compute, dim=[1], inputs=[out], block_dim=TILE_SIZE, device=device)
+
+    result = out.numpy()
+    for i in range(TILE_SIZE):
+        if i % 2 == 0:
+            test.assertEqual(result[i], i + 1)
+        else:
+            test.assertEqual(result[i], 0)
+
+
+def test_tile_scatter_masked_cross_thread(test, device):
+    """Each thread reads a neighbor's slot, verifying the sync barrier works."""
+    TILE_SIZE = 64
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(out: wp.array[int]):
+        _tile, i = wp.tid()
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=int, storage="shared")
+        wp.tile_scatter_masked(t, i, i * 10, True)
+        neighbor = (i + 1) % TILE_SIZE
+        out[i] = wp.tile_extract(t, neighbor)
+
+    out = wp.zeros(TILE_SIZE, dtype=int, device=device)
+    wp.launch_tiled(compute, dim=[1], inputs=[out], block_dim=TILE_SIZE, device=device)
+
+    expected = np.array([((i + 1) % TILE_SIZE) * 10 for i in range(TILE_SIZE)], dtype=np.int32)
+    np.testing.assert_array_equal(out.numpy(), expected)
+
+
+def test_tile_scatter_masked_2d(test, device):
+    """tile_scatter_masked works with a 2-D shared tile."""
+    ROWS = 8
+    COLS = 8
+    BLOCK_DIM = ROWS * COLS
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(out: wp.array2d[int]):
+        _tile, idx = wp.tid()
+        row = idx // COLS
+        col = idx % COLS
+        t = wp.tile_zeros(shape=(ROWS, COLS), dtype=int, storage="shared")
+        wp.tile_scatter_masked(t, row, col, idx + 1, True)
+        out[row, col] = wp.tile_extract(t, row, col)
+
+    out = wp.zeros((ROWS, COLS), dtype=int, device=device)
+    wp.launch_tiled(compute, dim=[1], inputs=[out], block_dim=BLOCK_DIM, device=device)
+
+    expected = np.arange(1, BLOCK_DIM + 1, dtype=np.int32).reshape(ROWS, COLS)
+    np.testing.assert_array_equal(out.numpy(), expected)
+
+
+def test_tile_scatter_masked_3d(test, device):
+    """tile_scatter_masked works with a 3-D shared tile."""
+    D0 = 4
+    D1 = 4
+    D2 = 4
+    BLOCK_DIM = D0 * D1 * D2
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(out: wp.array3d[int]):
+        _tile, idx = wp.tid()
+        i = idx // (D1 * D2)
+        j = (idx // D2) % D1
+        k = idx % D2
+        t = wp.tile_zeros(shape=(D0, D1, D2), dtype=int, storage="shared")
+        wp.tile_scatter_masked(t, i, j, k, idx + 1, True)
+        out[i, j, k] = wp.tile_extract(t, i, j, k)
+
+    out = wp.zeros((D0, D1, D2), dtype=int, device=device)
+    wp.launch_tiled(compute, dim=[1], inputs=[out], block_dim=BLOCK_DIM, device=device)
+
+    expected = np.arange(1, BLOCK_DIM + 1, dtype=np.int32).reshape(D0, D1, D2)
+    np.testing.assert_array_equal(out.numpy(), expected)
+
+
+def test_tile_scatter_masked_4d(test, device):
+    """tile_scatter_masked works with a 4-D shared tile."""
+    D0 = 2
+    D1 = 2
+    D2 = 2
+    D3 = 4
+    BLOCK_DIM = D0 * D1 * D2 * D3
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def compute(out: wp.array4d[int]):
+        _tile, idx = wp.tid()
+        i = idx // (D1 * D2 * D3)
+        j = (idx // (D2 * D3)) % D1
+        k = (idx // D3) % D2
+        l = idx % D3
+        t = wp.tile_zeros(shape=(D0, D1, D2, D3), dtype=int, storage="shared")
+        wp.tile_scatter_masked(t, i, j, k, l, idx + 1, True)
+        out[i, j, k, l] = wp.tile_extract(t, i, j, k, l)
+
+    out = wp.zeros((D0, D1, D2, D3), dtype=int, device=device)
+    wp.launch_tiled(compute, dim=[1], inputs=[out], block_dim=BLOCK_DIM, device=device)
+
+    expected = np.arange(1, BLOCK_DIM + 1, dtype=np.int32).reshape(D0, D1, D2, D3)
+    np.testing.assert_array_equal(out.numpy(), expected)
+
+
+def test_tile_scatter_masked_grad_basic(test, device):
+    """Gradient flows through tile_scatter_masked: output = input * 2 via shared tile."""
+    TILE_SIZE = 64
+
+    @wp.kernel(module="unique")
+    def compute(inp: wp.array[float], out: wp.array[float]):
+        _tile, i = wp.tid()
+        val = inp[i] * 2.0
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=float, storage="shared")
+        wp.tile_scatter_masked(t, i, val, True)
+        out[i] = wp.tile_extract(t, i)
+
+    inp = wp.array(np.ones(TILE_SIZE, dtype=np.float32), requires_grad=True, device=device)
+    out = wp.zeros(TILE_SIZE, dtype=float, requires_grad=True, device=device)
+
+    with wp.Tape() as tape:
+        wp.launch_tiled(compute, dim=[1], inputs=[inp, out], block_dim=TILE_SIZE, device=device)
+
+    out.grad = wp.ones_like(out, device=device)
+    tape.backward()
+
+    np.testing.assert_allclose(out.numpy(), np.full(TILE_SIZE, 2.0))
+    np.testing.assert_allclose(inp.grad.numpy(), np.full(TILE_SIZE, 2.0))
+
+
+def test_tile_scatter_masked_grad_partial(test, device):
+    """has_value gates the adjoint: only writing threads receive gradients."""
+    TILE_SIZE = 64
+
+    @wp.kernel(module="unique")
+    def compute(inp: wp.array[float], out: wp.array[float]):
+        _tile, i = wp.tid()
+        val = inp[i] * 2.0
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=float, storage="shared")
+        wp.tile_scatter_masked(t, i, val, (i % 2) == 0)
+        out[i] = wp.tile_extract(t, i)
+
+    inp = wp.array(np.ones(TILE_SIZE, dtype=np.float32), requires_grad=True, device=device)
+    out = wp.zeros(TILE_SIZE, dtype=float, requires_grad=True, device=device)
+
+    with wp.Tape() as tape:
+        wp.launch_tiled(compute, dim=[1], inputs=[inp, out], block_dim=TILE_SIZE, device=device)
+
+    out.grad = wp.ones_like(out, device=device)
+    tape.backward()
+
+    expected_grad = np.zeros(TILE_SIZE, dtype=np.float32)
+    expected_grad[0::2] = 2.0
+    np.testing.assert_allclose(inp.grad.numpy(), expected_grad)
+
+
+def test_tile_scatter_masked_grad_cross_thread(test, device):
+    """Gradient flows correctly when threads read each other's slots."""
+    TILE_SIZE = 64
+
+    @wp.kernel(module="unique")
+    def compute(inp: wp.array[float], out: wp.array[float]):
+        _tile, i = wp.tid()
+        val = inp[i] * float(i + 1)
+        t = wp.tile_zeros(shape=TILE_SIZE, dtype=float, storage="shared")
+        wp.tile_scatter_masked(t, i, val, True)
+        neighbor = (i + 1) % TILE_SIZE
+        out[i] = wp.tile_extract(t, neighbor)
+
+    inp = wp.array(np.ones(TILE_SIZE, dtype=np.float32), requires_grad=True, device=device)
+    out = wp.zeros(TILE_SIZE, dtype=float, requires_grad=True, device=device)
+
+    with wp.Tape() as tape:
+        wp.launch_tiled(compute, dim=[1], inputs=[inp, out], block_dim=TILE_SIZE, device=device)
+
+    out.grad = wp.ones_like(out, device=device)
+    tape.backward()
+
+    expected_fwd = np.array([((i + 1) % TILE_SIZE + 1) for i in range(TILE_SIZE)], dtype=np.float32)
+    np.testing.assert_allclose(out.numpy(), expected_fwd)
+
+    expected_grad = np.arange(1, TILE_SIZE + 1, dtype=np.float32)
+    np.testing.assert_allclose(inp.grad.numpy(), expected_grad)
+
+
+def test_tile_custom_grad_extra_shared(test, device):
+    """A custom func_grad whose backward needs more shared memory than its elementwise forward."""
+    NUM_TILES = 4
+    M = 4
+    EXTRA = 8  # backward-only shared scratch is EXTRA x EXTRA, dwarfing the M x M forward tile
+
+    @wp.func
+    def scale2x(x: wp.array2d[float], y: wp.array2d[float], i: int):
+        # forward: y = 2x elementwise -> tiny shared footprint
+        wp.tile_store(y, wp.tile_load(x, shape=(M, M), offset=(i * M, 0)) * float(2.0), offset=(i * M, 0))
+
+    @wp.func_grad(scale2x)
+    def adj_scale2x(x: wp.array2d[float], y: wp.array2d[float], i: int):
+        # backward is dL/dx = 2*dL/dy, but routed through a large shared scratch tile (the
+        # trigger); *0.0 keeps the value at 2 while the scratch still feeds the scatter.
+        g = wp.tile_load(wp.adjoint[y], shape=(M, M), offset=(i * M, 0))
+        scratch = wp.tile_ones(shape=(EXTRA, EXTRA), dtype=float, storage="shared")
+        pad = wp.tile_broadcast(wp.tile_sum(scratch), shape=(M, M))
+        wp.tile_atomic_add(wp.adjoint[x], g * float(2.0) + pad * float(0.0), offset=(i * M, 0))
+
+    @wp.kernel(module="unique")
+    def run(x: wp.array2d[float], y: wp.array2d[float]):
+        scale2x(x, y, wp.tid())
+
+    x = wp.array(np.ones((NUM_TILES * M, M), dtype=np.float32), requires_grad=True, device=device)
+    y = wp.zeros_like(x)
+
+    with wp.Tape() as tape:
+        wp.launch_tiled(run, dim=(NUM_TILES,), inputs=[x], outputs=[y], block_dim=64, device=device)
+
+    tape.backward(grads={y: wp.ones_like(y)})
+
+    # backward must not have corrupted memory (or crashed with CUDA 700): dL/dx == 2 everywhere
+    assert_np_equal(x.grad.numpy(), np.full((NUM_TILES * M, M), 2.0, dtype=np.float32))
+
+    # the reservation must be split: the custom grad frame sizes the backward kernel only
+    hooks = next(iter(run.module.execs.values())).get_kernel_hooks(run)
+    scratch_bytes = EXTRA * EXTRA * 4
+    # the forward tile working set is register-only; the backward-only scratch must not leak in
+    test.assertEqual(hooks.forward_smem_bytes, 0)
+    # the backward reservation covers the scratch, added once (x1) rather than doubled
+    test.assertGreaterEqual(hooks.backward_smem_bytes, scratch_bytes)
+    test.assertLess(hooks.backward_smem_bytes, 2 * scratch_bytes)
+
+
+def test_tile_custom_grad_shared_forward(test, device):
+    """A custom func_grad on a function whose forward itself owns a shared tile.
+
+    The forward frame's auto-generated adjoint is replaced by the custom grad, so in the
+    backward it only ever runs as a replay (no gradient buffers): the reservation must be
+    the larger of the replay and custom grad frames, not their doubled sum.
+    """
+    NUM_TILES = 4
+    M = 4
+    EXTRA = 8
+
+    @wp.func
+    def scale2x(x: wp.array2d[float], y: wp.array2d[float], i: int):
+        # forward stages through an owning shared tile
+        t = wp.tile_load(x, shape=(M, M), offset=(i * M, 0), storage="shared")
+        wp.tile_store(y, t * float(2.0), offset=(i * M, 0))
+
+    @wp.func_grad(scale2x)
+    def adj_scale2x(x: wp.array2d[float], y: wp.array2d[float], i: int):
+        g = wp.tile_load(wp.adjoint[y], shape=(M, M), offset=(i * M, 0))
+        scratch = wp.tile_ones(shape=(EXTRA, EXTRA), dtype=float, storage="shared")
+        pad = wp.tile_broadcast(wp.tile_sum(scratch), shape=(M, M))
+        wp.tile_atomic_add(wp.adjoint[x], g * float(2.0) + pad * float(0.0), offset=(i * M, 0))
+
+    @wp.kernel(module="unique")
+    def run(x: wp.array2d[float], y: wp.array2d[float]):
+        scale2x(x, y, wp.tid())
+
+    x = wp.array(np.ones((NUM_TILES * M, M), dtype=np.float32), requires_grad=True, device=device)
+    y = wp.zeros_like(x)
+
+    with wp.Tape() as tape:
+        wp.launch_tiled(run, dim=(NUM_TILES,), inputs=[x], outputs=[y], block_dim=64, device=device)
+
+    tape.backward(grads={y: wp.ones_like(y)})
+
+    assert_np_equal(x.grad.numpy(), np.full((NUM_TILES * M, M), 2.0, dtype=np.float32))
+
+    hooks = next(iter(run.module.execs.values())).get_kernel_hooks(run)
+    forward_tile_bytes = M * M * 4
+    scratch_bytes = EXTRA * EXTRA * 4
+    test.assertEqual(hooks.forward_smem_bytes, forward_tile_bytes)
+    # the custom grad frame dominates the replayed forward frame; neither is doubled
+    test.assertGreaterEqual(hooks.backward_smem_bytes, scratch_bytes)
+    test.assertLess(hooks.backward_smem_bytes, 2 * hooks.forward_smem_bytes + scratch_bytes)
 
 
 devices = get_cuda_test_devices()
@@ -370,7 +985,102 @@ add_function_test(
     test_tile_shared_simple_reduction_sub,
     devices=devices,
 )
+add_function_test(TestTileSharedMemory, "test_tile_scatter_add_basic", test_tile_scatter_add_basic, devices=devices)
+add_function_test(
+    TestTileSharedMemory, "test_tile_scatter_add_conflicting", test_tile_scatter_add_conflicting, devices=devices
+)
+add_function_test(TestTileSharedMemory, "test_tile_scatter_add_partial", test_tile_scatter_add_partial, devices=devices)
+add_function_test(TestTileSharedMemory, "test_tile_scatter_add_2d", test_tile_scatter_add_2d, devices=devices)
+add_function_test(
+    TestTileSharedMemory, "test_tile_scatter_add_grad_basic", test_tile_scatter_add_grad_basic, devices=devices
+)
+add_function_test(
+    TestTileSharedMemory, "test_tile_scatter_add_grad_partial", test_tile_scatter_add_grad_partial, devices=devices
+)
+add_function_test(
+    TestTileSharedMemory,
+    "test_tile_scatter_add_grad_conflicting",
+    test_tile_scatter_add_grad_conflicting,
+    devices=devices,
+)
+add_function_test(
+    TestTileSharedMemory,
+    "test_tile_scatter_add_non_atomic_1d",
+    test_tile_scatter_add_non_atomic_1d,
+    devices=devices,
+)
+add_function_test(
+    TestTileSharedMemory,
+    "test_tile_scatter_add_non_atomic_2d",
+    test_tile_scatter_add_non_atomic_2d,
+    devices=devices,
+)
+add_function_test(
+    TestTileSharedMemory,
+    "test_tile_scatter_add_non_atomic_grad",
+    test_tile_scatter_add_non_atomic_grad,
+    devices=devices,
+)
+add_function_test(
+    TestTileSharedMemory,
+    "test_tile_shared_coalesced_mat33",
+    test_tile_shared_coalesced_mat33,
+    devices=devices,
+)
+add_function_test(
+    TestTileSharedMemory,
+    "test_tile_shared_coalesced_mat44",
+    test_tile_shared_coalesced_mat44,
+    devices=devices,
+)
+add_function_test(
+    TestTileSharedMemory,
+    "test_tile_register_from_shared_reassign",
+    test_tile_register_from_shared_reassign,
+    devices=devices,
+)
+add_function_test(
+    TestTileSharedMemory, "test_tile_scatter_masked_basic", test_tile_scatter_masked_basic, devices=devices
+)
+add_function_test(
+    TestTileSharedMemory, "test_tile_scatter_masked_partial", test_tile_scatter_masked_partial, devices=devices
+)
+add_function_test(
+    TestTileSharedMemory,
+    "test_tile_scatter_masked_cross_thread",
+    test_tile_scatter_masked_cross_thread,
+    devices=devices,
+)
+add_function_test(TestTileSharedMemory, "test_tile_scatter_masked_2d", test_tile_scatter_masked_2d, devices=devices)
+add_function_test(TestTileSharedMemory, "test_tile_scatter_masked_3d", test_tile_scatter_masked_3d, devices=devices)
+add_function_test(TestTileSharedMemory, "test_tile_scatter_masked_4d", test_tile_scatter_masked_4d, devices=devices)
+add_function_test(
+    TestTileSharedMemory, "test_tile_scatter_masked_grad_basic", test_tile_scatter_masked_grad_basic, devices=devices
+)
+add_function_test(
+    TestTileSharedMemory,
+    "test_tile_scatter_masked_grad_partial",
+    test_tile_scatter_masked_grad_partial,
+    devices=devices,
+)
+add_function_test(
+    TestTileSharedMemory,
+    "test_tile_scatter_masked_grad_cross_thread",
+    test_tile_scatter_masked_grad_cross_thread,
+    devices=devices,
+)
+add_function_test(
+    TestTileSharedMemory,
+    "test_tile_custom_grad_extra_shared",
+    test_tile_custom_grad_extra_shared,
+    devices=devices,
+)
+add_function_test(
+    TestTileSharedMemory,
+    "test_tile_custom_grad_shared_forward",
+    test_tile_custom_grad_shared_forward,
+    devices=devices,
+)
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2, failfast=True)

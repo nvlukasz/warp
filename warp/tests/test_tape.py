@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
@@ -22,7 +10,7 @@ from warp.tests.unittest_utils import *
 
 
 @wp.kernel
-def mul_constant(x: wp.array(dtype=float), y: wp.array(dtype=float)):
+def mul_constant(x: wp.array[float], y: wp.array[float]):
     tid = wp.tid()
 
     y[tid] = x[tid] * 2.0
@@ -30,19 +18,19 @@ def mul_constant(x: wp.array(dtype=float), y: wp.array(dtype=float)):
 
 @wp.struct
 class Multiplicands:
-    x: wp.array(dtype=float)
-    y: wp.array(dtype=float)
+    x: wp.array[float]
+    y: wp.array[float]
 
 
 @wp.kernel
-def mul_variable(mutiplicands: Multiplicands, z: wp.array(dtype=float)):
+def mul_variable(mutiplicands: Multiplicands, z: wp.array[float]):
     tid = wp.tid()
 
     z[tid] = mutiplicands.x[tid] * mutiplicands.y[tid]
 
 
 @wp.kernel
-def dot_product(x: wp.array(dtype=float), y: wp.array(dtype=float), z: wp.array(dtype=float)):
+def dot_product(x: wp.array[float], y: wp.array[float], z: wp.array[float]):
     tid = wp.tid()
 
     wp.atomic_add(z, 0, x[tid] * y[tid])
@@ -88,11 +76,8 @@ def test_tape_mul_variable(test, device):
 
         wp.launch(kernel=mul_variable, dim=dim, inputs=[multiplicands], outputs=[z], device=device)
 
-    # loss = wp.sum(x)
-    z.grad = wp.array(np.ones(dim), device=device, dtype=wp.float32)
-
-    # run backward
-    tape.backward()
+    # run backward with loss = wp.sum(z)
+    tape.backward(grads={z: wp.ones_like(z)})
 
     # grad_x=y, grad_y=x
     assert_np_equal(tape.gradients[multiplicands].x.numpy(), multiplicands.y.numpy())
@@ -101,7 +86,7 @@ def test_tape_mul_variable(test, device):
     # run backward again with different incoming gradient
     # should accumulate the same gradients again onto output
     # so gradients = 2.0*prev
-    tape.backward()
+    tape.backward(grads={z: wp.ones_like(z)})
 
     assert_np_equal(tape.gradients[multiplicands].x.numpy(), multiplicands.y.numpy() * 2.0)
     assert_np_equal(tape.gradients[multiplicands].y.numpy(), multiplicands.x.numpy() * 2.0)
@@ -134,7 +119,7 @@ def test_tape_dot_product(test, device):
 
 
 @wp.kernel
-def assign_chain_kernel(x: wp.array(dtype=float), y: wp.array(dtype=float), z: wp.array(dtype=float)):
+def assign_chain_kernel(x: wp.array[float], y: wp.array[float], z: wp.array[float]):
     tid = wp.tid()
     y[tid] = x[tid]
     z[tid] = y[tid]
@@ -159,7 +144,7 @@ def test_tape_zero_multiple_outputs(test, device):
 
 @wp.struct
 class NestedStruct:
-    arr: wp.array(dtype=float)
+    arr: wp.array[float]
 
 
 @wp.struct
@@ -168,7 +153,7 @@ class WrapperStruct:
 
 
 @wp.kernel
-def nested_loss_kernel(wrapper: WrapperStruct, loss: wp.array(dtype=float)):
+def nested_loss_kernel(wrapper: WrapperStruct, loss: wp.array[float]):
     i = wp.tid()
     wp.atomic_add(loss, 0, wrapper.nested.arr[i])
 
@@ -218,7 +203,129 @@ def test_tape_visualize(test, device):
     assert dot_code.count("dot_product") == 1
 
 
+@wp.kernel
+def dot_product_subscript(x: wp.array[float], y: wp.array[float], z: wp.array[float]):
+    tid = wp.tid()
+    wp.atomic_add(z, 0, x[tid] * y[tid])
+
+
+# Subscript-style type hint variants (wp.array[dtype] syntax)
+@wp.struct
+class MultiplicandsSubscript:
+    x: wp.array[float]
+    y: wp.array[float]
+
+
+@wp.kernel
+def mul_variable_subscript(multiplicands: MultiplicandsSubscript, z: wp.array[float]):
+    tid = wp.tid()
+    z[tid] = multiplicands.x[tid] * multiplicands.y[tid]
+
+
+@wp.struct
+class NestedStructSubscript:
+    arr: wp.array[float]
+
+
+@wp.struct
+class WrapperStructSubscript:
+    nested: NestedStructSubscript
+
+
+@wp.kernel
+def nested_loss_kernel_subscript(wrapper: WrapperStructSubscript, loss: wp.array[float]):
+    i = wp.tid()
+    wp.atomic_add(loss, 0, wrapper.nested.arr[i])
+
+
+def test_tape_struct_subscript(test, device):
+    """Test that struct fields using wp.array[float] subscript syntax work with Tape.backward() and Tape.zero()."""
+    dim = 8
+    tape = wp.Tape()
+
+    with tape:
+        multiplicands = MultiplicandsSubscript()
+        multiplicands.x = wp.array(np.ones(dim) * 16.0, dtype=wp.float32, device=device, requires_grad=True)
+        multiplicands.y = wp.array(np.ones(dim) * 32.0, dtype=wp.float32, device=device, requires_grad=True)
+        z = wp.zeros_like(multiplicands.x)
+
+        wp.launch(kernel=mul_variable_subscript, dim=dim, inputs=[multiplicands], outputs=[z], device=device)
+
+    z.grad = wp.array(np.ones(dim), device=device, dtype=wp.float32)
+    tape.backward()
+
+    # grad_x=y, grad_y=x
+    assert_np_equal(tape.gradients[multiplicands].x.numpy(), multiplicands.y.numpy())
+    assert_np_equal(tape.gradients[multiplicands].y.numpy(), multiplicands.x.numpy())
+
+    # zero should reset struct field gradients
+    tape.zero()
+    assert_np_equal(tape.gradients[multiplicands].x.numpy(), np.zeros(dim))
+    assert_np_equal(tape.gradients[multiplicands].y.numpy(), np.zeros(dim))
+
+
+def test_tape_nested_struct_subscript(test, device):
+    """Test that nested struct fields using wp.array[float] subscript syntax work with Tape."""
+    wrapper = WrapperStructSubscript()
+    wrapper.nested = NestedStructSubscript()
+    wrapper.nested.arr = wp.ones(shape=(1,), dtype=float, requires_grad=True, device=device)
+
+    loss = wp.zeros(shape=(1,), dtype=float, requires_grad=True, device=device)
+
+    tape = wp.Tape()
+    with tape:
+        wp.launch(nested_loss_kernel_subscript, dim=1, inputs=(wrapper, loss), device=device)
+
+    assert_np_equal(loss.numpy(), np.ones(1))
+
+    tape.backward(loss)
+    assert_np_equal(wrapper.nested.arr.grad.numpy(), np.ones(1))
+
+    tape.zero()
+    assert_np_equal(wrapper.nested.arr.grad.numpy(), np.zeros(1))
+
+
+def test_tape_visualize_subscript(test, device):
+    """Test that tape visualization works with kernels using wp.array[float] subscript syntax."""
+    dim = 8
+    tape = wp.Tape()
+
+    with tape:
+        x = wp.array(np.ones(dim) * 16.0, dtype=wp.float32, device=device, requires_grad=True)
+        y = wp.array(np.ones(dim) * 32.0, dtype=wp.float32, device=device, requires_grad=True)
+        z = wp.zeros(n=1, dtype=wp.float32, device=device, requires_grad=True)
+
+        wp.launch(kernel=dot_product_subscript, dim=dim, inputs=[x, y], outputs=[z], device=device)
+
+    dot_code = tape.visualize()
+
+    # Array args should get "array: dtype=..." tooltip, not fall through to the scalar branch
+    test.assertIn("array: dtype=", dot_code)
+
+
+def test_tape_backward_cuda_launch_failure(test, device):
+    """Raise when Tape backward hits CUDA launch errors.
+
+    Corrupt the recorded backward launch block size to reproduce the stale-gradient failure mode.
+    Protects ``Tape.backward()`` from returning after a failed replay with stale or missing gradients.
+    """
+    x = wp.array([1.0], dtype=wp.float32, device=device, requires_grad=True)
+    y = wp.empty_like(x, requires_grad=True)
+
+    tape = wp.Tape()
+    with tape:
+        wp.launch(kernel=mul_constant, dim=x.size, inputs=[x], outputs=[y], block_dim=256, device=device)
+
+    launch = tape.launches[0]
+    test.assertEqual(len(launch), 8)
+    launch[6] = 2048  # block_dim
+
+    with test.assertRaisesRegex(RuntimeError, r"Error launching kernel: .*mul_constant.*Warp CUDA error"):
+        tape.backward(grads={y: wp.ones_like(y)})
+
+
 devices = get_test_devices()
+cuda_devices = get_cuda_test_devices()
 
 
 class TestTape(unittest.TestCase):
@@ -228,6 +335,50 @@ class TestTape(unittest.TestCase):
                 with wp.Tape():
                     pass
 
+    def test_tape_scope_end_without_matching_begin(self):
+        tape = wp.Tape()
+
+        with self.assertRaisesRegex(RuntimeError, "ended tape scope, but scope not present"):
+            tape.record_scope_end()
+
+    def test_tape_scope_end_twice_raises(self):
+        tape = wp.Tape()
+
+        tape.record_scope_begin("scope")
+        tape.record_scope_end()
+
+        with self.assertRaisesRegex(RuntimeError, "ended tape scope, but scope not present"):
+            tape.record_scope_end()
+
+    def test_tape_nested_nonempty_scope_markers(self):
+        tape = wp.Tape()
+
+        tape.record_scope_begin("outer")
+        tape.record_scope_begin("inner")
+        tape.launches.append(object())
+        tape.record_scope_end()
+        tape.record_scope_end()
+
+        self.assertEqual(
+            tape.scopes,
+            [
+                (0, "outer", {}),
+                (0, "inner", {}),
+                (1, None, None),
+                (1, None, None),
+            ],
+        )
+
+    def test_tape_empty_nested_scope_markers_removed(self):
+        tape = wp.Tape()
+
+        tape.record_scope_begin("outer")
+        tape.record_scope_begin("inner")
+        tape.record_scope_end()
+        tape.record_scope_end()
+
+        self.assertEqual(tape.scopes, [])
+
 
 add_function_test(TestTape, "test_tape_mul_constant", test_tape_mul_constant, devices=devices)
 add_function_test(TestTape, "test_tape_mul_variable", test_tape_mul_variable, devices=devices)
@@ -235,8 +386,13 @@ add_function_test(TestTape, "test_tape_dot_product", test_tape_dot_product, devi
 add_function_test(TestTape, "test_tape_zero_multiple_outputs", test_tape_zero_multiple_outputs, devices=devices)
 add_function_test(TestTape, "test_tape_nested_struct", test_tape_nested_struct, devices=devices)
 add_function_test(TestTape, "test_tape_visualize", test_tape_visualize, devices=devices)
+add_function_test(TestTape, "test_tape_struct_subscript", test_tape_struct_subscript, devices=devices)
+add_function_test(TestTape, "test_tape_nested_struct_subscript", test_tape_nested_struct_subscript, devices=devices)
+add_function_test(TestTape, "test_tape_visualize_subscript", test_tape_visualize_subscript, devices=devices)
+add_function_test(
+    TestTape, "test_tape_backward_cuda_launch_failure", test_tape_backward_cuda_launch_failure, devices=cuda_devices
+)
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

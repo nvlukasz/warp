@@ -1,30 +1,44 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import ctypes
 import ctypes.util
+import gc
 import importlib.util
+import io
 import os
+import re
 import sys
+import tempfile
 import time
 import unittest
-from typing import Optional
+import xml.etree.ElementTree as ET
 
-import numpy as np
 
-import warp as wp
+def _normalize_direct_test_sys_path():
+    """Keep direct test execution from shadowing installed top-level packages.
+
+    Running a test file by path makes Python place that file's directory first
+    on ``sys.path``. For files under ``warp/tests``, that can make test
+    packages such as ``warp/tests/cuda`` shadow unrelated installed packages
+    with the same top-level name. Keep the repository root importable while
+    removing the tests package root from import precedence.
+    """
+    tests_root = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(os.path.dirname(tests_root))
+    normalized_sys_path = {os.path.abspath(path or os.getcwd()) for path in sys.path}
+
+    if repo_root not in normalized_sys_path:
+        sys.path.insert(0, repo_root)
+
+    sys.path[:] = [path for path in sys.path if os.path.abspath(path or os.getcwd()) != tests_root]
+
+
+_normalize_direct_test_sys_path()
+
+import numpy as np  # noqa: E402
+
+import warp as wp  # noqa: E402
 
 pxr = importlib.util.find_spec("pxr")
 USD_AVAILABLE = pxr is not None
@@ -50,7 +64,7 @@ except OSError:
     LIBC = None
 
 
-def get_selected_cuda_test_devices(mode: Optional[str] = None):
+def get_selected_cuda_test_devices(mode: str | None = None):
     """Returns a list of CUDA devices according the selected ``mode`` behavior.
 
     If ``mode`` is ``None``, the ``global test_mode`` value will be used and
@@ -92,7 +106,7 @@ def get_selected_cuda_test_devices(mode: Optional[str] = None):
     return selected_cuda_devices
 
 
-def get_test_devices(mode: Optional[str] = None):
+def get_test_devices(mode: str | None = None):
     """Returns a list of devices based on the mode selected.
 
     Args:
@@ -134,6 +148,89 @@ def get_cuda_test_devices(mode=None):
     return [d for d in devices if d.is_cuda]
 
 
+def get_cuda_device_pair_with_peer_access_support(devices=None):
+    """Return the first CUDA pair where ``peer_device`` can access ``target_device`` allocations."""
+
+    if devices is None:
+        devices = wp.get_cuda_devices()
+
+    cuda_devices = [device for device in devices if device.is_cuda]
+    for target_device in cuda_devices:
+        for peer_device in cuda_devices:
+            if target_device != peer_device and wp.is_peer_access_supported(target_device, peer_device):
+                return target_device, peer_device
+
+    return None
+
+
+def get_cuda_device_pair_with_mempool_access_support(devices=None):
+    """Return the first CUDA pair where ``peer_device`` can access ``target_device`` memory pools."""
+
+    if devices is None:
+        devices = wp.get_cuda_devices()
+
+    cuda_devices = [device for device in devices if device.is_cuda]
+    for target_device in cuda_devices:
+        for peer_device in cuda_devices:
+            if target_device != peer_device and wp.is_mempool_access_supported(target_device, peer_device):
+                return target_device, peer_device
+
+    return None
+
+
+def get_test_devices_with_graph_capture_allocation(mode: str | None = None):
+    """Like :func:`get_test_devices`, but drops devices that cannot allocate during graph capture.
+
+    Use this getter to gate tests that allocate inside a graph capture so they skip
+    cleanly on devices without the capability. CUDA requires memory-pool support
+    (``cudaMallocAsync`` is the only capture-safe allocator); CPU/APIC capture
+    allocates through the host allocator (kept valid by APIC region retention) and is
+    always supported. See ``warp._src.context._is_graph_capture_allocation_supported``.
+    """
+    from warp._src.context import _is_graph_capture_allocation_supported  # noqa: PLC0415
+
+    return [d for d in get_test_devices(mode) if _is_graph_capture_allocation_supported(d)]
+
+
+def is_cuda_graph_module_load_supported(device) -> bool:
+    """Return whether modules can be loaded during CUDA graph capture."""
+    driver_version = wp.get_cuda_driver_version()
+    return not device.is_cuda or (driver_version is not None and driver_version >= (12, 3))
+
+
+def get_test_devices_with_cuda_graph_module_load(mode: str | None = None):
+    """Like :func:`get_test_devices`, but drops CUDA devices using drivers older than 12.3.
+
+    CUDA module loading during graph capture requires a driver supporting CUDA
+    12.3 or newer. CPU devices pass through unchanged because CPU graph capture
+    uses APIC recording rather than CUDA driver graph capture.
+    """
+    return [d for d in get_test_devices(mode) if is_cuda_graph_module_load_supported(d)]
+
+
+def get_test_devices_with_graph_capture_allocation_and_cuda_graph_module_load(mode: str | None = None):
+    """Like :func:`get_test_devices_with_graph_capture_allocation`, but also gates CUDA graph module loading."""
+    return [d for d in get_test_devices_with_graph_capture_allocation(mode) if is_cuda_graph_module_load_supported(d)]
+
+
+def get_cuda_test_devices_with_mempool(mode=None):
+    """Like :func:`get_cuda_test_devices`, but drops CUDA devices without memory pool support.
+
+    See :func:`get_test_devices_with_graph_capture_allocation` for context on why mempool
+    support is required for in-capture allocation on CUDA.
+    """
+    return [d for d in get_cuda_test_devices(mode) if d.is_mempool_supported]
+
+
+def get_selected_cuda_test_devices_with_mempool(mode: str | None = None):
+    """Like :func:`get_selected_cuda_test_devices`, but drops CUDA devices without memory pool support.
+
+    See :func:`get_test_devices_with_graph_capture_allocation` for context on why mempool
+    support is required for in-capture allocation on CUDA.
+    """
+    return [d for d in get_selected_cuda_test_devices(mode) if d.is_mempool_supported]
+
+
 class StreamCapture:
     def __init__(self, stream_name):
         self.stream_name = stream_name  # 'stdout' or 'stderr'
@@ -151,10 +248,6 @@ class StreamCapture:
         # Get the stream object (sys.stdout or sys.stderr)
         self.saved = getattr(sys, self.stream_name)
         self.target = os.dup(self.saved.fileno())
-
-        # create temporary capture stream
-        import io
-        import tempfile
 
         # Create temporary capture stream
         self.tempfile = io.TextIOWrapper(
@@ -248,9 +341,12 @@ def assert_np_equal(result: np.ndarray, expect: np.ndarray, tol=0.0):
 
 
 # if check_output is True any output to stdout will be treated as an error
-def create_test_func(func, device, check_output, **kwargs):
+def create_test_func(func, device, check_output, device_check=None, **kwargs):
     # pass args to func
     def test_func(self):
+        if device_check is not None:
+            device_check(self, device)
+
         if check_output:
             with CheckOutput(self):
                 func(self, device, **kwargs)
@@ -276,14 +372,12 @@ def sanitize_identifier(s):
     if s.isidentifier():
         return s
     else:
-        import re
-
         return re.sub(r"\W|^(?=\d)", "_", s)
 
 
-def add_function_test(cls, name, func, devices=None, check_output=True, **kwargs):
+def add_function_test(cls, name, func, devices=None, check_output=True, device_check=None, **kwargs):
     if devices is None:
-        setattr(cls, name, create_test_func(func, None, check_output, **kwargs))
+        setattr(cls, name, create_test_func(func, None, check_output, device_check=device_check, **kwargs))
     elif isinstance(devices, list):
         if not devices:
             # No devices to run this test
@@ -293,21 +387,25 @@ def add_function_test(cls, name, func, devices=None, check_output=True, **kwargs
                 setattr(
                     cls,
                     name + "_" + sanitize_identifier(device),
-                    create_test_func(func, device, check_output, **kwargs),
+                    create_test_func(func, device, check_output, device_check=device_check, **kwargs),
                 )
     else:
         setattr(
             cls,
             name + "_" + sanitize_identifier(devices),
-            create_test_func(func, devices, check_output, **kwargs),
+            create_test_func(func, devices, check_output, device_check=device_check, **kwargs),
         )
 
 
-def add_kernel_test(cls, kernel, dim, name=None, expect=None, inputs=None, devices=None):
+def add_kernel_test(cls, kernel, dim, name=None, expect=None, inputs=None, devices=None, inputs_factory=None):
+    if inputs is not None and inputs_factory is not None:
+        raise ValueError("Only one of `inputs` and `inputs_factory` may be provided.")
+
     def test_func(self, device):
         args = []
-        if inputs:
-            args.extend(inputs)
+        test_inputs = inputs_factory(device) if inputs_factory is not None else inputs
+        if test_inputs:
+            args.extend(test_inputs)
 
         if expect:
             # allocate outputs to match results
@@ -362,9 +460,6 @@ def write_junit_results(
 
     The report file is needed for GitLab to add test reports in merge requests.
     """
-
-    import xml.etree.ElementTree as ET
-
     root = ET.Element(
         "testsuite",
         name="Warp Tests",
@@ -399,7 +494,7 @@ def write_junit_results(
     tree = ET.ElementTree(root)
 
     if hasattr(ET, "indent"):
-        ET.indent(root)  # Pretty-printed XML output, Python 3.9 required
+        ET.indent(root)  # Pretty-printed XML output
 
     tree.write(outfile, encoding="utf-8", xml_declaration=True)
 
@@ -416,6 +511,12 @@ class ParallelJunitTestResult(unittest.TextTestResult):
             self.stream.flush()
         self.start_time = time.perf_counter_ns()
         super(unittest.TextTestResult, self).startTest(test)
+
+    def stopTest(self, test):
+        super().stopTest(test)
+        # Force garbage collection of CPU-side allocations to reduce peak
+        # host RSS in parallel test runs.
+        gc.collect()
 
     def _add_helper(self, test, dots_message, show_all_message):
         if self.showAll:

@@ -1,27 +1,21 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
 import numpy as np
 
+import warp as uncommon_name
 import warp as wp
-import warp.context
 import warp.tests.aux_test_name_clash1 as name_clash_module_1
 import warp.tests.aux_test_name_clash2 as name_clash_module_2
-from warp.tests.unittest_utils import add_function_test, assert_np_equal, get_cuda_test_devices, get_test_devices
+from warp._src.utils import map_cache
+from warp.tests.unittest_utils import (
+    add_function_test,
+    assert_np_equal,
+    get_cuda_test_devices_with_mempool,
+    get_test_devices,
+)
 
 
 @wp.struct
@@ -101,6 +95,37 @@ def test_lambda(test, device):
     expected = np.array(np.arange(10) * local_var, dtype=np.float32)
     assert_np_equal(out2.numpy(), expected)
 
+    # inline variable construction which uses parentheses
+    out = wp.map(lambda a: wp.length(wp.vec3(a, a + 1.0, a + 2.0)), a1)
+    expected = np.array([np.sqrt(i * i + (i + 1) * (i + 1) + (i + 2) * (i + 2)) for i in range(10)], dtype=np.float32)
+    assert_np_equal(out.numpy(), expected)
+
+    # multi-line lambda
+    # fmt: off
+    out = wp.map(lambda a: (\
+        a + 1.0 + 2.0 + 3.0 + 4.0 + 5.0 \
+            + 6.0 + 7.0 + 8.0 + 9.0 + 10.0\
+    ), a1)
+    # fmt: on
+    expected = np.array([np.sum(np.arange(1, 11)) + i for i in range(10)], dtype=np.float32)
+    assert_np_equal(out.numpy(), expected)
+
+    # complicated expression with parentheses and line continuation
+    # fmt: off
+    out = wp.map(lambda a: (
+        a + 1.0 + ((
+            + 6.0 + 7.0 + 8.0) + 9.0 + (10.0
+            # an inline comment to make sure it is ignored
+            + 0.0) \
+            + wp.clamp(a, -0.5, 0.5) \
+            + (wp.sin(a) + wp.cos(a))
+    )), a1)
+    # fmt: on
+    expected = np.array(
+        [41.0 + i + np.clip(i, -0.5, 0.5) + (np.sin(i) + np.cos(i)) for i in range(10)], dtype=np.float32
+    )
+    assert_np_equal(out.numpy(), expected, tol=1e-6)
+
 
 def test_multiple_return_values(test, device):
     @wp.func
@@ -118,7 +143,7 @@ def test_multiple_return_values(test, device):
         test.assertEqual(out[2][i].y, i)
         test.assertEqual(out[2][i].z, i)
 
-    out = wp.map(lambda a: multiple_return(a), a1)
+    out = wp.map(multiple_return, a1)
     assert isinstance(out, list)
     out = [o.list() for o in out]
     for i in range(10):
@@ -198,6 +223,27 @@ def test_gradient(test, device):
     assert_np_equal(a.grad.numpy(), expected)
     a.grad *= 2.0
     assert_np_equal(a.grad.numpy(), expected * 2.0)
+
+
+def test_nondifferentiable_builtin_gradient(test, device):
+    a_np = np.arange(24, dtype=np.int32).reshape(8, 3)
+    b_np = np.flip(a_np, axis=0).copy()
+    output_np = np.bitwise_and(a_np, b_np)
+
+    a = wp.array(a_np, dtype=wp.vec3i, requires_grad=True, device=device)
+    b = wp.array(b_np, dtype=wp.vec3i, requires_grad=True, device=device)
+    output = wp.empty(8, dtype=wp.vec3i, requires_grad=True, device=device)
+
+    with wp.Tape() as tape:
+        wp.map(wp.bit_and, a, b, out=output)
+
+    assert_np_equal(output.numpy(), output_np)
+
+    output.grad = wp.ones_like(output)
+    tape.backward()
+
+    assert_np_equal(a.grad.numpy(), np.zeros_like(a_np))
+    assert_np_equal(b.grad.numpy(), np.zeros_like(b_np))
 
 
 def test_array_ops(test, device):
@@ -342,7 +388,7 @@ def test_input_validity(test, device):
         ValueError,
         "map requires at least one warp.array input$",
     ):
-        wp.map(lambda a, b, c: a * b * c, 2.0, 0.4, [5.0])
+        wp.map(lambda a, b, c: a * b * c, 2.0, 0.4, 5.0)
 
 
 def test_output_validity(test, device):
@@ -415,8 +461,8 @@ def test_kernel_creation(test, device):
 
 
 def test_graph_capture(test, device):
-    assert warp.context.runtime.driver_version is not None
-    if warp.context.runtime.driver_version < (12, 3):
+    assert wp._src.context.runtime.driver_version is not None
+    if wp._src.context.runtime.driver_version < (12, 3):
         test.skipTest("Module loading during CUDA graph capture is not supported on driver versions < 12.3")
     a_np = np.arange(10, dtype=np.float32)
     b_np = np.arange(1, 11, dtype=np.float32)
@@ -434,8 +480,6 @@ def test_graph_capture(test, device):
 
 
 def test_renamed_warp_module(test, device):
-    import warp as uncommon_name
-
     @wp.func
     def my_func(a: float):
         return uncommon_name.abs(2.0 * a - 10.0)
@@ -452,8 +496,115 @@ def test_renamed_warp_module(test, device):
     assert_np_equal(out.numpy(), expected, tol=1e-6)
 
 
+def test_cache_same_types_shapes(test, device):
+    """Same function with same types/shapes should reuse cache."""
+    map_cache.clear()
+
+    a = wp.array([1.0, 2.0, 3.0], dtype=wp.float32, device=device)
+    b = wp.array([4.0, 5.0, 6.0], dtype=wp.float32, device=device)
+
+    wp.map(lambda x, y: x + y, a, b)
+    cache_size_1 = len(map_cache)
+
+    wp.map(lambda x, y: x + y, a, b)
+    cache_size_2 = len(map_cache)
+
+    test.assertEqual(cache_size_1, cache_size_2, "Cache should not grow for same types/shapes")
+
+
+def test_cache_different_shapes(test, device):
+    """Different shapes with same ndim/dtype should reuse cache."""
+    map_cache.clear()
+
+    a = wp.array([1.0, 2.0, 3.0], dtype=wp.float32, device=device)
+    b = wp.array([4.0, 5.0, 6.0], dtype=wp.float32, device=device)
+
+    wp.map(lambda x, y: x + y, a, b)
+    cache_size_1 = len(map_cache)
+
+    c = wp.array([1.0, 2.0, 3.0, 4.0], dtype=wp.float32, device=device)
+    d = wp.array([5.0, 6.0, 7.0, 8.0], dtype=wp.float32, device=device)
+
+    wp.map(lambda x, y: x + y, c, d)
+    cache_size_2 = len(map_cache)
+
+    test.assertEqual(cache_size_2, cache_size_1, "Cache should not grow for different shapes")
+
+
+def test_cache_different_dtypes(test, device):
+    """Different dtypes should create new cache entries."""
+    map_cache.clear()
+
+    a = wp.array([1.0, 2.0, 3.0], dtype=wp.float32, device=device)
+    b = wp.array([4.0, 5.0, 6.0], dtype=wp.float32, device=device)
+
+    wp.map(lambda x, y: x + y, a, b)
+    cache_size_1 = len(map_cache)
+
+    c = wp.array([1.0, 2.0, 3.0], dtype=wp.float64, device=device)
+    d = wp.array([4.0, 5.0, 6.0], dtype=wp.float64, device=device)
+
+    wp.map(lambda x, y: x + y, c, d)
+    cache_size_2 = len(map_cache)
+
+    test.assertEqual(cache_size_2, cache_size_1 + 1, "Cache should grow for different dtypes")
+
+
+def test_cache_warp_function(test, device):
+    """Warp functions should also be cached properly."""
+    map_cache.clear()
+
+    a = wp.array([1.0, 2.0, 3.0], dtype=wp.float32, device=device)
+    b = wp.array([0.5, 1.5, 2.5], dtype=wp.float32, device=device)
+    c = wp.array([0.2, 0.8, 1.2], dtype=wp.float32, device=device)
+
+    wp.map(wp.clamp, a, b, c)
+    cache_size_1 = len(map_cache)
+
+    wp.map(wp.clamp, a, b, c)
+    cache_size_2 = len(map_cache)
+
+    test.assertEqual(cache_size_1, cache_size_2, "Cache should not grow for repeated wp.clamp calls")
+
+
+def test_cache_explicit_output(test, device):
+    """Explicit output arrays should reuse cache if types match."""
+    map_cache.clear()
+
+    a = wp.array([1.0, 2.0, 3.0], dtype=wp.float32, device=device)
+    b = wp.array([4.0, 5.0, 6.0], dtype=wp.float32, device=device)
+
+    wp.map(lambda x, y: x + y, a, b)
+    cache_size_1 = len(map_cache)
+
+    out = wp.empty(3, dtype=wp.float32, device=device)
+    wp.map(lambda x, y: x + y, a, b, out=out)
+    cache_size_2 = len(map_cache)
+
+    test.assertEqual(cache_size_1, cache_size_2, "Cache should reuse existing entry with explicit out")
+
+
+def test_cache_broadcasting(test, device):
+    """Broadcasting should create separate cache entries for different broadcast patterns."""
+    map_cache.clear()
+
+    a = wp.array([1.0, 2.0, 3.0], dtype=wp.float32, device=device)
+    b = wp.array([4.0, 5.0, 6.0], dtype=wp.float32, device=device)
+
+    wp.map(lambda x, y: x + y, a, b)
+    cache_size_1 = len(map_cache)
+
+    c = wp.array([[1.0], [2.0], [3.0]], dtype=wp.float32, device=device)  # shape (3, 1)
+    d = wp.array([4.0, 5.0, 6.0], dtype=wp.float32, device=device)  # shape (3,)
+
+    wp.map(lambda x, y: x + y, c, d)
+    cache_size_2 = len(map_cache)
+
+    test.assertEqual(cache_size_2, cache_size_1 + 1, "Cache should grow for different broadcast patterns")
+
+
 devices = get_test_devices("basic")
-cuda_test_devices = get_cuda_test_devices()
+cuda_test_devices_with_mempool = get_cuda_test_devices_with_mempool()
 
 
 class TestMap(unittest.TestCase):
@@ -466,14 +617,23 @@ add_function_test(TestMap, "test_multiple_return_values", test_multiple_return_v
 add_function_test(TestMap, "test_custom_struct_operator", test_custom_struct_operator, devices=devices)
 add_function_test(TestMap, "test_name_clash", test_name_clash, devices=devices)
 add_function_test(TestMap, "test_gradient", test_gradient, devices=devices)
+add_function_test(
+    TestMap, "test_nondifferentiable_builtin_gradient", test_nondifferentiable_builtin_gradient, devices=devices
+)
 add_function_test(TestMap, "test_array_ops", test_array_ops, devices=devices)
 add_function_test(TestMap, "test_indexedarrays", test_indexedarrays, devices=devices)
 add_function_test(TestMap, "test_broadcasting", test_broadcasting, devices=devices)
 add_function_test(TestMap, "test_input_validity", test_input_validity, devices=devices)
 add_function_test(TestMap, "test_output_validity", test_output_validity, devices=devices)
 add_function_test(TestMap, "test_kernel_creation", test_kernel_creation, devices=devices)
-add_function_test(TestMap, "test_graph_capture", test_graph_capture, devices=cuda_test_devices)
+add_function_test(TestMap, "test_graph_capture", test_graph_capture, devices=cuda_test_devices_with_mempool)
 add_function_test(TestMap, "test_renamed_warp_module", test_renamed_warp_module, devices=devices)
+add_function_test(TestMap, "test_cache_same_types_shapes", test_cache_same_types_shapes, devices=devices)
+add_function_test(TestMap, "test_cache_different_shapes", test_cache_different_shapes, devices=devices)
+add_function_test(TestMap, "test_cache_different_dtypes", test_cache_different_dtypes, devices=devices)
+add_function_test(TestMap, "test_cache_warp_function", test_cache_warp_function, devices=devices)
+add_function_test(TestMap, "test_cache_explicit_output", test_cache_explicit_output, devices=devices)
+add_function_test(TestMap, "test_cache_broadcasting", test_cache_broadcasting, devices=devices)
 
 
 class TestMapDebug(unittest.TestCase):
@@ -491,5 +651,4 @@ add_function_test(TestMapDebug, "test_mixed_inputs", test_mixed_inputs, devices=
 add_function_test(TestMapDebug, "test_kernel_creation", test_kernel_creation, devices=devices)
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

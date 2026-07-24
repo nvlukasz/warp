@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 #if WP_ENABLE_CUDA
 
@@ -29,8 +15,9 @@
 #include <dlfcn.h>
 #endif
 
-#include <set>
-#include <stack>
+#include <queue>
+#include <unordered_set>
+#include <vector>
 
 // the minimum CUDA version required from the driver
 #define WP_CUDA_DRIVER_VERSION 12000
@@ -45,13 +32,24 @@
 
 // Avoid including <cudaGLTypedefs.h>, which requires OpenGL headers to be installed.
 // We define our own GL types, based on the spec here: https://www.khronos.org/opengl/wiki/OpenGL_Type
-namespace wp
-{
+namespace wp {
 typedef uint32_t GLuint;
+typedef uint32_t GLenum;
 }
 
 // function prototypes adapted from <cudaGLTypedefs.h>
-typedef CUresult (CUDAAPI *PFN_cuGraphicsGLRegisterBuffer_v3000)(CUgraphicsResource *pCudaResource, wp::GLuint buffer, unsigned int Flags);
+typedef CUresult(CUDAAPI* PFN_cuGraphicsGLRegisterBuffer_v3000)(
+    CUgraphicsResource* pCudaResource, wp::GLuint buffer, unsigned int Flags
+);
+typedef CUresult(CUDAAPI* PFN_cuGraphicsGLRegisterImage_v3000)(
+    CUgraphicsResource* pCudaResource, wp::GLuint image, wp::GLenum target, unsigned int Flags
+);
+
+// function prototypes adapted from <cudaProfilerTypedefs.h>. We declare these locally to avoid
+// including the header, which pulls in <cudaProfiler.h>; that header ships only in the separate
+// cuda_profiler_api redist component, not the cuda_cudart component used by the builder images.
+typedef CUresult(CUDAAPI* PFN_cuProfilerStart_v4000)(void);
+typedef CUresult(CUDAAPI* PFN_cuProfilerStop_v4000)(void);
 
 
 // function pointers to driver API entry points
@@ -75,6 +73,9 @@ static PFN_cuDevicePrimaryCtxRetain_v7000 pfn_cuDevicePrimaryCtxRetain;
 static PFN_cuDevicePrimaryCtxRelease_v11000 pfn_cuDevicePrimaryCtxRelease;
 static PFN_cuDeviceCanAccessPeer_v4000 pfn_cuDeviceCanAccessPeer;
 static PFN_cuMemGetInfo_v3020 pfn_cuMemGetInfo;
+#if CUDA_VERSION >= 12080
+static PFN_cuMemcpyBatchAsync_v12080 pfn_cuMemcpyBatchAsync;
+#endif
 static PFN_cuCtxGetCurrent_v4000 pfn_cuCtxGetCurrent;
 static PFN_cuCtxSetCurrent_v4000 pfn_cuCtxSetCurrent;
 static PFN_cuCtxPushCurrent_v4000 pfn_cuCtxPushCurrent;
@@ -111,20 +112,44 @@ static PFN_cuModuleLoadDataEx_v2010 pfn_cuModuleLoadDataEx;
 static PFN_cuModuleUnload_v2000 pfn_cuModuleUnload;
 static PFN_cuModuleGetFunction_v2000 pfn_cuModuleGetFunction;
 static PFN_cuLaunchKernel_v4000 pfn_cuLaunchKernel;
+static PFN_cuOccupancyMaxPotentialBlockSize_v6050 pfn_cuOccupancyMaxPotentialBlockSize;
+static PFN_cuOccupancyMaxActiveClusters_v11070 pfn_cuOccupancyMaxActiveClusters;
 static PFN_cuMemcpyPeerAsync_v4000 pfn_cuMemcpyPeerAsync;
 static PFN_cuPointerGetAttribute_v4000 pfn_cuPointerGetAttribute;
 static PFN_cuGraphicsMapResources_v3000 pfn_cuGraphicsMapResources;
 static PFN_cuGraphicsUnmapResources_v3000 pfn_cuGraphicsUnmapResources;
 static PFN_cuGraphicsResourceGetMappedPointer_v3020 pfn_cuGraphicsResourceGetMappedPointer;
 static PFN_cuGraphicsGLRegisterBuffer_v3000 pfn_cuGraphicsGLRegisterBuffer;
+static PFN_cuGraphicsGLRegisterImage_v3000 pfn_cuGraphicsGLRegisterImage;
+static PFN_cuGraphicsSubResourceGetMappedArray_v3000 pfn_cuGraphicsSubResourceGetMappedArray;
 static PFN_cuGraphicsUnregisterResource_v3000 pfn_cuGraphicsUnregisterResource;
 static PFN_cuModuleGetGlobal_v3020 pfn_cuModuleGetGlobal;
 static PFN_cuFuncSetAttribute_v9000 pfn_cuFuncSetAttribute;
+static PFN_cuFuncGetAttribute_v2020 pfn_cuFuncGetAttribute;
 static PFN_cuIpcGetEventHandle_v4010 pfn_cuIpcGetEventHandle;
 static PFN_cuIpcOpenEventHandle_v4010 pfn_cuIpcOpenEventHandle;
 static PFN_cuIpcGetMemHandle_v4010 pfn_cuIpcGetMemHandle;
 static PFN_cuIpcOpenMemHandle_v11000 pfn_cuIpcOpenMemHandle;
 static PFN_cuIpcCloseMemHandle_v4010 pfn_cuIpcCloseMemHandle;
+
+// Profiler control functions
+static PFN_cuProfilerStart_v4000 pfn_cuProfilerStart;
+static PFN_cuProfilerStop_v4000 pfn_cuProfilerStop;
+
+// Texture functions
+static PFN_cuArrayCreate_v3020 pfn_cuArrayCreate;
+static PFN_cuArrayDestroy_v2000 pfn_cuArrayDestroy;
+static PFN_cuArray3DCreate_v3020 pfn_cuArray3DCreate;
+static PFN_cuArray3DGetDescriptor_v3020 pfn_cuArray3DGetDescriptor;
+static PFN_cuMemcpy2D_v3020 pfn_cuMemcpy2D;
+static PFN_cuMemcpy2DAsync_v3020 pfn_cuMemcpy2DAsync;
+static PFN_cuMemcpy3D_v3020 pfn_cuMemcpy3D;
+static PFN_cuMemcpy3DAsync_v3020 pfn_cuMemcpy3DAsync;
+static PFN_cuTexObjectCreate_v5000 pfn_cuTexObjectCreate;
+static PFN_cuTexObjectDestroy_v5000 pfn_cuTexObjectDestroy;
+static PFN_cuMipmappedArrayCreate_v5000 pfn_cuMipmappedArrayCreate;
+static PFN_cuMipmappedArrayDestroy_v5000 pfn_cuMipmappedArrayDestroy;
+static PFN_cuMipmappedArrayGetLevel_v5000 pfn_cuMipmappedArrayGetLevel;
 
 static bool cuda_driver_initialized = false;
 
@@ -133,15 +158,9 @@ bool ContextGuard::always_restore = false;
 CudaTimingState* g_cuda_timing_state = NULL;
 
 
-static inline int get_major(int version)
-{
-    return version / 1000;
-}
+static inline int get_major(int version) { return version / 1000; }
 
-static inline int get_minor(int version)
-{
-    return (version % 1000) / 10;
-}
+static inline int get_minor(int version) { return (version % 1000) / 10; }
 
 // Get versioned driver entry point. The version argument should match the function pointer type.
 // For example, to initialize PFN_cuCtxCreate_v3020 use version 3020.
@@ -156,8 +175,7 @@ static bool get_driver_entry_point(const char* name, int version, void** pfn)
     CUresult r = pfn_cuGetProcAddress(name, pfn, version, CU_GET_PROC_ADDRESS_DEFAULT, NULL);
 #endif
 
-    if (r != CUDA_SUCCESS)
-    {
+    if (r != CUDA_SUCCESS) {
         fprintf(stderr, "Warp CUDA error: Failed to get driver entry point '%s' (CUDA error %u)\n", name, unsigned(r));
         return false;
     }
@@ -170,7 +188,10 @@ bool init_cuda_driver()
 #if defined(_WIN32)
     static HMODULE hCudaDriver = LoadLibraryA("nvcuda.dll");
     if (hCudaDriver == NULL) {
-        fprintf(stderr, "Warp CUDA warning: Could not find or load the NVIDIA CUDA driver. Proceeding in CPU-only mode.\n");
+        fprintf(
+            stderr,
+            "Warp CUDA warning: Could not find or load the NVIDIA CUDA driver. GPU execution will not be available.\n"
+        );
         return false;
     }
     pfn_cuGetProcAddress = (PFN_cuGetProcAddress)GetProcAddress(hCudaDriver, "cuGetProcAddress");
@@ -180,34 +201,37 @@ bool init_cuda_driver()
         // WSL and possibly other systems might require the .1 suffix
         hCudaDriver = dlopen("libcuda.so.1", RTLD_NOW);
         if (hCudaDriver == NULL) {
-            fprintf(stderr, "Warp CUDA warning: Could not find or load the NVIDIA CUDA driver. Proceeding in CPU-only mode.\n");
+            fprintf(
+                stderr,
+                "Warp CUDA warning: Could not find or load the NVIDIA CUDA driver. GPU execution will not be "
+                "available.\n"
+            );
             return false;
         }
     }
     pfn_cuGetProcAddress = (PFN_cuGetProcAddress)dlsym(hCudaDriver, "cuGetProcAddress");
 #endif
 
-    if (!pfn_cuGetProcAddress)
-    {
+    if (!pfn_cuGetProcAddress) {
         fprintf(stderr, "Warp CUDA error: Failed to get function cuGetProcAddress\n");
         return false;
     }
 
     // check the CUDA driver version and report an error if it's too low
     int driver_version = 0;
-    if (get_driver_entry_point("cuDriverGetVersion", 2020, &(void*&)pfn_cuDriverGetVersion) &&
-        check_cu(pfn_cuDriverGetVersion(&driver_version)))
-    {
-        if (driver_version < WP_CUDA_DRIVER_VERSION)
-        {
-            fprintf(stderr, "Warp CUDA error: Warp requires CUDA driver %d.%d or higher, but the current driver only supports CUDA %d.%d\n",
-                get_major(WP_CUDA_DRIVER_VERSION), get_minor(WP_CUDA_DRIVER_VERSION),
-                get_major(driver_version), get_minor(driver_version));
+    if (get_driver_entry_point("cuDriverGetVersion", 2020, &(void*&)pfn_cuDriverGetVersion)
+        && check_cu(pfn_cuDriverGetVersion(&driver_version))) {
+        if (driver_version < WP_CUDA_DRIVER_VERSION) {
+            fprintf(
+                stderr,
+                "Warp CUDA error: Warp requires CUDA driver %d.%d or higher, but the current driver only supports CUDA "
+                "%d.%d\n",
+                get_major(WP_CUDA_DRIVER_VERSION), get_minor(WP_CUDA_DRIVER_VERSION), get_major(driver_version),
+                get_minor(driver_version)
+            );
             return false;
         }
-    }
-    else
-    {
+    } else {
         fprintf(stderr, "Warp CUDA warning: Unable to determine CUDA driver version\n");
     }
 
@@ -224,6 +248,10 @@ bool init_cuda_driver()
     get_driver_entry_point("cuDevicePrimaryCtxRelease", 11000, &(void*&)pfn_cuDevicePrimaryCtxRelease);
     get_driver_entry_point("cuDeviceCanAccessPeer", 4000, &(void*&)pfn_cuDeviceCanAccessPeer);
     get_driver_entry_point("cuMemGetInfo", 3020, &(void*&)pfn_cuMemGetInfo);
+#if CUDA_VERSION >= 12080
+    if (driver_version >= 12080)
+        get_driver_entry_point("cuMemcpyBatchAsync", 12080, &(void*&)pfn_cuMemcpyBatchAsync);
+#endif
     get_driver_entry_point("cuCtxSetCurrent", 4000, &(void*&)pfn_cuCtxSetCurrent);
     get_driver_entry_point("cuCtxGetCurrent", 4000, &(void*&)pfn_cuCtxGetCurrent);
     get_driver_entry_point("cuCtxPushCurrent", 4000, &(void*&)pfn_cuCtxPushCurrent);
@@ -260,38 +288,63 @@ bool init_cuda_driver()
     get_driver_entry_point("cuModuleUnload", 2000, &(void*&)pfn_cuModuleUnload);
     get_driver_entry_point("cuModuleGetFunction", 2000, &(void*&)pfn_cuModuleGetFunction);
     get_driver_entry_point("cuLaunchKernel", 4000, &(void*&)pfn_cuLaunchKernel);
+    get_driver_entry_point("cuOccupancyMaxPotentialBlockSize", 6050, &(void*&)pfn_cuOccupancyMaxPotentialBlockSize);
+    get_driver_entry_point("cuOccupancyMaxActiveClusters", 11070, &(void*&)pfn_cuOccupancyMaxActiveClusters);
     get_driver_entry_point("cuMemcpyPeerAsync", 4000, &(void*&)pfn_cuMemcpyPeerAsync);
     get_driver_entry_point("cuPointerGetAttribute", 4000, &(void*&)pfn_cuPointerGetAttribute);
     get_driver_entry_point("cuGraphicsMapResources", 3000, &(void*&)pfn_cuGraphicsMapResources);
     get_driver_entry_point("cuGraphicsUnmapResources", 3000, &(void*&)pfn_cuGraphicsUnmapResources);
     get_driver_entry_point("cuGraphicsResourceGetMappedPointer", 3020, &(void*&)pfn_cuGraphicsResourceGetMappedPointer);
     get_driver_entry_point("cuGraphicsGLRegisterBuffer", 3000, &(void*&)pfn_cuGraphicsGLRegisterBuffer);
+    get_driver_entry_point("cuGraphicsGLRegisterImage", 3000, &(void*&)pfn_cuGraphicsGLRegisterImage);
+    get_driver_entry_point(
+        "cuGraphicsSubResourceGetMappedArray", 3000, &(void*&)pfn_cuGraphicsSubResourceGetMappedArray
+    );
     get_driver_entry_point("cuGraphicsUnregisterResource", 3000, &(void*&)pfn_cuGraphicsUnregisterResource);
     get_driver_entry_point("cuModuleGetGlobal", 3020, &(void*&)pfn_cuModuleGetGlobal);
     get_driver_entry_point("cuFuncSetAttribute", 9000, &(void*&)pfn_cuFuncSetAttribute);
+    get_driver_entry_point("cuFuncGetAttribute", 2020, &(void*&)pfn_cuFuncGetAttribute);
     get_driver_entry_point("cuIpcGetEventHandle", 4010, &(void*&)pfn_cuIpcGetEventHandle);
     get_driver_entry_point("cuIpcOpenEventHandle", 4010, &(void*&)pfn_cuIpcOpenEventHandle);
     get_driver_entry_point("cuIpcGetMemHandle", 4010, &(void*&)pfn_cuIpcGetMemHandle);
     get_driver_entry_point("cuIpcOpenMemHandle", 11000, &(void*&)pfn_cuIpcOpenMemHandle);
     get_driver_entry_point("cuIpcCloseMemHandle", 4010, &(void*&)pfn_cuIpcCloseMemHandle);
 
+    // Profiler control functions
+    get_driver_entry_point("cuProfilerStart", 4000, &(void*&)pfn_cuProfilerStart);
+    get_driver_entry_point("cuProfilerStop", 4000, &(void*&)pfn_cuProfilerStop);
+
+    // Texture functions
+    get_driver_entry_point("cuArrayCreate", 3020, &(void*&)pfn_cuArrayCreate);
+    get_driver_entry_point("cuArrayDestroy", 2000, &(void*&)pfn_cuArrayDestroy);
+    get_driver_entry_point("cuArray3DCreate", 3020, &(void*&)pfn_cuArray3DCreate);
+    get_driver_entry_point("cuArray3DGetDescriptor", 3020, &(void*&)pfn_cuArray3DGetDescriptor);
+    get_driver_entry_point("cuMemcpy2D", 3020, &(void*&)pfn_cuMemcpy2D);
+    get_driver_entry_point("cuMemcpy2DAsync", 3020, &(void*&)pfn_cuMemcpy2DAsync);
+    get_driver_entry_point("cuMemcpy3D", 3020, &(void*&)pfn_cuMemcpy3D);
+    get_driver_entry_point("cuMemcpy3DAsync", 3020, &(void*&)pfn_cuMemcpy3DAsync);
+    get_driver_entry_point("cuTexObjectCreate", 5000, &(void*&)pfn_cuTexObjectCreate);
+    get_driver_entry_point("cuTexObjectDestroy", 5000, &(void*&)pfn_cuTexObjectDestroy);
+    get_driver_entry_point("cuMipmappedArrayCreate", 5000, &(void*&)pfn_cuMipmappedArrayCreate);
+    get_driver_entry_point("cuMipmappedArrayDestroy", 5000, &(void*&)pfn_cuMipmappedArrayDestroy);
+    get_driver_entry_point("cuMipmappedArrayGetLevel", 5000, &(void*&)pfn_cuMipmappedArrayGetLevel);
+
     if (pfn_cuInit)
         cuda_driver_initialized = check_cu(pfn_cuInit(0));
-    
+
     return cuda_driver_initialized;
 }
 
-bool is_cuda_driver_initialized()
-{
-    return cuda_driver_initialized;
-}
+bool is_cuda_driver_initialized() { return cuda_driver_initialized; }
 
 bool check_cuda_result(cudaError_t code, const char* func, const char* file, int line)
 {
     if (code == cudaSuccess)
         return true;
 
-    wp::set_error_string("Warp CUDA error %u: %s (in function %s, %s:%d)", unsigned(code), cudaGetErrorString(code), func, file, line);
+    wp::set_error_string(
+        "Warp CUDA error %u: %s (in function %s, %s:%d)", unsigned(code), cudaGetErrorString(code), func, file, line
+    );
     return false;
 }
 
@@ -305,7 +358,9 @@ bool check_cu_result(CUresult result, const char* func, const char* file, int li
         pfn_cuGetErrorString(result, &errString);
 
     if (errString)
-        wp::set_error_string("Warp CUDA error %u: %s (in function %s, %s:%d)", unsigned(result), errString, func, file, line);
+        wp::set_error_string(
+            "Warp CUDA error %u: %s (in function %s, %s:%d)", unsigned(result), errString, func, file, line
+        );
     else
         wp::set_error_string("Warp CUDA error %u (in function %s, %s:%d)", unsigned(result), func, file, line);
 
@@ -318,8 +373,7 @@ bool get_capture_dependencies(CUstream stream, std::vector<CUgraphNode>& depende
     size_t num_dependencies = 0;
     const CUgraphNode* dependencies = NULL;
     dependencies_ret.clear();
-    if (check_cu(cuStreamGetCaptureInfo_f(stream, &status, NULL, NULL, &dependencies, &num_dependencies)))
-    {
+    if (check_cu(cuStreamGetCaptureInfo_f(stream, &status, NULL, NULL, &dependencies, &num_dependencies))) {
         if (dependencies && num_dependencies > 0)
             dependencies_ret.insert(dependencies_ret.begin(), dependencies, dependencies + num_dependencies);
         return true;
@@ -342,8 +396,7 @@ bool get_graph_leaf_nodes(cudaGraph_t graph, std::vector<cudaGraphNode_t>& leaf_
 
     leaf_nodes_ret.clear();
 
-    for (cudaGraphNode_t node : nodes)
-    {
+    for (cudaGraphNode_t node : nodes) {
         size_t dependent_count;
 
         if (!check_cu(cuGraphNodeGetDependentNodes_f(node, NULL, &dependent_count)))
@@ -356,13 +409,189 @@ bool get_graph_leaf_nodes(cudaGraph_t graph, std::vector<cudaGraphNode_t>& leaf_
     return true;
 }
 
+// get all leaf nodes that depend on the given ancestor node
+bool get_dependent_leaf_nodes(cudaGraphNode_t ancestor, std::vector<cudaGraphNode_t>& leaf_nodes_ret)
+{
+    if (!ancestor)
+        return false;
+
+    std::queue<cudaGraphNode_t> frontier { { ancestor } };
+    std::unordered_set<cudaGraphNode_t> visited { ancestor };
+    std::vector<cudaGraphNode_t> deps;
+
+    leaf_nodes_ret.clear();
+
+    while (!frontier.empty()) {
+        cudaGraphNode_t node = frontier.front();
+        frontier.pop();
+
+        size_t dep_count = 0;
+        if (!check_cu(cuGraphNodeGetDependentNodes_f(node, NULL, &dep_count)))
+            return false;
+
+        if (dep_count == 0) {
+            leaf_nodes_ret.push_back(node);
+        } else {
+            deps.resize(dep_count);
+            if (!check_cu(cuGraphNodeGetDependentNodes_f(node, deps.data(), &dep_count)))
+                return false;
+            for (cudaGraphNode_t dep : deps) {
+                if (visited.insert(dep).second) {
+                    frontier.push(dep);
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+// whether argument node depends on referent node
+NodeDependencyResult graph_node_depends_on(cudaGraphNode_t argument, cudaGraphNode_t referent)
+{
+    if (!argument || !referent)
+        return NODE_DEPENDENCY_RESULT_ERROR;
+
+    std::queue<cudaGraphNode_t> frontier { { referent } };
+    std::unordered_set<cudaGraphNode_t> visited { referent };
+    std::vector<cudaGraphNode_t> deps;
+
+    while (!frontier.empty()) {
+        cudaGraphNode_t node = frontier.front();
+        frontier.pop();
+
+        if (node == argument)
+            return NODE_DEPENDENCY_RESULT_DEPENDENT;
+
+        size_t dep_count = 0;
+        if (!check_cu(cuGraphNodeGetDependentNodes_f(node, NULL, &dep_count)))
+            return NODE_DEPENDENCY_RESULT_ERROR;
+
+        if (dep_count > 0) {
+            deps.resize(dep_count);
+            if (!check_cu(cuGraphNodeGetDependentNodes_f(node, deps.data(), &dep_count)))
+                return NODE_DEPENDENCY_RESULT_ERROR;
+            for (cudaGraphNode_t dep : deps) {
+                if (visited.insert(dep).second) {
+                    frontier.push(dep);
+                }
+            }
+        }
+    }
+
+    return NODE_DEPENDENCY_RESULT_INDEPENDENT;
+}
+
+// determine the status of an allocation at the given query node
+GraphAllocQueryResult graph_alloc_query(cudaGraphNode_t alloc_node, cudaGraphNode_t query_node)
+{
+    if (!alloc_node || !query_node)
+        return GRAPH_ALLOC_QUERY_RESULT_ERROR;
+
+    CUgraphNodeType alloc_node_type;
+    if (!check_cu(cuGraphNodeGetType_f(alloc_node, &alloc_node_type)))
+        return GRAPH_ALLOC_QUERY_RESULT_ERROR;
+    if (alloc_node_type != CU_GRAPH_NODE_TYPE_MEM_ALLOC)
+        return GRAPH_ALLOC_QUERY_RESULT_ERROR;
+
+    // get the allocation pointer so we can locate the matching free node (if any)
+    cudaMemAllocNodeParams alloc_params;
+    if (!check_cuda(cudaGraphMemAllocNodeGetParams(alloc_node, &alloc_params)))
+        return GRAPH_ALLOC_QUERY_RESULT_ERROR;
+    void* alloc_ptr = alloc_params.dptr;
+
+    // BFS from the alloc node to locate the matching free node and to
+    // determine whether the query node is a descendant of the alloc.
+    std::queue<cudaGraphNode_t> frontier { { alloc_node } };
+    std::unordered_set<cudaGraphNode_t> visited { alloc_node };
+    std::vector<cudaGraphNode_t> deps;
+    cudaGraphNode_t free_node = NULL;
+    bool query_reachable = false;
+
+    while (!frontier.empty()) {
+        cudaGraphNode_t node = frontier.front();
+        frontier.pop();
+
+        // record if the query node is reachable from the alloc
+        if (node == query_node)
+            query_reachable = true;
+
+        // record the first free node that matches the alloc pointer
+        // - there should only be one free for this alloc, we're not tackling
+        //   double-free errors here.
+        // - after the alloc is freed, subsequent alloc and free nodes can reuse
+        //   the same pointer value, but we don't care about those.
+        if (!free_node && node != alloc_node) {
+            CUgraphNodeType node_type;
+            if (!check_cu(cuGraphNodeGetType_f(node, &node_type)))
+                return GRAPH_ALLOC_QUERY_RESULT_ERROR;
+            if (node_type == CU_GRAPH_NODE_TYPE_MEM_FREE) {
+                void* free_ptr = NULL;
+                if (!check_cuda(cudaGraphMemFreeNodeGetParams(node, &free_ptr)))
+                    return GRAPH_ALLOC_QUERY_RESULT_ERROR;
+                if (free_ptr == alloc_ptr)
+                    free_node = node;
+            }
+        }
+
+        size_t dep_count = 0;
+        if (!check_cu(cuGraphNodeGetDependentNodes_f(node, NULL, &dep_count)))
+            return GRAPH_ALLOC_QUERY_RESULT_ERROR;
+
+        if (dep_count > 0) {
+            deps.resize(dep_count);
+            if (!check_cu(cuGraphNodeGetDependentNodes_f(node, deps.data(), &dep_count)))
+                return GRAPH_ALLOC_QUERY_RESULT_ERROR;
+            for (cudaGraphNode_t dep : deps) {
+                if (visited.insert(dep).second)
+                    frontier.push(dep);
+            }
+        }
+    }
+
+    if (!query_reachable) {
+        // query node does not depend on alloc, so allocation is inaccessible
+        return GRAPH_ALLOC_QUERY_RESULT_INACCESSIBLE;
+    }
+
+    if (!free_node) {
+        // alloc is never freed in the graph
+        return GRAPH_ALLOC_QUERY_RESULT_AVAILABLE;
+    }
+
+    // Query node depends on the alloc and a free node was found, so we need to check
+    // the relationship between the query node and the free node:
+    // - If the query node depends on the free node, then the allocation is guaranteed
+    //   to be freed before the query node is reached.
+    // - If the free node depends on the query node, then the allocation is guaranteed
+    //   to be available when the query node is reached.
+    // - If the query node and free node are independent, then they can execute
+    //   concurrently leading to potential use-after-free errors.
+
+    // check if the query node executes after the free node
+    NodeDependencyResult q_after_f = graph_node_depends_on(query_node, free_node);
+    if (q_after_f == NODE_DEPENDENCY_RESULT_ERROR)
+        return GRAPH_ALLOC_QUERY_RESULT_ERROR;
+    if (q_after_f == NODE_DEPENDENCY_RESULT_DEPENDENT)
+        return GRAPH_ALLOC_QUERY_RESULT_FREED;
+
+    // check if the free node executes after the query node
+    NodeDependencyResult f_after_q = graph_node_depends_on(free_node, query_node);
+    if (f_after_q == NODE_DEPENDENCY_RESULT_ERROR)
+        return GRAPH_ALLOC_QUERY_RESULT_ERROR;
+    if (f_after_q == NODE_DEPENDENCY_RESULT_DEPENDENT)
+        return GRAPH_ALLOC_QUERY_RESULT_AVAILABLE;
+
+    // free is independent of the query node, potentially causing use-after-free errors
+    return GRAPH_ALLOC_QUERY_RESULT_USE_AFTER_FREE;
+}
 
 #define DRIVER_ENTRY_POINT_ERROR driver_entry_point_error(__FUNCTION__)
 
 static CUresult driver_entry_point_error(const char* function)
 {
     fprintf(stderr, "Warp CUDA error: Function %s: a suitable driver entry point was not found\n", function);
-    return (CUresult)cudaErrorCallRequiresNewerDriver; // this matches what cudart would do
+    return (CUresult)cudaErrorCallRequiresNewerDriver;  // this matches what cudart would do
 }
 
 CUresult cuDriverGetVersion_f(int* version)
@@ -380,12 +609,9 @@ CUresult cuGetErrorString_f(CUresult result, const char** pstr)
     return pfn_cuGetErrorString ? pfn_cuGetErrorString(result, pstr) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuInit_f(unsigned int flags)
-{
-    return pfn_cuInit ? pfn_cuInit(flags) : DRIVER_ENTRY_POINT_ERROR;
-}
+CUresult cuInit_f(unsigned int flags) { return pfn_cuInit ? pfn_cuInit(flags) : DRIVER_ENTRY_POINT_ERROR; }
 
-CUresult cuDeviceGet_f(CUdevice *dev, int ordinal)
+CUresult cuDeviceGet_f(CUdevice* dev, int ordinal)
 {
     return pfn_cuDeviceGet ? pfn_cuDeviceGet(dev, ordinal) : DRIVER_ENTRY_POINT_ERROR;
 }
@@ -437,6 +663,25 @@ CUresult cuMemGetInfo_f(size_t* free, size_t* total)
     return pfn_cuMemGetInfo ? pfn_cuMemGetInfo(free, total) : DRIVER_ENTRY_POINT_ERROR;
 }
 
+#if CUDA_VERSION >= 12080
+CUresult cuMemcpyBatchAsync_f(
+    CUdeviceptr* dsts,
+    CUdeviceptr* srcs,
+    size_t* sizes,
+    size_t count,
+    CUmemcpyAttributes* attrs,
+    size_t* attrsIdxs,
+    size_t numAttrs,
+    size_t* failIdx,
+    CUstream hStream
+)
+{
+    return pfn_cuMemcpyBatchAsync
+        ? pfn_cuMemcpyBatchAsync(dsts, srcs, sizes, count, attrs, attrsIdxs, numAttrs, failIdx, hStream)
+        : DRIVER_ENTRY_POINT_ERROR;
+}
+#endif
+
 CUresult cuCtxGetCurrent_f(CUcontext* ctx)
 {
     return pfn_cuCtxGetCurrent ? pfn_cuCtxGetCurrent(ctx) : DRIVER_ENTRY_POINT_ERROR;
@@ -457,10 +702,11 @@ CUresult cuCtxPopCurrent_f(CUcontext* ctx)
     return pfn_cuCtxPopCurrent ? pfn_cuCtxPopCurrent(ctx) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuCtxSynchronize_f()
-{
-    return pfn_cuCtxSynchronize ? pfn_cuCtxSynchronize() : DRIVER_ENTRY_POINT_ERROR;
-}
+CUresult cuCtxSynchronize_f() { return pfn_cuCtxSynchronize ? pfn_cuCtxSynchronize() : DRIVER_ENTRY_POINT_ERROR; }
+
+CUresult cuProfilerStart_f() { return pfn_cuProfilerStart ? pfn_cuProfilerStart() : DRIVER_ENTRY_POINT_ERROR; }
+
+CUresult cuProfilerStop_f() { return pfn_cuProfilerStop ? pfn_cuProfilerStop() : DRIVER_ENTRY_POINT_ERROR; }
 
 CUresult cuCtxGetDevice_f(CUdevice* dev)
 {
@@ -472,10 +718,7 @@ CUresult cuCtxCreate_f(CUcontext* ctx, unsigned int flags, CUdevice dev)
     return pfn_cuCtxCreate ? pfn_cuCtxCreate(ctx, flags, dev) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuCtxDestroy_f(CUcontext ctx)
-{
-    return pfn_cuCtxDestroy ? pfn_cuCtxDestroy(ctx) : DRIVER_ENTRY_POINT_ERROR;
-}
+CUresult cuCtxDestroy_f(CUcontext ctx) { return pfn_cuCtxDestroy ? pfn_cuCtxDestroy(ctx) : DRIVER_ENTRY_POINT_ERROR; }
 
 CUresult cuCtxEnablePeerAccess_f(CUcontext peer_ctx, unsigned int flags)
 {
@@ -517,19 +760,35 @@ CUresult cuStreamGetCtx_f(CUstream stream, CUcontext* pctx)
     return pfn_cuStreamGetCtx ? pfn_cuStreamGetCtx(stream, pctx) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuStreamGetCaptureInfo_f(CUstream stream, CUstreamCaptureStatus *captureStatus_out, cuuint64_t *id_out, CUgraph *graph_out, const CUgraphNode **dependencies_out, size_t *numDependencies_out)
+CUresult cuStreamGetCaptureInfo_f(
+    CUstream stream,
+    CUstreamCaptureStatus* captureStatus_out,
+    cuuint64_t* id_out,
+    CUgraph* graph_out,
+    const CUgraphNode** dependencies_out,
+    size_t* numDependencies_out
+)
 {
-    return pfn_cuStreamGetCaptureInfo ? pfn_cuStreamGetCaptureInfo(stream, captureStatus_out, id_out, graph_out, dependencies_out, numDependencies_out) : DRIVER_ENTRY_POINT_ERROR;
+    return pfn_cuStreamGetCaptureInfo
+        ? pfn_cuStreamGetCaptureInfo(
+              stream, captureStatus_out, id_out, graph_out, dependencies_out, numDependencies_out
+          )
+        : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuStreamUpdateCaptureDependencies_f(CUstream stream, CUgraphNode *dependencies, size_t numDependencies, unsigned int flags)
+CUresult cuStreamUpdateCaptureDependencies_f(
+    CUstream stream, CUgraphNode* dependencies, size_t numDependencies, unsigned int flags
+)
 {
-    return pfn_cuStreamUpdateCaptureDependencies ? pfn_cuStreamUpdateCaptureDependencies(stream, dependencies, numDependencies, flags) : DRIVER_ENTRY_POINT_ERROR;
+    return pfn_cuStreamUpdateCaptureDependencies
+        ? pfn_cuStreamUpdateCaptureDependencies(stream, dependencies, numDependencies, flags)
+        : DRIVER_ENTRY_POINT_ERROR;
 }
 
 CUresult cuStreamCreateWithPriority_f(CUstream* phStream, unsigned int flags, int priority)
 {
-    return pfn_cuStreamCreateWithPriority ? pfn_cuStreamCreateWithPriority(phStream, flags, priority) : DRIVER_ENTRY_POINT_ERROR;
+    return pfn_cuStreamCreateWithPriority ? pfn_cuStreamCreateWithPriority(phStream, flags, priority)
+                                          : DRIVER_ENTRY_POINT_ERROR;
 }
 
 CUresult cuStreamGetPriority_f(CUstream hStream, int* priority)
@@ -547,10 +806,7 @@ CUresult cuEventDestroy_f(CUevent event)
     return pfn_cuEventDestroy ? pfn_cuEventDestroy(event) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuEventQuery_f(CUevent event)
-{
-    return pfn_cuEventQuery ? pfn_cuEventQuery(event) : DRIVER_ENTRY_POINT_ERROR;
-}
+CUresult cuEventQuery_f(CUevent event) { return pfn_cuEventQuery ? pfn_cuEventQuery(event) : DRIVER_ENTRY_POINT_ERROR; }
 
 CUresult cuEventRecord_f(CUevent event, CUstream stream)
 {
@@ -568,15 +824,25 @@ CUresult cuEventSynchronize_f(CUevent event)
 }
 
 #if CUDA_VERSION >= 12030
-CUresult cuGraphAddNode_f(CUgraphNode *phGraphNode, CUgraph hGraph, const CUgraphNode *dependencies, const CUgraphEdgeData *dependencyData, size_t numDependencies, CUgraphNodeParams *nodeParams)
+CUresult cuGraphAddNode_f(
+    CUgraphNode* phGraphNode,
+    CUgraph hGraph,
+    const CUgraphNode* dependencies,
+    const CUgraphEdgeData* dependencyData,
+    size_t numDependencies,
+    CUgraphNodeParams* nodeParams
+)
 {
-    return pfn_cuGraphAddNode ? pfn_cuGraphAddNode(phGraphNode, hGraph, dependencies, dependencyData, numDependencies, nodeParams) : DRIVER_ENTRY_POINT_ERROR;
+    return pfn_cuGraphAddNode
+        ? pfn_cuGraphAddNode(phGraphNode, hGraph, dependencies, dependencyData, numDependencies, nodeParams)
+        : DRIVER_ENTRY_POINT_ERROR;
 }
 #endif
 
-CUresult cuGraphNodeGetDependentNodes_f(CUgraphNode hNode, CUgraphNode *dependentNodes, size_t *numDependentNodes)
+CUresult cuGraphNodeGetDependentNodes_f(CUgraphNode hNode, CUgraphNode* dependentNodes, size_t* numDependentNodes)
 {
-    return pfn_cuGraphNodeGetDependentNodes ? pfn_cuGraphNodeGetDependentNodes(hNode, dependentNodes, numDependentNodes) : DRIVER_ENTRY_POINT_ERROR;
+    return pfn_cuGraphNodeGetDependentNodes ? pfn_cuGraphNodeGetDependentNodes(hNode, dependentNodes, numDependentNodes)
+                                            : DRIVER_ENTRY_POINT_ERROR;
 }
 
 CUresult cuGraphNodeGetType_f(CUgraphNode hNode, CUgraphNodeType* type)
@@ -584,9 +850,12 @@ CUresult cuGraphNodeGetType_f(CUgraphNode hNode, CUgraphNodeType* type)
     return pfn_cuGraphNodeGetType ? pfn_cuGraphNodeGetType(hNode, type) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuModuleLoadDataEx_f(CUmodule *module, const void *image, unsigned int numOptions, CUjit_option *options, void **optionValues)
+CUresult cuModuleLoadDataEx_f(
+    CUmodule* module, const void* image, unsigned int numOptions, CUjit_option* options, void** optionValues
+)
 {
-    return pfn_cuModuleLoadDataEx ? pfn_cuModuleLoadDataEx(module, image, numOptions, options, optionValues) : DRIVER_ENTRY_POINT_ERROR;
+    return pfn_cuModuleLoadDataEx ? pfn_cuModuleLoadDataEx(module, image, numOptions, options, optionValues)
+                                  : DRIVER_ENTRY_POINT_ERROR;
 }
 
 CUresult cuModuleUnload_f(CUmodule hmod)
@@ -594,19 +863,54 @@ CUresult cuModuleUnload_f(CUmodule hmod)
     return pfn_cuModuleUnload ? pfn_cuModuleUnload(hmod) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuModuleGetFunction_f(CUfunction *hfunc, CUmodule hmod, const char *name)
+CUresult cuModuleGetFunction_f(CUfunction* hfunc, CUmodule hmod, const char* name)
 {
     return pfn_cuModuleGetFunction ? pfn_cuModuleGetFunction(hfunc, hmod, name) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuLaunchKernel_f(CUfunction f, unsigned int gridDimX, unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX, unsigned int blockDimY, unsigned int blockDimZ, unsigned int sharedMemBytes, CUstream hStream, void **kernelParams, void **extra)
+CUresult cuLaunchKernel_f(
+    CUfunction f,
+    unsigned int gridDimX,
+    unsigned int gridDimY,
+    unsigned int gridDimZ,
+    unsigned int blockDimX,
+    unsigned int blockDimY,
+    unsigned int blockDimZ,
+    unsigned int sharedMemBytes,
+    CUstream hStream,
+    void** kernelParams,
+    void** extra
+)
 {
-    return pfn_cuLaunchKernel ? pfn_cuLaunchKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX, blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams, extra) : DRIVER_ENTRY_POINT_ERROR;
+    return pfn_cuLaunchKernel ? pfn_cuLaunchKernel(
+                                    f, gridDimX, gridDimY, gridDimZ, blockDimX, blockDimY, blockDimZ, sharedMemBytes,
+                                    hStream, kernelParams, extra
+                                )
+                              : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuMemcpyPeerAsync_f(CUdeviceptr dst_ptr, CUcontext dst_ctx, CUdeviceptr src_ptr, CUcontext src_ctx, size_t n, CUstream stream)
+CUresult cuOccupancyMaxPotentialBlockSize_f(
+    int* minGridSize,
+    int* blockSize,
+    CUfunction func,
+    CUoccupancyB2DSize blockSizeToDynamicSMemSize,
+    size_t dynamicSMemSize,
+    int blockSizeLimit
+)
 {
-    return pfn_cuMemcpyPeerAsync ? pfn_cuMemcpyPeerAsync(dst_ptr, dst_ctx, src_ptr, src_ctx, n, stream) : DRIVER_ENTRY_POINT_ERROR;
+    return pfn_cuOccupancyMaxPotentialBlockSize
+        ? pfn_cuOccupancyMaxPotentialBlockSize(
+              minGridSize, blockSize, func, blockSizeToDynamicSMemSize, dynamicSMemSize, blockSizeLimit
+          )
+        : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuMemcpyPeerAsync_f(
+    CUdeviceptr dst_ptr, CUcontext dst_ctx, CUdeviceptr src_ptr, CUcontext src_ctx, size_t n, CUstream stream
+)
+{
+    return pfn_cuMemcpyPeerAsync ? pfn_cuMemcpyPeerAsync(dst_ptr, dst_ctx, src_ptr, src_ctx, n, stream)
+                                 : DRIVER_ENTRY_POINT_ERROR;
 }
 
 CUresult cuPointerGetAttribute_f(void* data, CUpointer_attribute attribute, CUdeviceptr ptr)
@@ -621,17 +925,37 @@ CUresult cuGraphicsMapResources_f(unsigned int count, CUgraphicsResource* resour
 
 CUresult cuGraphicsUnmapResources_f(unsigned int count, CUgraphicsResource* resources, CUstream hStream)
 {
-    return pfn_cuGraphicsUnmapResources ? pfn_cuGraphicsUnmapResources(count, resources, hStream) : DRIVER_ENTRY_POINT_ERROR;
+    return pfn_cuGraphicsUnmapResources ? pfn_cuGraphicsUnmapResources(count, resources, hStream)
+                                        : DRIVER_ENTRY_POINT_ERROR;
 }
 
 CUresult cuGraphicsResourceGetMappedPointer_f(CUdeviceptr* pDevPtr, size_t* pSize, CUgraphicsResource resource)
 {
-    return pfn_cuGraphicsResourceGetMappedPointer ? pfn_cuGraphicsResourceGetMappedPointer(pDevPtr, pSize, resource) : DRIVER_ENTRY_POINT_ERROR;
+    return pfn_cuGraphicsResourceGetMappedPointer ? pfn_cuGraphicsResourceGetMappedPointer(pDevPtr, pSize, resource)
+                                                  : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuGraphicsGLRegisterBuffer_f(CUgraphicsResource *pCudaResource, unsigned int buffer, unsigned int flags)
+CUresult cuGraphicsGLRegisterBuffer_f(CUgraphicsResource* pCudaResource, unsigned int buffer, unsigned int flags)
 {
-    return pfn_cuGraphicsGLRegisterBuffer ? pfn_cuGraphicsGLRegisterBuffer(pCudaResource, (wp::GLuint) buffer, flags) : DRIVER_ENTRY_POINT_ERROR;
+    return pfn_cuGraphicsGLRegisterBuffer ? pfn_cuGraphicsGLRegisterBuffer(pCudaResource, (wp::GLuint)buffer, flags)
+                                          : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuGraphicsGLRegisterImage_f(
+    CUgraphicsResource* pCudaResource, unsigned int image, unsigned int target, unsigned int flags
+)
+{
+    return pfn_cuGraphicsGLRegisterImage ? pfn_cuGraphicsGLRegisterImage(pCudaResource, image, target, flags)
+                                         : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuGraphicsSubResourceGetMappedArray_f(
+    CUarray* pArray, CUgraphicsResource resource, unsigned int arrayIndex, unsigned int mipLevel
+)
+{
+    return pfn_cuGraphicsSubResourceGetMappedArray
+        ? pfn_cuGraphicsSubResourceGetMappedArray(pArray, resource, arrayIndex, mipLevel)
+        : DRIVER_ENTRY_POINT_ERROR;
 }
 
 CUresult cuGraphicsUnregisterResource_f(CUgraphicsResource resource)
@@ -639,32 +963,43 @@ CUresult cuGraphicsUnregisterResource_f(CUgraphicsResource resource)
     return pfn_cuGraphicsUnregisterResource ? pfn_cuGraphicsUnregisterResource(resource) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuModuleGetGlobal_f(CUdeviceptr* dptr, size_t* bytes, CUmodule hmod, const char* name )
+CUresult cuModuleGetGlobal_f(CUdeviceptr* dptr, size_t* bytes, CUmodule hmod, const char* name)
 {
     return pfn_cuModuleGetGlobal ? pfn_cuModuleGetGlobal(dptr, bytes, hmod, name) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuFuncSetAttribute_f(CUfunction hfunc, CUfunction_attribute attrib, int value) 
+CUresult cuOccupancyMaxActiveClusters_f(int* numClusters, CUfunction func, const CUlaunchConfig* config)
+{
+    return pfn_cuOccupancyMaxActiveClusters ? pfn_cuOccupancyMaxActiveClusters(numClusters, func, config)
+                                            : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuFuncSetAttribute_f(CUfunction hfunc, CUfunction_attribute attrib, int value)
 {
     return pfn_cuFuncSetAttribute ? pfn_cuFuncSetAttribute(hfunc, attrib, value) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuIpcGetEventHandle_f(CUipcEventHandle *pHandle, CUevent event)
+CUresult cuFuncGetAttribute_f(int* pi, CUfunction_attribute attrib, CUfunction hfunc)
+{
+    return pfn_cuFuncGetAttribute ? pfn_cuFuncGetAttribute(pi, attrib, hfunc) : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuIpcGetEventHandle_f(CUipcEventHandle* pHandle, CUevent event)
 {
     return pfn_cuIpcGetEventHandle ? pfn_cuIpcGetEventHandle(pHandle, event) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuIpcOpenEventHandle_f(CUevent *phEvent, CUipcEventHandle handle)
+CUresult cuIpcOpenEventHandle_f(CUevent* phEvent, CUipcEventHandle handle)
 {
     return pfn_cuIpcOpenEventHandle ? pfn_cuIpcOpenEventHandle(phEvent, handle) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuIpcGetMemHandle_f(CUipcMemHandle *pHandle, CUdeviceptr dptr)
+CUresult cuIpcGetMemHandle_f(CUipcMemHandle* pHandle, CUdeviceptr dptr)
 {
     return pfn_cuIpcGetMemHandle ? pfn_cuIpcGetMemHandle(pHandle, dptr) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-CUresult cuIpcOpenMemHandle_f(CUdeviceptr *pdptr, CUipcMemHandle handle, unsigned int flags)
+CUresult cuIpcOpenMemHandle_f(CUdeviceptr* pdptr, CUipcMemHandle handle, unsigned int flags)
 {
     return pfn_cuIpcOpenMemHandle ? pfn_cuIpcOpenMemHandle(pdptr, handle, flags) : DRIVER_ENTRY_POINT_ERROR;
 }
@@ -674,4 +1009,80 @@ CUresult cuIpcCloseMemHandle_f(CUdeviceptr dptr)
     return pfn_cuIpcCloseMemHandle ? pfn_cuIpcCloseMemHandle(dptr) : DRIVER_ENTRY_POINT_ERROR;
 }
 
-#endif // WP_ENABLE_CUDA
+// Texture functions
+CUresult cuArrayCreate_f(CUarray* pHandle, const CUDA_ARRAY_DESCRIPTOR* pAllocateArray)
+{
+    return pfn_cuArrayCreate ? pfn_cuArrayCreate(pHandle, pAllocateArray) : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuArrayDestroy_f(CUarray hArray)
+{
+    return pfn_cuArrayDestroy ? pfn_cuArrayDestroy(hArray) : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuArray3DCreate_f(CUarray* pHandle, const CUDA_ARRAY3D_DESCRIPTOR* pAllocateArray)
+{
+    return pfn_cuArray3DCreate ? pfn_cuArray3DCreate(pHandle, pAllocateArray) : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuArray3DGetDescriptor_f(CUDA_ARRAY3D_DESCRIPTOR* pArrayDescriptor, CUarray hArray)
+{
+    return pfn_cuArray3DGetDescriptor ? pfn_cuArray3DGetDescriptor(pArrayDescriptor, hArray) : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuMemcpy2D_f(const CUDA_MEMCPY2D* pCopy)
+{
+    return pfn_cuMemcpy2D ? pfn_cuMemcpy2D(pCopy) : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuMemcpy2DAsync_f(const CUDA_MEMCPY2D* pCopy, CUstream hStream)
+{
+    return pfn_cuMemcpy2DAsync ? pfn_cuMemcpy2DAsync(pCopy, hStream) : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuMemcpy3D_f(const CUDA_MEMCPY3D* pCopy)
+{
+    return pfn_cuMemcpy3D ? pfn_cuMemcpy3D(pCopy) : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuMemcpy3DAsync_f(const CUDA_MEMCPY3D* pCopy, CUstream hStream)
+{
+    return pfn_cuMemcpy3DAsync ? pfn_cuMemcpy3DAsync(pCopy, hStream) : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuTexObjectCreate_f(
+    CUtexObject* pTexObject,
+    const CUDA_RESOURCE_DESC* pResDesc,
+    const CUDA_TEXTURE_DESC* pTexDesc,
+    const CUDA_RESOURCE_VIEW_DESC* pResViewDesc
+)
+{
+    return pfn_cuTexObjectCreate ? pfn_cuTexObjectCreate(pTexObject, pResDesc, pTexDesc, pResViewDesc)
+                                 : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuTexObjectDestroy_f(CUtexObject texObject)
+{
+    return pfn_cuTexObjectDestroy ? pfn_cuTexObjectDestroy(texObject) : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuMipmappedArrayCreate_f(
+    CUmipmappedArray* pHandle, const CUDA_ARRAY3D_DESCRIPTOR* pMipmappedArrayDesc, unsigned int numMipmapLevels
+)
+{
+    return pfn_cuMipmappedArrayCreate ? pfn_cuMipmappedArrayCreate(pHandle, pMipmappedArrayDesc, numMipmapLevels)
+                                      : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuMipmappedArrayDestroy_f(CUmipmappedArray hMipmappedArray)
+{
+    return pfn_cuMipmappedArrayDestroy ? pfn_cuMipmappedArrayDestroy(hMipmappedArray) : DRIVER_ENTRY_POINT_ERROR;
+}
+
+CUresult cuMipmappedArrayGetLevel_f(CUarray* pLevelArray, CUmipmappedArray hMipmappedArray, unsigned int level)
+{
+    return pfn_cuMipmappedArrayGetLevel ? pfn_cuMipmappedArrayGetLevel(pLevelArray, hMipmappedArray, level)
+                                        : DRIVER_ENTRY_POINT_ERROR;
+}
+
+#endif  // WP_ENABLE_CUDA

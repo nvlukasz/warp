@@ -1,22 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
+import os
+import sys
 import unittest
 
 import warp as wp
 import warp.tests.test_func as test_func
+import warp.tests.unittest_utils as unittest_utils
 from warp.tests.unittest_utils import *
 
 
@@ -34,12 +25,24 @@ devices = get_test_devices()
 
 
 class TestImport(unittest.TestCase):
-    pass
+    def test_normalize_direct_test_sys_path(self):
+        """Direct test execution should not shadow top-level packages."""
+        tests_root = os.path.dirname(os.path.abspath(unittest_utils.__file__))
+        repo_root = os.path.dirname(os.path.dirname(tests_root))
+        original_sys_path = sys.path[:]
+        try:
+            sys.path[:] = [tests_root, *[p for p in sys.path if os.path.abspath(p or os.getcwd()) != tests_root]]
+            unittest_utils._normalize_direct_test_sys_path()
+
+            self.assertNotEqual(os.path.abspath(sys.path[0] or os.getcwd()), tests_root)
+            self.assertIn(repo_root, sys.path)
+            self.assertNotIn(tests_root, [os.path.abspath(p or os.getcwd()) for p in sys.path])
+        finally:
+            sys.path[:] = original_sys_path
 
 
 add_kernel_test(TestImport, kernel=test_import_func, name="test_import_func", dim=1, devices=devices)
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

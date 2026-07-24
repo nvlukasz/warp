@@ -1,32 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
 import warp as wp
 from warp.tests.unittest_utils import *
-
-
-def get_device_pair_with_peer_access_support():
-    devices = wp.get_cuda_devices()
-    for target_device in devices:
-        for peer_device in devices:
-            if target_device != peer_device:
-                if wp.is_peer_access_supported(target_device, peer_device):
-                    return (target_device, peer_device)
-    return None
 
 
 def get_device_pair_without_peer_access_support():
@@ -57,9 +35,9 @@ def test_peer_access_self(test, device):
     test.assertTrue(enabled)
 
 
-@unittest.skipUnless(get_device_pair_with_peer_access_support(), "Requires devices with peer access support")
+@unittest.skipUnless(get_cuda_device_pair_with_peer_access_support(), "Requires devices with peer access support")
 def test_peer_access(test, _):
-    target_device, peer_device = get_device_pair_with_peer_access_support()
+    target_device, peer_device = get_cuda_device_pair_with_peer_access_support()
 
     was_enabled = wp.is_peer_access_enabled(target_device, peer_device)
 
@@ -135,5 +113,4 @@ add_function_test(TestPeer, "test_peer_access_exceptions_cpu", test_peer_access_
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

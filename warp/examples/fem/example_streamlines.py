@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 ###########################################################################
 # Example Streamlines
@@ -22,6 +10,8 @@
 #
 ###########################################################################
 
+import warnings
+
 import numpy as np
 
 import warp as wp
@@ -30,13 +20,38 @@ import warp.fem as fem
 from warp.examples.fem.example_apic_fluid import divergence_form, solve_incompressibility
 
 
+def bourke_color_map(low, high, v):
+    c = [1.0, 1.0, 1.0]
+
+    if v < low:
+        v = low
+    if v > high:
+        v = high
+    dv = high - low
+
+    if v < (low + 0.25 * dv):
+        c[0] = 0.0
+        c[1] = 4.0 * (v - low) / dv
+    elif v < (low + 0.5 * dv):
+        c[0] = 0.0
+        c[2] = 1.0 + 4.0 * (low + 0.25 * dv - v) / dv
+    elif v < (low + 0.75 * dv):
+        c[0] = 4.0 * (v - low - 0.5 * dv) / dv
+        c[2] = 0.0
+    else:
+        c[1] = 1.0 + 4.0 * (low + 0.75 * dv - v) / dv
+        c[2] = 0.0
+
+    return c
+
+
 @fem.integrand
 def classify_boundary_sides(
     s: fem.Sample,
     domain: fem.Domain,
-    outflow: wp.array(dtype=int),
-    freeslip: wp.array(dtype=int),
-    inflow: wp.array(dtype=int),
+    outflow: wp.array[int],
+    freeslip: wp.array[int],
+    inflow: wp.array[int],
 ):
     x = fem.position(domain, s)
     n = fem.normal(domain, s)
@@ -110,11 +125,11 @@ def gen_streamlines(
     s: fem.Sample,
     domain: fem.Domain,
     u: fem.Field,
-    spawn_points: wp.array(dtype=wp.vec3),
+    spawn_points: wp.array[wp.vec3],
     point_count: int,
     dx: float,
-    pos: wp.array2d(dtype=wp.vec3),
-    speed: wp.array2d(dtype=float),
+    pos: wp.array2d[wp.vec3],
+    speed: wp.array2d[float],
 ):
     idx = s.qp_index
 
@@ -181,7 +196,7 @@ class Example:
 
         fem.interpolate(
             classify_boundary_sides,
-            quadrature=fem.RegularQuadrature(boundary, order=0),
+            at=boundary,
             values={"outflow": outflow_mask, "freeslip": freeslip_mask, "inflow": inflow_mask},
         )
 
@@ -200,7 +215,7 @@ class Example:
                     draw_axis=False,
                 )
             except Exception as err:
-                wp.utils.warn(f"Could not initialize OpenGL renderer: {err}")
+                warnings.warn(f"Could not initialize OpenGL renderer: {err}", stacklevel=2)
                 pass
 
     def step(self):
@@ -215,9 +230,7 @@ class Example:
         spawn_points = wp.empty(dtype=wp.vec3, shape=n_streamlines)
 
         jitter_amount = self._streamline_dx / self._degree
-        fem.interpolate(
-            spawn_streamlines, dest=spawn_points, quadrature=streamline_spawn, values={"jitter": jitter_amount}
-        )
+        fem.interpolate(spawn_streamlines, dest=spawn_points, at=streamline_spawn, values={"jitter": jitter_amount})
 
         # now forward-trace the velocity field to generate the streamlines
         # here we use a fixed number of points per streamline, otherwise we would need to
@@ -230,7 +243,7 @@ class Example:
 
         fem.interpolate(
             gen_streamlines,
-            domain=fem.Cells(self._geo),
+            at=fem.Cells(self._geo),
             dim=n_streamlines,
             fields={"u": self.velocity_field},
             values={
@@ -262,7 +275,7 @@ class Example:
             indices = np.vstack((indices_beg.flatten(), indices_end.flatten())).T.flatten()
 
             colors = self._speed.numpy()[:, :-1].flatten()
-            colors = [wp.render.bourke_color_map(0.0, 3.0, c) for c in colors]
+            colors = [bourke_color_map(0.0, 3.0, c) for c in colors]
 
             self.renderer.begin_frame(0)
             self.renderer.render_line_list("streamlines", vertices, indices)
@@ -299,7 +312,7 @@ class Example:
         fem.normalize_dirichlet_projector(dirichlet_projector)
 
         # Initialize velocity field with BC
-        fem.interpolate(inflow_velocity, dest=fem.make_restriction(self.velocity_field, domain=self._inflow))
+        fem.interpolate(inflow_velocity, dest=self.velocity_field, at=self._inflow)
 
         # (Diagonal) mass matrix
         rho_test = fem.make_test(u_space)

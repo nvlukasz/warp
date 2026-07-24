@@ -1,22 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 ###########################################################################
 # Example Adaptive Grid
 #
-# Demonstrates using an adaptive grid to increase the simulation resolition
+# Demonstrates using an adaptive grid to increase the simulation resolution
 # near a collider boundary.
 #
 ###########################################################################
@@ -117,9 +105,7 @@ class Example:
         refinement = fem.ImplicitField(
             domain=fem.Cells(fem.Nanogrid(sim_vol)), func=refinement_field, values={"volume": collider.id}
         )
-        self._geo = fem.adaptivity.adaptive_nanogrid_from_field(
-            sim_vol, level_count, refinement_field=refinement, grading="face"
-        )
+        self._geo = fem.adaptive_nanogrid_from_field(sim_vol, level_count, refinement_field=refinement, grading="face")
 
         # Function spaces for velocity, pressure (RTk / Pk-1 or Pk / Pk-1)
         u_space = fem.make_polynomial_space(
@@ -140,7 +126,8 @@ class Example:
         bounds_extent = 0.5 * (bounds_hi - bounds_lo)
         fem.interpolate(
             inflow_velocity,
-            dest=fem.make_restriction(self.velocity_field, domain=fem.BoundarySides(self._geo)),
+            dest=self.velocity_field,
+            at=fem.BoundarySides(self._geo),
             values={
                 "bounds_lo": bounds_center - bounds_scale * bounds_extent,
                 "bounds_hi": bounds_center + bounds_scale * bounds_extent,
@@ -237,9 +224,9 @@ if __name__ == "__main__":
     parser.add_argument("--resolution", type=int, default=8, help="Grid resolution.")
     parser.add_argument("--degree", type=int, default=1, help="Polynomial degree of shape functions.")
     parser.add_argument(
-        "--div_conforming", action="store_true", default=False, help="Use H(div)-conforming function space"
+        "--div-conforming", action="store_true", default=False, help="Use H(div)-conforming function space"
     )
-    parser.add_argument("--level_count", type=int, default=4, help="Number of refinement levels.")
+    parser.add_argument("--level-count", type=int, default=4, help="Number of refinement levels.")
     parser.add_argument(
         "--headless",
         action="store_true",

@@ -1,20 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -24,7 +12,7 @@ from warp.tests.unittest_utils import *
 
 
 @wp.kernel
-def kernel_1d(a: wp.indexedarray(dtype=float), expected: wp.array(dtype=float)):
+def kernel_1d(a: wp.indexedarray[float], expected: wp.array[float]):
     i = wp.tid()
 
     wp.expect_eq(a[i], expected[i])
@@ -54,8 +42,154 @@ def test_indexedarray_1d(test, device):
     wp.launch(kernel_1d, dim=iarr.size, inputs=[iarr, expected_arr], device=device)
 
 
+@wp.struct
+class IndexedArrayStruct:
+    iarr: wp.indexedarray[float]
+
+
+@wp.struct
+class NestedIndexedArrayStruct:
+    inner: IndexedArrayStruct
+
+
 @wp.kernel
-def kernel_2d(a: wp.indexedarray2d(dtype=float), expected: wp.array2d(dtype=float)):
+def kernel_indexedarray_in_struct(arg: IndexedArrayStruct, expected: wp.array[float]):
+    i = wp.tid()
+
+    wp.expect_eq(arg.iarr[i], expected[i])
+
+    arg.iarr[i] = 2.0 * arg.iarr[i]
+    wp.atomic_add(arg.iarr, i, 1.0)
+
+    wp.expect_eq(arg.iarr[i], 2.0 * expected[i] + 1.0)
+
+
+@wp.kernel
+def kernel_indexedarray_in_nested_struct(arg: NestedIndexedArrayStruct, expected: wp.array[float]):
+    i = wp.tid()
+
+    wp.expect_eq(arg.inner.iarr[i], expected[i])
+
+    arg.inner.iarr[i] = 2.0 * arg.inner.iarr[i]
+    wp.atomic_add(arg.inner.iarr, i, 1.0)
+
+    wp.expect_eq(arg.inner.iarr[i], 2.0 * expected[i] + 1.0)
+
+
+@wp.kernel
+def kernel_indexedarray_in_struct_array(args: wp.array[IndexedArrayStruct], expected: wp.array[float]):
+    i = wp.tid()
+
+    s = args[0]
+    wp.expect_eq(s.iarr[i], expected[i])
+
+    s.iarr[i] = 2.0 * s.iarr[i]
+    wp.atomic_add(s.iarr, i, 1.0)
+
+    wp.expect_eq(s.iarr[i], 2.0 * expected[i] + 1.0)
+
+
+def test_indexedarray_in_struct(test, device):
+    values = np.arange(10, dtype=np.float32)
+    arr = wp.array(data=values, device=device)
+
+    indices = wp.array([1, 3, 5, 7, 9], dtype=int, device=device)
+    iarr = wp.indexedarray1d(arr, [indices])
+
+    expected_arr = wp.array(data=[1, 3, 5, 7, 9], dtype=float, device=device)
+
+    s = IndexedArrayStruct()
+    s.iarr = iarr
+
+    wp.launch(kernel_indexedarray_in_struct, dim=iarr.size, inputs=[s, expected_arr], device=device)
+    wp.synchronize_device(device)
+
+
+def test_indexedarray_in_nested_struct(test, device):
+    values = np.arange(10, dtype=np.float32)
+    arr = wp.array(data=values, device=device)
+
+    indices = wp.array([1, 3, 5, 7, 9], dtype=int, device=device)
+    iarr = wp.indexedarray1d(arr, [indices])
+
+    expected_arr = wp.array(data=[1, 3, 5, 7, 9], dtype=float, device=device)
+
+    inner = IndexedArrayStruct()
+    inner.iarr = iarr
+
+    outer = NestedIndexedArrayStruct()
+    outer.inner = inner
+
+    wp.launch(kernel_indexedarray_in_nested_struct, dim=iarr.size, inputs=[outer, expected_arr], device=device)
+    wp.synchronize_device(device)
+
+
+def test_indexedarray_in_struct_array(test, device):
+    values = np.arange(10, dtype=np.float32)
+    arr = wp.array(data=values, device=device)
+
+    indices = wp.array([1, 3, 5, 7, 9], dtype=int, device=device)
+    iarr = wp.indexedarray1d(arr, [indices])
+
+    expected_arr = wp.array(data=[1, 3, 5, 7, 9], dtype=float, device=device)
+
+    s = IndexedArrayStruct()
+    s.iarr = iarr
+    struct_arr = wp.array([s], dtype=IndexedArrayStruct, device=device)
+
+    wp.launch(kernel_indexedarray_in_struct_array, dim=iarr.size, inputs=[struct_arr, expected_arr], device=device)
+    wp.synchronize_device(device)
+
+
+def test_indexedarray_in_struct_numpy(test, device):
+    values = np.arange(4, dtype=np.float32)
+    arr = wp.array(data=values, device=device)
+
+    indices = wp.array([0, 2], dtype=int, device=device)
+    iarr = wp.indexedarray1d(arr, [indices])
+
+    s = IndexedArrayStruct()
+    s.iarr = iarr
+
+    # Just ensure these are functional for structs embedding indexedarray_t
+    dtype = IndexedArrayStruct.numpy_dtype()
+    value = s.numpy_value()
+
+    test.assertIsInstance(dtype, dict)
+    test.assertEqual(dtype["names"], ["iarr"])
+    test.assertEqual(len(value), 1)
+
+
+def test_indexedarray_in_struct_to_device_transfer(test, device):
+    # This test only applies to CUDA target devices.
+    if not wp.is_cuda_available() or not wp.get_device(device).is_cuda:
+        test.skipTest("Requires CUDA")
+
+    # Create the indexedarray on CPU, then move the struct to CUDA.
+    values = np.arange(10, dtype=np.float32)
+    arr_cpu = wp.array(data=values, device="cpu")
+    indices_cpu = wp.array([1, 3, 5, 7, 9], dtype=int, device="cpu")
+    iarr_cpu = wp.indexedarray1d(arr_cpu, [indices_cpu])
+
+    s = IndexedArrayStruct()
+    s.iarr = iarr_cpu
+
+    s_cuda = s.to(device)
+    test.assertIsInstance(s_cuda.iarr, wp.indexedarray)
+    test.assertTrue(all(x is None for x in s_cuda.iarr.indices))
+    test.assertEqual(s_cuda.iarr.shape, iarr_cpu.shape)
+
+    expected_values = np.array([1, 3, 5, 7, 9], dtype=np.float32)
+    expected_arr = wp.array(data=expected_values, dtype=float, device=device)
+
+    wp.launch(kernel_indexedarray_in_struct, dim=s_cuda.iarr.size, inputs=[s_cuda, expected_arr], device=device)
+    # After the kernel: a[i] = 2*a[i] then atomic_add(a, i, 1) => 2*expected + 1
+    result = s_cuda.iarr.numpy()
+    assert_np_equal(result, 2.0 * expected_values + 1.0)
+
+
+@wp.kernel
+def kernel_2d(a: wp.indexedarray[float, Literal[2]], expected: wp.array2d[float]):
     i, j = wp.tid()
 
     # check expected values
@@ -92,7 +226,7 @@ def test_indexedarray_2d(test, device):
 
 
 @wp.kernel
-def kernel_3d(a: wp.indexedarray3d(dtype=float), expected: wp.array3d(dtype=float)):
+def kernel_3d(a: wp.indexedarray[float, Literal[3]], expected: wp.array3d[float]):
     i, j, k = wp.tid()
 
     # check expected values
@@ -135,7 +269,7 @@ def test_indexedarray_3d(test, device):
 
 
 @wp.kernel
-def kernel_4d(a: wp.indexedarray4d(dtype=float), expected: wp.array4d(dtype=float)):
+def kernel_4d(a: wp.indexedarray[float, Literal[4]], expected: wp.array4d[float]):
     i, j, k, l = wp.tid()
 
     # check expected values
@@ -274,12 +408,12 @@ vec4i = wp.types.vector(length=4, dtype=wp.int32)
 
 
 @wp.kernel
-def shape_kernel_1d(arr: wp.indexedarray1d(dtype=float), expected: int):
+def shape_kernel_1d(arr: wp.indexedarray[float], expected: int):
     wp.expect_eq(arr.shape[0], expected)
 
 
 @wp.kernel
-def shape_kernel_2d(arr: wp.indexedarray2d(dtype=float), expected: vec2i):
+def shape_kernel_2d(arr: wp.indexedarray[float, Literal[2]], expected: vec2i):
     wp.expect_eq(arr.shape[0], expected[0])
     wp.expect_eq(arr.shape[1], expected[1])
 
@@ -289,7 +423,7 @@ def shape_kernel_2d(arr: wp.indexedarray2d(dtype=float), expected: vec2i):
 
 
 @wp.kernel
-def shape_kernel_3d(arr: wp.indexedarray3d(dtype=float), expected: vec3i):
+def shape_kernel_3d(arr: wp.indexedarray[float, Literal[3]], expected: vec3i):
     wp.expect_eq(arr.shape[0], expected[0])
     wp.expect_eq(arr.shape[1], expected[1])
     wp.expect_eq(arr.shape[2], expected[2])
@@ -305,7 +439,7 @@ def shape_kernel_3d(arr: wp.indexedarray3d(dtype=float), expected: vec3i):
 
 
 @wp.kernel
-def shape_kernel_4d(arr: wp.indexedarray4d(dtype=float), expected: vec4i):
+def shape_kernel_4d(arr: wp.indexedarray[float, Literal[4]], expected: vec4i):
     wp.expect_eq(arr.shape[0], expected[0])
     wp.expect_eq(arr.shape[1], expected[1])
     wp.expect_eq(arr.shape[2], expected[2])
@@ -479,15 +613,15 @@ def inc_4d(a: Any):
 
 
 # optional overloads to avoid module reloading
-wp.overload(inc_1d, [wp.array1d(dtype=int)])
-wp.overload(inc_2d, [wp.array2d(dtype=int)])
-wp.overload(inc_3d, [wp.array3d(dtype=int)])
-wp.overload(inc_4d, [wp.array4d(dtype=int)])
+wp.overload(inc_1d, [wp.array1d[int]])
+wp.overload(inc_2d, [wp.array2d[int]])
+wp.overload(inc_3d, [wp.array3d[int]])
+wp.overload(inc_4d, [wp.array4d[int]])
 
-wp.overload(inc_1d, [wp.indexedarray1d(dtype=int)])
-wp.overload(inc_2d, [wp.indexedarray2d(dtype=int)])
-wp.overload(inc_3d, [wp.indexedarray3d(dtype=int)])
-wp.overload(inc_4d, [wp.indexedarray4d(dtype=int)])
+wp.overload(inc_1d, [wp.indexedarray[int]])
+wp.overload(inc_2d, [wp.indexedarray[int, Literal[2]]])
+wp.overload(inc_3d, [wp.indexedarray[int, Literal[3]]])
+wp.overload(inc_4d, [wp.indexedarray[int, Literal[4]]])
 
 
 def test_indexedarray_generics(test, device):
@@ -571,7 +705,7 @@ def test_indexedarray_empty(test, device):
         data_shape = (1,) * ndim
         dtype_shape = ()
 
-        if wptype in wp.types.scalar_types:
+        if wptype in wp._src.types.scalar_types:
             # scalar, vector, or matrix
             if ncols > 0:
                 if nrows > 0:
@@ -620,7 +754,7 @@ def test_indexedarray_empty(test, device):
 
     for ndim in range(1, 5):
         # test with scalars, vectors, and matrices
-        for nptype, wptype in wp.types.np_dtype_to_warp_type.items():
+        for nptype, wptype in wp._src.types.np_dtype_to_warp_type.items():
             # scalars
             test_empty_ops(ndim, 0, 0, wptype, nptype)
 
@@ -643,7 +777,7 @@ def test_indexedarray_empty(test, device):
 def test_indexedarray_fill_scalar(test, device):
     dim_x = 4
 
-    for nptype, wptype in wp.types.np_dtype_to_warp_type.items():
+    for nptype, wptype in wp._src.types.np_dtype_to_warp_type.items():
         data1 = wp.zeros(dim_x, dtype=wptype, device=device)
         data2 = wp.zeros((dim_x, dim_x), dtype=wptype, device=device)
         data3 = wp.zeros((dim_x, dim_x, dim_x), dtype=wptype, device=device)
@@ -684,7 +818,7 @@ def test_indexedarray_fill_scalar(test, device):
         assert_np_equal(a3.numpy(), np.zeros(a3.shape, dtype=nptype))
         assert_np_equal(a4.numpy(), np.zeros(a4.shape, dtype=nptype))
 
-        if wptype in wp.types.float_types:
+        if wptype in wp._src.types.float_types:
             # fill with float value
             fill_value = 13.37
 
@@ -717,7 +851,7 @@ def test_indexedarray_fill_vector(test, device):
 
     dim_x = 4
 
-    for nptype, wptype in wp.types.np_dtype_to_warp_type.items():
+    for nptype, wptype in wp._src.types.np_dtype_to_warp_type.items():
         # vector types
         vector_types = [
             wp.types.vector(2, wptype),
@@ -825,7 +959,7 @@ def test_indexedarray_fill_vector(test, device):
             assert_np_equal(a3.numpy(), expected3)
             assert_np_equal(a4.numpy(), expected4)
 
-            if wptype in wp.types.float_types:
+            if wptype in wp._src.types.float_types:
                 # fill with float scalar
                 fill_value = 13.37
 
@@ -863,7 +997,7 @@ def test_indexedarray_fill_matrix(test, device):
 
     dim_x = 4
 
-    for nptype, wptype in wp.types.np_dtype_to_warp_type.items():
+    for nptype, wptype in wp._src.types.np_dtype_to_warp_type.items():
         # matrix types
         matrix_types = [
             # square matrices
@@ -1133,8 +1267,23 @@ add_function_test(TestIndexedArray, "test_indexedarray_fill_scalar", test_indexe
 add_function_test(TestIndexedArray, "test_indexedarray_fill_vector", test_indexedarray_fill_vector, devices=devices)
 add_function_test(TestIndexedArray, "test_indexedarray_fill_matrix", test_indexedarray_fill_matrix, devices=devices)
 add_function_test(TestIndexedArray, "test_indexedarray_fill_struct", test_indexedarray_fill_struct, devices=devices)
+add_function_test(TestIndexedArray, "test_indexedarray_in_struct", test_indexedarray_in_struct, devices=devices)
+add_function_test(
+    TestIndexedArray, "test_indexedarray_in_nested_struct", test_indexedarray_in_nested_struct, devices=devices
+)
+add_function_test(
+    TestIndexedArray, "test_indexedarray_in_struct_array", test_indexedarray_in_struct_array, devices=devices
+)
+add_function_test(
+    TestIndexedArray, "test_indexedarray_in_struct_numpy", test_indexedarray_in_struct_numpy, devices=devices
+)
+add_function_test(
+    TestIndexedArray,
+    "test_indexedarray_in_struct_to_device_transfer",
+    test_indexedarray_in_struct_to_device_transfer,
+    devices=devices,
+)
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

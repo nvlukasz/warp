@@ -1,28 +1,20 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 
 import gc
-from typing import Any, Dict, Optional, Tuple
+import os
+import sys
+import time
+import warnings
+from typing import Any
 
 import numpy as np
 
 import warp as wp
 import warp.fem as fem
-from warp.context import assert_conditional_graph_support
-from warp.optim.linear import LinearOperator, aslinearoperator, preconditioner
+from warp.optim.linear import LinearOperator, aslinearoperator, bicgstab, cg, cr, gmres, preconditioner
+from warp.render import UsdRenderer
 from warp.sparse import BsrMatrix, bsr_get_diag, bsr_mv, bsr_transposed
 
 __all__ = [
@@ -35,7 +27,57 @@ __all__ = [
     "gen_tetmesh",
     "gen_trimesh",
     "invert_diagonal_bsr_matrix",
+    "progress_bar",
 ]
+
+
+def progress_bar(num_frames, quiet=False):
+    """Iterator that displays a progress bar for frame-based simulations.
+
+    Yields ``(frame_index, set_info)`` tuples.  Call ``set_info(key, value)``
+    to display extra metrics (e.g. ``set_info("loss", 0.42)``).
+
+    Args:
+        num_frames: Total number of frames to iterate over.
+        quiet: If ``True``, suppress all progress bar output.
+
+    Example::
+
+        for k, set_info in progress_bar(args.num_frames):
+            set_info("loss", example.step())
+            example.render()
+    """
+
+    bar_width = 40
+    t_start = time.perf_counter()
+    extra = {}
+
+    def _set_info(key, value):
+        extra[key] = value
+
+    def _print_bar(done, final=False):
+        if quiet:
+            return
+        frac = done / num_frames if num_frames > 0 else 1.0
+        filled = int(bar_width * frac)
+        bar = "#" * filled + "-" * (bar_width - filled)
+        elapsed = time.perf_counter() - t_start
+        eta = elapsed / done * (num_frames - done) if done > 0 else 0.0
+        info = "  ".join(f"{k}={v:.4g}" if isinstance(v, float) else f"{k}={v}" for k, v in extra.items())
+        if info:
+            info = "  " + info
+        if final:
+            sys.stdout.write(f"\r[{bar}] {done}/{num_frames}{info}  done in {elapsed:.1f}s\n")
+        else:
+            sys.stdout.write(f"\r[{bar}] {done}/{num_frames}{info}  eta={eta:.0f}s")
+        sys.stdout.flush()
+
+    for k in range(num_frames):
+        yield k, _set_info
+        _print_bar(k + 1)
+
+    _print_bar(num_frames, final=True)
+
 
 # matrix inversion routines contain nested loops,
 # default unrolling leads to code explosion
@@ -46,8 +88,8 @@ wp.set_module_options({"max_unroll": 6})
 #
 
 
-def gen_trimesh(res, bounds_lo: Optional[wp.vec2] = None, bounds_hi: Optional[wp.vec2] = None):
-    """Constructs a triangular mesh by diving each cell of a dense 2D grid into two triangles
+def gen_trimesh(res, bounds_lo: wp.vec2 | None = None, bounds_hi: wp.vec2 | None = None):
+    """Construct a triangular mesh by diving each cell of a dense 2D grid into two triangles.
 
     Args:
         res: Resolution of the grid along each dimension
@@ -77,8 +119,8 @@ def gen_trimesh(res, bounds_lo: Optional[wp.vec2] = None, bounds_hi: Optional[wp
     return wp.array(positions, dtype=wp.vec2), wp.array(vidx, dtype=int)
 
 
-def gen_tetmesh(res, bounds_lo: Optional[wp.vec3] = None, bounds_hi: Optional[wp.vec3] = None):
-    """Constructs a tetrahedral mesh by diving each cell of a dense 3D grid into five tetrahedrons
+def gen_tetmesh(res, bounds_lo: wp.vec3 | None = None, bounds_hi: wp.vec3 | None = None):
+    """Construct a tetrahedral mesh by diving each cell of a dense 3D grid into five tetrahedrons.
 
     Args:
         res: Resolution of the grid along each dimension
@@ -110,8 +152,8 @@ def gen_tetmesh(res, bounds_lo: Optional[wp.vec3] = None, bounds_hi: Optional[wp
     return wp.array(positions, dtype=wp.vec3), wp.array(vidx, dtype=int)
 
 
-def gen_quadmesh(res, bounds_lo: Optional[wp.vec2] = None, bounds_hi: Optional[wp.vec2] = None):
-    """Constructs a quadrilateral mesh from a dense 2D grid
+def gen_quadmesh(res, bounds_lo: wp.vec2 | None = None, bounds_hi: wp.vec2 | None = None):
+    """Construct a quadrilateral mesh from a dense 2D grid.
 
     Args:
         res: Resolution of the grid along each dimension
@@ -140,8 +182,8 @@ def gen_quadmesh(res, bounds_lo: Optional[wp.vec2] = None, bounds_hi: Optional[w
     return wp.array(positions, dtype=wp.vec2), wp.array(vidx, dtype=int)
 
 
-def gen_hexmesh(res, bounds_lo: Optional[wp.vec3] = None, bounds_hi: Optional[wp.vec3] = None):
-    """Constructs a quadrilateral mesh from a dense 2D grid
+def gen_hexmesh(res, bounds_lo: wp.vec3 | None = None, bounds_hi: wp.vec3 | None = None):
+    """Construct a quadrilateral mesh from a dense 2D grid.
 
     Args:
         res: Resolution of the grid along each dimension
@@ -173,8 +215,8 @@ def gen_hexmesh(res, bounds_lo: Optional[wp.vec3] = None, bounds_hi: Optional[wp
     return wp.array(positions, dtype=wp.vec3), wp.array(vidx, dtype=int)
 
 
-def gen_volume(res, bounds_lo: Optional[wp.vec3] = None, bounds_hi: Optional[wp.vec3] = None, device=None) -> wp.Volume:
-    """Constructs a wp.Volume from a dense 3D grid
+def gen_volume(res, bounds_lo: wp.vec3 | None = None, bounds_hi: wp.vec3 | None = None, device=None) -> wp.Volume:
+    """Construct a wp.Volume from a dense 3D grid.
 
     Args:
         res: Resolution of the grid along each dimension
@@ -209,8 +251,6 @@ def gen_volume(res, bounds_lo: Optional[wp.vec3] = None, bounds_hi: Optional[wp.
 
 
 def _get_linear_solver_func(method_name: str):
-    from warp.optim.linear import bicgstab, cg, cr, gmres
-
     if method_name == "bicgstab":
         return bicgstab
     if method_name == "gmres":
@@ -233,8 +273,8 @@ def bsr_cg(
     method: str = "cg",
     M: BsrMatrix = None,
     mv_routine_uses_multiple_cuda_contexts: bool = False,
-) -> Tuple[float, int]:
-    """Solves the linear system A x = b using an iterative solver, optionally with diagonal preconditioning
+) -> tuple[float, int]:
+    """Solve the linear system ``A x = b`` using an iterative solver, optionally with diagonal preconditioning.
 
     Args:
         A: system left-hand side
@@ -252,7 +292,6 @@ def bsr_cg(
 
     Returns:
         Tuple (residual norm, iteration count)
-
     """
 
     if M is not None:
@@ -268,13 +307,7 @@ def bsr_cg(
     callback = None
 
     use_cuda_graph = A.device.is_cuda and not wp.config.verify_cuda
-    capturable = use_cuda_graph and not mv_routine_uses_multiple_cuda_contexts
-
-    if capturable:
-        try:
-            assert_conditional_graph_support()
-        except RuntimeError:
-            capturable = False
+    capturable = use_cuda_graph and not mv_routine_uses_multiple_cuda_contexts and wp.is_conditional_graph_supported()
 
     if not quiet:
         if capturable:
@@ -285,9 +318,9 @@ def bsr_cg(
 
             @fem.cache.dynamic_kernel(suffix=f"{check_every}{func.__name__}")
             def device_cg_callback(
-                cur_iter: wp.array(dtype=int),
-                err_sq: wp.array(dtype=Any),
-                atol_sq: wp.array(dtype=Any),
+                cur_iter: wp.array[int],
+                err_sq: wp.array[Any],
+                atol_sq: wp.array[Any],
             ):
                 if cur_iter[0] % check_every == 0:
                     print_method_name()
@@ -341,16 +374,16 @@ def bsr_cg(
 
 
 class SaddleSystem(LinearOperator):
-    """Builds a linear operator corresponding to the saddle-point linear system [A B^T; B 0]
+    """Build a linear operator corresponding to the saddle-point linear system ``[A B^T; B 0]``.
 
-    If use_diag_precond` is ``True``,  builds the corresponding diagonal preconditioner `[diag(A); diag(B diag(A)^-1 B^T)]`
+    If ``use_diag_precond`` is ``True``, builds the corresponding diagonal preconditioner ``[diag(A); diag(B diag(A)^-1 B^T)]``.
     """
 
     def __init__(
         self,
         A: BsrMatrix,
         B: BsrMatrix,
-        Bt: Optional[BsrMatrix] = None,
+        Bt: BsrMatrix | None = None,
         use_diag_precond: bool = True,
     ):
         if Bt is None:
@@ -360,8 +393,8 @@ class SaddleSystem(LinearOperator):
         self._B = B
         self._Bt = Bt
 
-        self._u_dtype = wp.vec(length=A.block_shape[0], dtype=A.scalar_type)
-        self._p_dtype = wp.vec(length=B.block_shape[0], dtype=B.scalar_type)
+        self._u_dtype = wp.types.vector(length=A.block_shape[0], dtype=A.scalar_type)
+        self._p_dtype = wp.types.vector(length=B.block_shape[0], dtype=B.scalar_type)
         self._p_byte_offset = A.nrow * wp.types.type_size_in_bytes(self._u_dtype)
 
         saddle_shape = (A.shape[0] + B.shape[0], A.shape[0] + B.shape[0])
@@ -382,7 +415,7 @@ class SaddleSystem(LinearOperator):
         A_diag = bsr_get_diag(A)
 
         schur_block_shape = (B.block_shape[0], B.block_shape[0])
-        schur_dtype = wp.mat(shape=schur_block_shape, dtype=B.scalar_type)
+        schur_dtype = wp.types.matrix(shape=schur_block_shape, dtype=B.scalar_type)
         schur_inv_diag = wp.empty(dtype=schur_dtype, shape=B.nrow, device=self.device)
         wp.launch(
             _compute_schur_inverse_diagonal,
@@ -466,8 +499,8 @@ def bsr_solve_saddle(
     check_every=10,
     quiet=False,
     method: str = "cg",
-) -> Tuple[float, int]:
-    """Solves the saddle-point linear system [A B^T; B 0] (x_u; x_p) = (b_u; b_p) using an iterative solver, optionally with diagonal preconditioning
+) -> tuple[float, int]:
+    """Solve the saddle-point linear system ``[A B^T; B 0] (x_u; x_p) = (b_u; b_p)`` using an iterative solver, optionally with diagonal preconditioning.
 
     Args:
         saddle_system: Saddle point system
@@ -483,7 +516,6 @@ def bsr_solve_saddle(
 
     Returns:
         Tuple (residual norm, iteration count)
-
     """
     x = wp.empty(dtype=saddle_system.scalar_type, shape=saddle_system.shape[0], device=saddle_system.device)
     b = wp.empty_like(x)
@@ -513,11 +545,11 @@ def bsr_solve_saddle(
 
 @wp.kernel(enable_backward=False)
 def _compute_schur_inverse_diagonal(
-    B_offsets: wp.array(dtype=int),
-    B_indices: wp.array(dtype=int),
-    B_values: wp.array(dtype=Any),
-    A_diag: wp.array(dtype=Any),
-    P_diag: wp.array(dtype=Any),
+    B_offsets: wp.array[int],
+    B_indices: wp.array[int],
+    B_values: wp.array[Any],
+    A_diag: wp.array[Any],
+    P_diag: wp.array[Any],
 ):
     row = wp.tid()
 
@@ -535,15 +567,15 @@ def _compute_schur_inverse_diagonal(
         S = B * Ai * wp.transpose(B)
         schur += S
 
-    P_diag[row] = fem.utils.inverse_qr(schur)
+    P_diag[row] = fem.linalg.inverse_qr(schur)
 
 
 def invert_diagonal_bsr_matrix(A: BsrMatrix):
-    """Inverts each block of a block-diagonal mass matrix"""
+    """Invert each block of a block-diagonal mass matrix."""
 
     values = A.values
     if not wp.types.type_is_matrix(values.dtype):
-        values = values.view(dtype=wp.mat(shape=(1, 1), dtype=A.scalar_type))
+        values = values.view(dtype=wp.types.matrix(shape=(1, 1), dtype=A.scalar_type))
 
     wp.launch(
         kernel=_block_diagonal_invert,
@@ -554,14 +586,26 @@ def invert_diagonal_bsr_matrix(A: BsrMatrix):
 
 
 @wp.kernel(enable_backward=False)
-def _block_diagonal_invert(values: wp.array(dtype=Any)):
+def _block_diagonal_invert(values: wp.array[Any]):
     i = wp.tid()
-    values[i] = fem.utils.inverse_qr(values[i])
+    values[i] = fem.linalg.inverse_qr(values[i])
 
 
 #
 # Plot utilities
 #
+
+
+def _classify_save_path(save):
+    """Return ``'video'``, ``'frames'``, or ``'image'`` based on the save path."""
+    if save is None:
+        return None
+    if os.path.isdir(save) or save.endswith("/") or save.endswith(os.sep):
+        return "frames"
+    ext = os.path.splitext(save)[1].lower()
+    if ext in (".mp4", ".avi", ".gif", ".mov", ".ogv"):
+        return "video"
+    return "image"
 
 
 class Plot:
@@ -573,8 +617,6 @@ class Plot:
         self._usd_renderer = None
         if stage is not None:
             try:
-                from warp.render import UsdRenderer
-
                 self._usd_renderer = UsdRenderer(stage)
             except Exception as err:
                 print(f"Could not initialize UsdRenderer for stage '{stage}': {err}.")
@@ -623,33 +665,72 @@ class Plot:
         else:
             self._usd_renderer.render_points(name, points, radius=self.default_point_radius)
 
-    def plot(self, options: Optional[Dict[str, Any]] = None, backend: str = "auto"):
+    def _color_only_fields(self, options: dict[str, Any]) -> set[str]:
+        """Return the set of field names that are only used as color sources."""
+        color_refs = set()
+        for args in options.values():
+            if isinstance(args, dict):
+                c = args.get("color")
+                if c and c in self._fields:
+                    color_refs.add(c)
+        # A field is color-only if it is referenced as a color source
+        # but has no options of its own (or its only option entry comes
+        # from being a color target).
+        color_only = set()
+        for name in color_refs:
+            if name not in options or options[name] == {}:
+                color_only.add(name)
+        return color_only
+
+    def plot(self, options: dict[str, Any] | None = None, backend: str = "auto", save: str | None = None):
+        """Display or export the accumulated field snapshots.
+
+        Args:
+            options: Per-field visualization options forwarded to the backend.
+            backend: ``"pyvista"``, ``"matplotlib"``, or ``"auto"``
+                (default).  When ``"auto"``, the ``WARP_FEM_PLOT_BACKEND``
+                environment variable is consulted first; if unset, pyvista
+                is tried before falling back to matplotlib.
+            save: If ``None`` (default), show an interactive window.  Otherwise
+                a file path controlling export behaviour:
+                ``"animation.mp4"`` / ``".gif"`` exports a video,
+                a path ending in ``"/"`` or an existing directory exports
+                numbered PNG frames, and any other image extension
+                (e.g. ``".png"``) exports a single screenshot.
+        """
         if options is None:
             options = {}
 
+        if backend == "auto":
+            backend = os.environ.get("WARP_FEM_PLOT_BACKEND", "auto")
+
         if backend == "pyvista":
-            return self._plot_pyvista(options)
+            return self._plot_pyvista(options, save=save)
         if backend == "matplotlib":
-            return self._plot_matplotlib(options)
+            return self._plot_matplotlib(options, save=save)
 
         # try both
         try:
-            return self._plot_pyvista(options)
+            return self._plot_pyvista(options, save=save)
         except ModuleNotFoundError:
             try:
-                return self._plot_matplotlib(options)
+                return self._plot_matplotlib(options, save=save)
             except ModuleNotFoundError:
-                wp.utils.warn("pyvista or matplotlib must be installed to visualize solution results")
+                warnings.warn("pyvista or matplotlib must be installed to visualize solution results", stacklevel=2)
 
-    def _plot_pyvista(self, options: Dict[str, Any]):
-        import pyvista
-        import pyvista.themes
+    def _plot_pyvista(self, options: dict[str, Any], save: str | None = None):
+        import pyvista  # noqa: PLC0415
+
+        save_mode = _classify_save_path(save)
+
+        color_only = self._color_only_fields(options)
 
         grids = {}
         scales = {}
         markers = {}
 
         animate = False
+        num_frames = 1
 
         ref_geom = options.get("ref_geom", None)
         if ref_geom is not None:
@@ -658,20 +739,28 @@ class Plot:
                 offsets = np.cumsum(counts)
                 ranges = np.array([offsets - counts, offsets]).T
                 faces = np.concatenate(
-                    [[count, *list(indices[beg:end])] for (count, (beg, end)) in zip(counts, ranges)]
+                    [[count, *list(indices[beg:end])] for (count, (beg, end)) in zip(counts, ranges, strict=True)]
                 )
                 ref_geom = pyvista.PolyData(vertices, faces)
             else:
                 ref_geom = pyvista.PolyData(ref_geom)
 
         for name, (field, values) in self._fields.items():
+            if name in color_only:
+                continue
+
             cells, types = field.space.vtk_cells()
             node_pos = field.space.node_positions().numpy()
 
             args = options.get(name, {})
 
             grid_scale = np.max(np.max(node_pos, axis=0) - np.min(node_pos, axis=0))
-            value_range = self._get_field_value_range(values, args)
+            color_field_name = args.get("color", None)
+            if color_field_name and color_field_name in self._fields:
+                color_values = self._fields[color_field_name][1]
+                value_range = self._get_field_value_range(color_values, options.get(color_field_name, {}))
+            else:
+                value_range = self._get_field_value_range(values, args)
             scales[name] = (grid_scale, value_range)
 
             if node_pos.shape[1] == 2:
@@ -682,9 +771,12 @@ class Plot:
 
             if len(values) > 1:
                 animate = True
+                num_frames = max(num_frames, len(values))
 
         def set_frame_data(frame):
             for name, (field, values) in self._fields.items():
+                if name in color_only:
+                    continue
                 if frame > 0 and len(values) == 1:
                     continue
 
@@ -702,6 +794,13 @@ class Plot:
 
                 if v.ndim == 2:
                     grid.point_data[name + "_mag"] = np.linalg.norm(v, axis=1)
+
+                # Override coloring with another field's values
+                color_field_name = field_args.get("color", None)
+                if color_field_name and color_field_name in self._fields:
+                    color_vals = self._fields[color_field_name][1]
+                    cv = color_vals[frame % len(color_vals)]
+                    grid.point_data[name + "_color"] = _value_or_magnitude(cv)
 
                 if "arrows" in field_args:
                     glyph_scale = field_args["arrows"].get("glyph_scale", 1.0)
@@ -757,7 +856,9 @@ class Plot:
                         grid.points = field.space.node_positions().numpy() + v
 
                 if frame == 0:
-                    if v.ndim == 1:
+                    if color_field_name and color_field_name in self._fields:
+                        grid.set_active_scalars(name + "_color")
+                    elif v.ndim == 1:
                         grid.set_active_scalars(name)
                     else:
                         grid.set_active_vectors(name)
@@ -771,45 +872,96 @@ class Plot:
         subplot_rows = options.get("rows", 1)
         subplot_shape = (subplot_rows, (len(grids) + subplot_rows - 1) // subplot_rows)
 
-        plotter = pyvista.Plotter(shape=subplot_shape, theme=pyvista.themes.DocumentProTheme())
-        plotter.link_views()
-        plotter.add_camera_orientation_widget()
+        plotter_kwargs = {}
+        if save_mode is not None:
+            plotter_kwargs["off_screen"] = True
+
+        theme = pyvista.themes.DocumentProTheme()
+        # SSAA anti-aliasing is broken with multiple subplots in VTK;
+        # fall back to MSAA which renders all viewports correctly.
+        if subplot_shape[0] * subplot_shape[1] > 1:
+            theme.anti_aliasing = "msaa"
+        plotter = pyvista.Plotter(shape=subplot_shape, theme=theme, **plotter_kwargs)
+        if save_mode is None:
+            plotter.add_camera_orientation_widget()
         for index, (name, grid) in enumerate(grids.items()):
             plotter.subplot(index // subplot_shape[1], index % subplot_shape[1])
             grid_scale, value_range = scales[name]
             field = self._fields[name][0]
+            field_args = options.get(name, {})
+            cmap = field_args.get("cmap", None)
             marker = markers[name]
+            is_contour = "contours" in field_args
             if marker:
                 if field.space.dimension == 2:
-                    plotter.add_mesh(marker, show_scalar_bar=False)
-                    plotter.add_mesh(grid, opacity=0.25, clim=value_range)
+                    if is_contour:
+                        # Filled background at full opacity, contour lines on top
+                        plotter.add_mesh(grid, clim=value_range, cmap=cmap)
+                        plotter.add_mesh(marker, show_scalar_bar=False, color="gray", line_width=0.5, opacity=0.5)
+                    else:
+                        plotter.add_mesh(marker, show_scalar_bar=False, cmap=cmap)
+                        plotter.add_mesh(grid, opacity=0.25, clim=value_range, cmap=cmap)
                     plotter.view_xy()
                 else:
-                    plotter.add_mesh(marker)
+                    plotter.add_mesh(marker, cmap=cmap)
             elif field.space.geometry.cell_dimension == 3:
-                plotter.add_mesh_clip_plane(grid, show_edges=True, clim=value_range, assign_to_axis="z")
+                plotter.add_mesh_clip_plane(grid, show_edges=True, clim=value_range, assign_to_axis="z", cmap=cmap)
             else:
-                plotter.add_mesh(grid, show_edges=True, clim=value_range)
+                plotter.add_mesh(grid, show_edges=True, clim=value_range, cmap=cmap)
 
             if ref_geom:
                 plotter.add_mesh(ref_geom)
 
-        plotter.show(interactive_update=animate)
+        plotter.link_views()
 
-        frame = 0
-        while animate and not plotter.iren.interactor.GetDone():
-            frame += 1
-            set_frame_data(frame)
-            plotter.update()
+        if save_mode == "image":
+            plotter.show(screenshot=save)
+        elif save_mode == "video":
+            plotter.show(interactive_update=True, auto_close=False)
+            plotter.open_movie(save, framerate=30)
+            # Frame 0 is already set up; write it, then loop from 1.
+            # Re-calling set_frame_data(0) would reassign markers, breaking
+            # the link between the plotter actors and the marker meshes.
+            plotter.render()
+            plotter.write_frame()
+            for frame in range(1, num_frames):
+                set_frame_data(frame)
+                plotter.render()
+                plotter.write_frame()
+            plotter.close()
+        elif save_mode == "frames":
+            os.makedirs(save, exist_ok=True)
+            plotter.show(interactive_update=True, auto_close=False)
+            # Frame 0 is already set up (see video comment above).
+            plotter.render()
+            plotter.screenshot(os.path.join(save, "frame_0000.png"))
+            for frame in range(1, num_frames):
+                set_frame_data(frame)
+                plotter.render()
+                plotter.screenshot(os.path.join(save, f"frame_{frame:04d}.png"))
+            plotter.close()
+        else:
+            plotter.show(interactive_update=animate)
+            frame = 0
+            while animate and not plotter.iren.interactor.GetDone():
+                frame += 1
+                set_frame_data(frame)
+                plotter.update()
 
-    def _plot_matplotlib(self, options: Dict[str, Any]):
-        import matplotlib.animation as animation
-        import matplotlib.pyplot as plt
-        from matplotlib import cm
+    def _plot_matplotlib(self, options: dict[str, Any], save: str | None = None):
+        import matplotlib.animation as animation  # noqa: PLC0415
+        import matplotlib.pyplot as plt  # noqa: PLC0415
+        from matplotlib import cm  # noqa: PLC0415
 
-        def make_animation(fig, ax, cax, values, draw_func):
+        save_mode = _classify_save_path(save)
+        color_only = self._color_only_fields(options)
+
+        def make_animation(fig, ax, cax, values, draw_func, color_values=None):
             def animate(i):
-                cs = draw_func(ax, values[i])
+                if color_values is not None:
+                    cs = draw_func(ax, values[i], color_values=color_values[i % len(color_values)])
+                else:
+                    cs = draw_func(ax, values[i])
 
                 cax.cla()
                 fig.colorbar(cs, cax)
@@ -825,11 +977,16 @@ class Plot:
             )
 
         def make_draw_func(field, args, plot_func, plot_opts):
-            def draw_fn(axes, values):
+            supports_color = "displacement" in args
+
+            def draw_fn(axes, values, color_values=None):
                 axes.clear()
 
                 field.dof_values = values
-                cs = plot_func(field, axes=axes, **plot_opts)
+                opts = dict(plot_opts)
+                if color_values is not None and supports_color:
+                    opts["color_values"] = color_values
+                cs = plot_func(field, axes=axes, **opts)
 
                 if "xlim" in args:
                     axes.set_xlim(*args["xlim"])
@@ -841,20 +998,37 @@ class Plot:
             return draw_fn
 
         anims = []
+        draw_fns = []
+        all_values = []
 
-        field_count = len(self._fields)
+        visible_fields = {n: fv for n, fv in self._fields.items() if n not in color_only}
+        field_count = len(visible_fields)
+
+        if field_count == 0:
+            return
+
         subplot_rows = options.get("rows", 1)
         subplot_shape = (subplot_rows, (field_count + subplot_rows - 1) // subplot_rows)
 
-        for index, (name, (field, values)) in enumerate(self._fields.items()):
+        for index, (name, (field, values)) in enumerate(visible_fields.items()):
             args = options.get(name, {})
             v = values[0]
 
+            # Resolve "color" option: use another field's values for coloring
+            color_field_name = args.get("color", None)
+            color_values_list = None
+            if color_field_name and color_field_name in self._fields:
+                color_values_list = self._fields[color_field_name][1]
+
             plot_fn = None
             plot_3d = False
-            plot_opts = {"cmap": cm.viridis}
+            cmap_name = args.get("cmap", None)
+            plot_opts = {"cmap": plt.get_cmap(cmap_name) if cmap_name else cm.viridis}
 
-            plot_opts["clim"] = self._get_field_value_range(values, args)
+            if color_values_list is not None:
+                plot_opts["clim"] = self._get_field_value_range(color_values_list, options.get(color_field_name, {}))
+            else:
+                plot_opts["clim"] = self._get_field_value_range(values, args)
 
             if field.space.dimension == 2:
                 if "contours" in args:
@@ -891,18 +1065,41 @@ class Plot:
                 axes.set_aspect("equal")
 
             draw_fn = make_draw_func(field, args, plot_func=plot_fn, plot_opts=plot_opts)
-            cs = draw_fn(axes, values[0])
+            cv0 = color_values_list[0] if color_values_list else None
+            cs = draw_fn(axes, values[0], color_values=cv0)
 
             fig = plt.gcf()
             cax = fig.colorbar(cs).ax
 
             if len(values) > 1:
-                anims.append(make_animation(fig, axes, cax, values, draw_func=draw_fn))
+                anims.append(make_animation(fig, axes, cax, values, draw_func=draw_fn, color_values=color_values_list))
+                draw_fns.append((draw_fn, axes, values, color_values_list))
+                all_values.append(values)
 
-        plt.show()
+        if save_mode == "image":
+            fig.savefig(save)
+        elif save_mode == "video":
+            if anims:
+                writer = "ffmpeg" if not save.lower().endswith(".gif") else "pillow"
+                anims[0].save(save, writer=writer, fps=30)
+            else:
+                fig.savefig(save)
+        elif save_mode == "frames":
+            os.makedirs(save, exist_ok=True)
+            if draw_fns:
+                num_frames = max(len(v) for v in all_values)
+                for i in range(num_frames):
+                    for draw_fn, axes, values, cvl in draw_fns:
+                        cv = cvl[i % len(cvl)] if cvl else None
+                        draw_fn(axes, values[i % len(values)], color_values=cv)
+                    fig.savefig(os.path.join(save, f"frame_{i:04d}.png"))
+            else:
+                fig.savefig(os.path.join(save, "frame_0000.png"))
+        else:
+            plt.show()
 
     @staticmethod
-    def _get_field_value_range(values, field_options: Dict[str, Any]):
+    def _get_field_value_range(values, field_options: dict[str, Any]):
         value_range = field_options.get("clim", None)
         if value_range is None:
             value_range = (
@@ -920,15 +1117,15 @@ def _value_or_magnitude(values: np.ndarray):
 
 
 def _field_triangulation(field):
-    from matplotlib.tri import Triangulation
+    from matplotlib.tri import Triangulation  # noqa: PLC0415
 
     node_positions = field.space.node_positions().numpy()
     return Triangulation(x=node_positions[:, 0], y=node_positions[:, 1], triangles=field.space.node_triangulation())
 
 
 def _plot_surface(field, axes, **kwargs):
-    from matplotlib.cm import get_cmap
-    from matplotlib.colors import Normalize
+    from matplotlib.cm import get_cmap  # noqa: PLC0415
+    from matplotlib.colors import Normalize  # noqa: PLC0415
 
     C = _value_or_magnitude(field.dof_values.numpy())
 
@@ -966,14 +1163,14 @@ def _plot_surface(field, axes, **kwargs):
     return axes.scatter(X, Y, Z, c=C, **kwargs)
 
 
-def _plot_displaced_tri_mesh(field, axes, **kwargs):
+def _plot_displaced_tri_mesh(field, axes, color_values=None, **kwargs):
     triangulation = _field_triangulation(field)
 
     displacement = field.dof_values.numpy()
     triangulation.x += displacement[:, 0]
     triangulation.y += displacement[:, 1]
 
-    Z = _value_or_magnitude(displacement)
+    Z = color_values if color_values is not None else _value_or_magnitude(displacement)
 
     # Plot the surface.
     cs = axes.tripcolor(triangulation, Z, **kwargs)
@@ -1007,7 +1204,7 @@ def _plot_quivers_3d(field, axes, clim=None, cmap=None, glyph_scale=1.0, **kwarg
 
 
 def _plot_streamlines(field, axes, clim=None, **kwargs):
-    import matplotlib.tri as tr
+    import matplotlib.tri as tr  # noqa: PLC0415
 
     triangulation = _field_triangulation(field)
 
@@ -1033,6 +1230,10 @@ def _plot_contours(field, axes, clim=None, **kwargs):
     triangulation = _field_triangulation(field)
 
     Z = _value_or_magnitude(field.dof_values.numpy())
+
+    if clim is not None:
+        kwargs.setdefault("vmin", clim[0])
+        kwargs.setdefault("vmax", clim[1])
 
     tc = axes.tricontourf(triangulation, Z, **kwargs)
     axes.tricontour(triangulation, Z, **kwargs)

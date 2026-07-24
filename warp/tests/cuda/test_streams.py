@@ -1,41 +1,29 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
 import numpy as np
 
 import warp as wp
+from warp._src.utils import check_p2p
 from warp.tests.unittest_utils import *
-from warp.utils import check_p2p
 
 
 @wp.kernel
-def inc(a: wp.array(dtype=float)):
+def inc(a: wp.array[float]):
     tid = wp.tid()
     a[tid] = a[tid] + 1.0
 
 
 @wp.kernel
-def inc_new(src: wp.array(dtype=float), dst: wp.array(dtype=float)):
+def inc_new(src: wp.array[float], dst: wp.array[float]):
     tid = wp.tid()
     dst[tid] = src[tid] + 1.0
 
 
 @wp.kernel
-def sum(a: wp.array(dtype=float), b: wp.array(dtype=float), c: wp.array(dtype=float)):
+def sum(a: wp.array[float], b: wp.array[float], c: wp.array[float]):
     tid = wp.tid()
     c[tid] = a[tid] + b[tid]
 
@@ -365,6 +353,41 @@ def test_event_elapsed_time_graph(test, device):
     test.assertGreater(elapsed, 0)
 
 
+def test_event_external(test, device):
+    with wp.ScopedDevice(device):
+        # event used to synchronize two graphs (external event)
+        event = wp.Event()
+
+        n = 1_000_000
+        a = wp.zeros(n, dtype=float)
+        b = wp.zeros(n, dtype=float)
+        c = wp.zeros(n, dtype=float)
+
+        with wp.ScopedCapture() as capture1:
+            wp.launch(inc, dim=n, inputs=[a])
+            wp.launch(inc, dim=n, inputs=[b])
+            # record in first graph
+            wp.record_event(event, external=True)
+
+        with wp.ScopedCapture() as capture2:
+            # wait in second graph
+            wp.wait_event(event, external=True)
+            wp.launch(sum, dim=n, inputs=[a, b, c])
+
+        stream1 = wp.Stream()
+        stream2 = wp.Stream()
+        num_iters = 10
+
+        for _ in range(num_iters):
+            # Launch graphs on different streams, but they should be
+            # synchronized using the external event.
+            wp.capture_launch(capture1.graph, stream=stream1)
+            wp.capture_launch(capture2.graph, stream=stream2)
+
+        expected = np.full(n, 2 * num_iters, dtype=np.float32)
+        assert_np_equal(c.numpy(), expected)
+
+
 def test_stream_priority_basics(test, device):
     standard_stream = wp.Stream(device)
     test.assertEqual(standard_stream.priority, 0, "Default priority of streams must be 0.")
@@ -372,7 +395,7 @@ def test_stream_priority_basics(test, device):
     # Create a high-priority stream with a priority value that is smaller than -1 (clamping expected)
     stream_hi = wp.Stream(device, priority=-100)
 
-    # Create a low-priority stream with a priority value that is greter than 0 (clamping expected)
+    # Create a low-priority stream with a priority value that is greater than 0 (clamping expected)
     stream_lo = wp.Stream(device, priority=100)
 
     if stream_lo.priority == stream_hi.priority:
@@ -425,7 +448,7 @@ def test_stream_priority_timings(test, device):
 
 
 @wp.kernel
-def sum_threads(sum: wp.array(dtype=wp.uint64)):
+def sum_threads(sum: wp.array[wp.uint64]):
     i = wp.tid()
     wp.atomic_add(sum, 0, wp.uint64(1))
 
@@ -468,6 +491,51 @@ def test_stream_event_is_complete(test, device):
 
                 # Verify result
                 test.assertEqual(a.numpy()[0], (iter + 1) * threads)
+
+
+def test_graph_destroy_during_capture(test, device):
+    with wp.ScopedDevice(device):
+        n = 10
+        a = wp.zeros(n, dtype=float)
+
+        with wp.ScopedCapture() as capture1:
+            wp.launch(inc, dim=n, inputs=[a])
+
+        wp.capture_launch(capture1.graph)
+
+        with wp.ScopedCapture() as capture2:
+            del capture1  # <--- should be deferred
+            wp.launch(inc, dim=n, inputs=[a])
+
+        wp.capture_launch(capture2.graph)
+
+        assert_np_equal(a.numpy(), np.full(n, 2, dtype=np.float32))
+
+
+def test_stream_synchronize_cpu(test, _):
+    with wp.ScopedDevice("cpu"):
+        # this should not raise an exception (like wp.synchronize_device())
+        wp.synchronize_stream()
+
+
+def test_synchronize_during_capture(test, device):
+    with wp.ScopedDevice(device):
+        with test.assertRaisesRegex(RuntimeError, "Cannot synchronize device"):
+            with wp.ScopedCapture():
+                wp.synchronize()
+
+        with test.assertRaisesRegex(RuntimeError, "Cannot synchronize device"):
+            with wp.ScopedCapture():
+                wp.synchronize_device()
+
+        with test.assertRaisesRegex(RuntimeError, "Cannot synchronize stream"):
+            with wp.ScopedCapture():
+                wp.synchronize_stream()
+
+        with test.assertRaisesRegex(RuntimeError, "Cannot synchronize event"):
+            e = wp.Event(device)
+            with wp.ScopedCapture():
+                wp.synchronize_event(e)
 
 
 devices = get_selected_cuda_test_devices()
@@ -611,6 +679,25 @@ class TestStreams(unittest.TestCase):
         instance.__del__()
 
 
+def test_stream_is_blocking(test, device):
+    # Warp-created streams are always blocking (hardcoded at construction time, no native call)
+    warp_stream = wp.Stream(device)
+    test.assertTrue(warp_stream.is_blocking)
+
+    # The default device stream is also blocking
+    test.assertTrue(device.stream.is_blocking)
+
+    # The null stream is also blocking
+    test.assertTrue(device.null_stream.is_blocking)
+
+    # When wrapping an external handle, is_blocking is lazily evaluated via the CUDA API.
+    # Wrapping a known-blocking handle exercises this path and should still return True.
+    wrapped = wp.Stream(device, cuda_stream=warp_stream.cuda_stream)
+    test.assertIsNone(wrapped._is_blocking)  # not yet evaluated
+    test.assertTrue(wrapped.is_blocking)  # triggers native query
+    test.assertTrue(wrapped._is_blocking)  # now cached
+
+
 add_function_test(TestStreams, "test_stream_set", test_stream_set, devices=devices)
 add_function_test(TestStreams, "test_stream_arg_explicit_sync", test_stream_arg_explicit_sync, devices=devices)
 add_function_test(TestStreams, "test_stream_scope_implicit_sync", test_stream_scope_implicit_sync, devices=devices)
@@ -628,7 +715,13 @@ add_function_test(TestStreams, "test_stream_event_is_complete", test_stream_even
 add_function_test(TestStreams, "test_event_synchronize", test_event_synchronize, devices=devices)
 add_function_test(TestStreams, "test_event_elapsed_time", test_event_elapsed_time, devices=devices)
 add_function_test(TestStreams, "test_event_elapsed_time_graph", test_event_elapsed_time_graph, devices=devices)
+add_function_test(TestStreams, "test_event_external", test_event_external, devices=devices)
+
+add_function_test(TestStreams, "test_graph_destroy_during_capture", test_graph_destroy_during_capture, devices=devices)
+
+add_function_test(TestStreams, "test_stream_synchronize_cpu", test_stream_synchronize_cpu, devices=None)
+add_function_test(TestStreams, "test_synchronize_during_capture", test_synchronize_during_capture, devices=devices)
+add_function_test(TestStreams, "test_stream_is_blocking", test_stream_is_blocking, devices=devices)
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2)

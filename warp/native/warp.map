@@ -1,0 +1,12 @@
+{
+  global:
+    # Symbols to be exported
+    wp_*;
+    # external source support (build options)
+    build_add_include_directory;
+    build_add_preprocessor_macro_definition;
+    build_set_cpp_standard;
+  local:
+    # Hide all other symbols by default
+    *;
+};

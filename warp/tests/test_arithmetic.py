@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import unittest
 
@@ -63,9 +51,9 @@ def getkernel(func, suffix=""):
 
 def get_select_kernel(dtype):
     def output_select_kernel_fn(
-        input: wp.array(dtype=dtype),
+        input: wp.array[dtype],
         index: int,
-        out: wp.array(dtype=dtype),
+        out: wp.array[dtype],
     ):
         out[0] = input[index]
 
@@ -74,10 +62,10 @@ def get_select_kernel(dtype):
 
 def get_select_kernel2(dtype):
     def output_select_kernel2_fn(
-        input: wp.array(dtype=dtype, ndim=2),
+        input: wp.array2d[dtype],
         index0: int,
         index1: int,
-        out: wp.array(dtype=dtype),
+        out: wp.array[dtype],
     ):
         out[0] = input[index0, index1]
 
@@ -93,7 +81,7 @@ def test_arrays(test, device, dtype):
         np.float64: 1.0e-8,
     }.get(dtype, 0)
 
-    wptype = wp.types.np_dtype_to_warp_type[np.dtype(dtype)]
+    wptype = wp.dtype_from_numpy(np.dtype(dtype))
     arr_np = randvals(rng, (10, 5), dtype)
     arr = wp.array(arr_np, dtype=wptype, requires_grad=True, device=device)
 
@@ -101,19 +89,17 @@ def test_arrays(test, device, dtype):
 
 
 def test_unary_ops(test, device, dtype, register_kernels=False):
-    rng = np.random.default_rng(123)
-
     tol = {
         np.float16: 5.0e-3,
         np.float32: 1.0e-6,
         np.float64: 1.0e-8,
     }.get(dtype, 0)
 
-    wptype = wp.types.np_dtype_to_warp_type[np.dtype(dtype)]
+    wptype = wp.dtype_from_numpy(np.dtype(dtype))
 
     def check_unary(
-        inputs: wp.array(dtype=wptype, ndim=2),
-        outputs: wp.array(dtype=wptype, ndim=2),
+        inputs: wp.array2d[wptype],
+        outputs: wp.array2d[wptype],
     ):
         for i in range(10):
             i0 = inputs[0, i]
@@ -134,6 +120,8 @@ def test_unary_ops(test, device, dtype, register_kernels=False):
 
     if register_kernels:
         return
+
+    rng = np.random.default_rng(123)
 
     if dtype in np_float_types:
         inputs = wp.array(
@@ -217,19 +205,17 @@ def test_unary_ops(test, device, dtype, register_kernels=False):
 
 
 def test_nonzero(test, device, dtype, register_kernels=False):
-    rng = np.random.default_rng(123)
-
     tol = {
         np.float16: 5.0e-3,
         np.float32: 1.0e-6,
         np.float64: 1.0e-8,
     }.get(dtype, 0)
 
-    wptype = wp.types.np_dtype_to_warp_type[np.dtype(dtype)]
+    wptype = wp.dtype_from_numpy(np.dtype(dtype))
 
     def check_nonzero(
-        inputs: wp.array(dtype=wptype),
-        outputs: wp.array(dtype=wptype),
+        inputs: wp.array[wptype],
+        outputs: wp.array[wptype],
     ):
         for i in range(10):
             i0 = inputs[i]
@@ -240,6 +226,8 @@ def test_nonzero(test, device, dtype, register_kernels=False):
 
     if register_kernels:
         return
+
+    rng = np.random.default_rng(123)
 
     inputs = wp.array(rng.integers(-2, high=3, size=10).astype(dtype), dtype=wptype, requires_grad=True, device=device)
     outputs = wp.zeros_like(inputs)
@@ -263,20 +251,18 @@ def test_nonzero(test, device, dtype, register_kernels=False):
 
 
 def test_binary_ops(test, device, dtype, register_kernels=False):
-    rng = np.random.default_rng(123)
-
     tol = {
         np.float16: 5.0e-2,
         np.float32: 1.0e-6,
         np.float64: 1.0e-8,
     }.get(dtype, 0)
 
-    wptype = wp.types.np_dtype_to_warp_type[np.dtype(dtype)]
+    wptype = wp.dtype_from_numpy(np.dtype(dtype))
 
     def check_binary_ops(
-        in1: wp.array(dtype=wptype, ndim=2),
-        in2: wp.array(dtype=wptype, ndim=2),
-        outputs: wp.array(dtype=wptype, ndim=2),
+        in1: wp.array2d[wptype],
+        in2: wp.array2d[wptype],
+        outputs: wp.array2d[wptype],
     ):
         for i in range(10):
             i0 = in1[0, i]
@@ -311,6 +297,8 @@ def test_binary_ops(test, device, dtype, register_kernels=False):
 
     if register_kernels:
         return
+
+    rng = np.random.default_rng(123)
 
     vals1 = randvals(rng, [8, 10], dtype)
     if dtype in [np_unsigned_int_types]:
@@ -468,19 +456,17 @@ def test_binary_ops(test, device, dtype, register_kernels=False):
 
 
 def test_special_funcs(test, device, dtype, register_kernels=False):
-    rng = np.random.default_rng(123)
-
     tol = {
         np.float16: 1.0e-2,
         np.float32: 1.0e-6,
         np.float64: 1.0e-8,
     }.get(dtype, 0)
 
-    wptype = wp.types.np_dtype_to_warp_type[np.dtype(dtype)]
+    wptype = wp.dtype_from_numpy(np.dtype(dtype))
 
     def check_special_funcs(
-        inputs: wp.array(dtype=wptype, ndim=2),
-        outputs: wp.array(dtype=wptype, ndim=2),
+        inputs: wp.array2d[wptype],
+        outputs: wp.array2d[wptype],
     ):
         # multiply outputs by 2 so we've got something to backpropagate:
         for i in range(10):
@@ -505,6 +491,8 @@ def test_special_funcs(test, device, dtype, register_kernels=False):
 
     if register_kernels:
         return
+
+    rng = np.random.default_rng(123)
 
     invals = rng.normal(size=(15, 10)).astype(dtype)
     invals[[0, 1, 2, 7, 14]] = 0.1 + np.abs(invals[[0, 1, 2, 7, 14]])
@@ -721,20 +709,18 @@ def test_special_funcs(test, device, dtype, register_kernels=False):
 
 
 def test_special_funcs_2arg(test, device, dtype, register_kernels=False):
-    rng = np.random.default_rng(123)
-
     tol = {
         np.float16: 1.0e-2,
         np.float32: 1.0e-6,
         np.float64: 1.0e-8,
     }.get(dtype, 0)
 
-    wptype = wp.types.np_dtype_to_warp_type[np.dtype(dtype)]
+    wptype = wp.dtype_from_numpy(np.dtype(dtype))
 
     def check_special_funcs_2arg(
-        in1: wp.array(dtype=wptype, ndim=2),
-        in2: wp.array(dtype=wptype, ndim=2),
-        outputs: wp.array(dtype=wptype, ndim=2),
+        in1: wp.array2d[wptype],
+        in2: wp.array2d[wptype],
+        outputs: wp.array2d[wptype],
     ):
         # multiply outputs by 2 so we've got something to backpropagate:
         for i in range(10):
@@ -746,6 +732,8 @@ def test_special_funcs_2arg(test, device, dtype, register_kernels=False):
 
     if register_kernels:
         return
+
+    rng = np.random.default_rng(123)
 
     in1 = wp.array(np.abs(randvals(rng, [2, 10], dtype)), dtype=wptype, requires_grad=True, device=device)
     in2 = wp.array(randvals(rng, [2, 10], dtype), dtype=wptype, requires_grad=True, device=device)
@@ -788,19 +776,17 @@ def test_special_funcs_2arg(test, device, dtype, register_kernels=False):
 
 
 def test_float_to_int(test, device, dtype, register_kernels=False):
-    rng = np.random.default_rng(123)
-
     tol = {
         np.float16: 5.0e-3,
         np.float32: 1.0e-6,
         np.float64: 1.0e-8,
     }.get(dtype, 0)
 
-    wptype = wp.types.np_dtype_to_warp_type[np.dtype(dtype)]
+    wptype = wp.dtype_from_numpy(np.dtype(dtype))
 
     def check_float_to_int(
-        inputs: wp.array(dtype=wptype, ndim=2),
-        outputs: wp.array(dtype=wptype, ndim=2),
+        inputs: wp.array2d[wptype],
+        outputs: wp.array2d[wptype],
     ):
         for i in range(10):
             outputs[0, i] = wp.round(inputs[0, i])
@@ -815,6 +801,8 @@ def test_float_to_int(test, device, dtype, register_kernels=False):
 
     if register_kernels:
         return
+
+    rng = np.random.default_rng(123)
 
     inputs = wp.array(rng.standard_normal(size=(6, 10)).astype(dtype), dtype=wptype, requires_grad=True, device=device)
     outputs = wp.zeros_like(inputs)
@@ -844,21 +832,19 @@ def test_float_to_int(test, device, dtype, register_kernels=False):
 
 
 def test_interp(test, device, dtype, register_kernels=False):
-    rng = np.random.default_rng(123)
-
     tol = {
         np.float16: 1.0e-2,
         np.float32: 5.0e-6,
         np.float64: 1.0e-8,
     }.get(dtype, 0)
 
-    wptype = wp.types.np_dtype_to_warp_type[np.dtype(dtype)]
+    wptype = wp.dtype_from_numpy(np.dtype(dtype))
 
     def check_interp(
-        in1: wp.array(dtype=wptype, ndim=2),
-        in2: wp.array(dtype=wptype, ndim=2),
-        in3: wp.array(dtype=wptype, ndim=2),
-        outputs: wp.array(dtype=wptype, ndim=2),
+        in1: wp.array2d[wptype],
+        in2: wp.array2d[wptype],
+        in3: wp.array2d[wptype],
+        outputs: wp.array2d[wptype],
     ):
         # multiply outputs by 2 so we've got something to backpropagate:
         for i in range(10):
@@ -870,6 +856,8 @@ def test_interp(test, device, dtype, register_kernels=False):
 
     if register_kernels:
         return
+
+    rng = np.random.default_rng(123)
 
     e0 = randvals(rng, [2, 10], dtype)
     e1 = e0 + randvals(rng, [2, 10], dtype) + 0.1
@@ -975,21 +963,19 @@ def test_interp(test, device, dtype, register_kernels=False):
 
 
 def test_clamp(test, device, dtype, register_kernels=False):
-    rng = np.random.default_rng(123)
-
     tol = {
         np.float16: 5.0e-3,
         np.float32: 1.0e-6,
         np.float64: 1.0e-6,
     }.get(dtype, 0)
 
-    wptype = wp.types.np_dtype_to_warp_type[np.dtype(dtype)]
+    wptype = wp.dtype_from_numpy(np.dtype(dtype))
 
     def check_clamp(
-        in1: wp.array(dtype=wptype),
-        in2: wp.array(dtype=wptype),
-        in3: wp.array(dtype=wptype),
-        outputs: wp.array(dtype=wptype),
+        in1: wp.array[wptype],
+        in2: wp.array[wptype],
+        in3: wp.array[wptype],
+        outputs: wp.array[wptype],
     ):
         for i in range(100):
             # multiply output by 2 so we've got something to backpropagate:
@@ -1000,6 +986,8 @@ def test_clamp(test, device, dtype, register_kernels=False):
 
     if register_kernels:
         return
+
+    rng = np.random.default_rng(123)
 
     in1 = wp.array(randvals(rng, [100], dtype), dtype=wptype, requires_grad=True, device=device)
     starts = randvals(rng, [100], dtype)
@@ -1092,5 +1080,4 @@ for dtype in np_scalar_types:
 
 
 if __name__ == "__main__":
-    wp.clear_kernel_cache()
     unittest.main(verbosity=2, failfast=False)

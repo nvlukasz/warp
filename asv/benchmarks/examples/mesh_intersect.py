@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ruff: noqa: PLC0415
+
 import importlib.util
 import os
 
@@ -20,12 +22,10 @@ from asv_runner.benchmarks.mark import skip_benchmark_if
 
 import warp as wp
 
+from ..benchmarks_utils import get_asset_directory
+
 pxr = importlib.util.find_spec("pxr")
 USD_AVAILABLE = pxr is not None
-
-
-def get_asset_directory():
-    return os.path.join(os.path.realpath(os.path.dirname(__file__)), "..", "..", "..", "warp", "examples", "assets")
 
 
 @wp.func
@@ -108,7 +108,6 @@ class MeshIntersect:
         wp.init()
         self.device = wp.get_device("cuda:0")
         wp.load_module(device=self.device)
-        wp.build.clear_kernel_cache()
 
         self.query_count = 1024
         self.has_queried = False
