@@ -42,8 +42,3 @@ from warp._src.types import type_size as type_size
 from warp._src.types import type_size_in_bytes as type_size_in_bytes
 from warp._src.types import types_equal as types_equal
 from warp._src.types import vector as vector
-
-# external source support
-from warp._src.types import TypeInfo as TypeInfo
-from warp._src.types import add_type as add_type
-from warp._src.types import type_is_external as type_is_external

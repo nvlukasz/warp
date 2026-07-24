@@ -157,6 +157,13 @@ def build_cpu(
         raise Exception(f"CPU kernel build failed with error code {err}")
 
 
+def add_header(path: str):
+    include_directive = f'#include "{path}"\n'
+    # add this header for all native modules
+    warp._src.codegen.cpu_module_header += include_directive
+    warp._src.codegen.cuda_module_header += include_directive
+
+
 def add_include_directory(dir: str):
     warp._src.context.runtime.core.wp_build_add_include_directory(dir.encode("utf-8"))
 
