@@ -19,8 +19,16 @@
 #include "scan.h"
 #include "version.h"
 
+#include <string>
+#include <vector>
+
 #include <stdlib.h>
 #include <string.h>
+
+// extra include paths for building kernels
+std::vector<std::string> g_include_paths;
+std::vector<std::string> g_preprocessor_macro_definitions;
+std::string g_cpp_standard("c++17");
 
 // MSVC provides _aligned_malloc() instead of the standard aligned_alloc()
 #if defined(_MSC_VER)
@@ -1019,6 +1027,27 @@ WP_API void wp_array_fill_host(void* arr_ptr, int arr_type, const void* value_pt
         array_fill_fabric_indexed(ifa, value_ptr, value_size);
     } else {
         fprintf(stderr, "Warp fill error: Invalid array type id %d\n", arr_type);
+    }
+}
+
+WP_API void wp_build_add_include_directory(const char* dir)
+{
+    if (dir) {
+        g_include_paths.push_back(dir);
+    }
+}
+
+WP_API void wp_build_add_preprocessor_macro_definition(const char* macro_definition)
+{
+    if (macro_definition) {
+        g_preprocessor_macro_definitions.push_back(macro_definition);
+    }
+}
+
+WP_API void wp_build_set_cpp_standard(const char* version)
+{
+    if (version) {
+        g_cpp_standard = std::string(version);
     }
 }
 

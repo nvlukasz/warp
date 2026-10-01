@@ -1147,9 +1147,19 @@ class Var:
             return t.native_name
         elif is_reference(t):
             if not value_type:
-                return Var.type_to_ctype(t.value_type) + "*"
-
-            return Var.type_to_ctype(t.value_type)
+                # return Var.type_to_ctype(t.value_type) + "*"
+                if t.is_constant:
+                    return "const " + Var.type_to_ctype(t.value_type) + "*"
+                else:
+                    return Var.type_to_ctype(t.value_type) + "*"
+            else:
+                return Var.type_to_ctype(t.value_type)
+        # !!!
+        elif warp._src.types.type_is_external(t):
+            type_info = warp._src.types._custom_types[t]
+            # print(f"~!~!~ Type info: {type_info}")
+            type_name = type_info.native_name
+            return f"wp::{type_name}"
 
         return Var.dtype_to_ctype(t)
 
@@ -2588,7 +2598,13 @@ class Adjoint:
         return f"([&]() -> {Var.type_to_ctype(array_type)} {{ {' '.join(statements)} }}())"
 
     def add_constant(adj, n):
-        output = adj.add_var(type=get_arg_type(n), constant=n)
+        if isinstance(n, StructInstance):
+            output = adj.add_var(type=n._cls, constant=n)
+            if adj.builder is not None:
+                adj.builder.build_struct_recursive(n._cls)
+        else:
+            output = adj.add_var(type=get_arg_type(n), constant=n)
+
         return output
 
     def load(adj, var):
@@ -3684,6 +3700,25 @@ class Adjoint:
             adj.symbols[node.id] = out
             return out
 
+        if isinstance(obj, array):
+            # evaluate array constant
+            out = adj.add_var(type=obj, constant=obj)
+            adj.symbols[node.id] = out
+            return out
+
+        if isinstance(obj, StructInstance):
+            # evaluate as a constant
+            out = adj.add_constant(obj)
+            adj.symbols[node.id] = out
+            return out
+
+        # see if it's a custom type object
+        if warp._src.types.type_is_external(type(obj)):
+            # evaluate as a constant
+            out = adj.add_constant(obj)
+            adj.symbols[node.id] = out
+            return out
+
         # the named object is either a function, class name, or module
         # pass it back to the caller for processing
         if isinstance(obj, warp._src.context.Function):
@@ -3756,7 +3791,11 @@ class Adjoint:
             aggregate = adj.eval(node.value)
 
         try:
-            if isinstance(aggregate, Var) and aggregate.constant is not None:
+            if (
+                isinstance(aggregate, Var)
+                and aggregate.constant is not None
+                and warp._src.types.is_value(aggregate.constant)
+            ):
                 # this case may occur when the attribute is a constant, e.g.: `IntEnum.A.value`
                 if warp._src.types.is_native_type(type(aggregate.constant)):
                     try:
@@ -3828,16 +3867,17 @@ class Adjoint:
 
             else:
                 attr_var = _aggregate_vars(aggregate_type)[node.attr]
+                is_constant = aggregate.constant is not None
 
                 # represent pointer types as uint64
                 if isinstance(attr_var.type, pointer_t):
                     cast = f"({Var.dtype_to_ctype(uint64)}*)"
                     adj_cast = f"({Var.dtype_to_ctype(attr_var.type.dtype)}*)"
-                    attr_type = Reference(uint64)
+                    attr_type = Reference(uint64, is_constant=is_constant)
                 else:
                     cast = ""
                     adj_cast = ""
-                    attr_type = Reference(attr_var.type)
+                    attr_type = Reference(attr_var.type, is_constant=is_constant)
 
                 attr = adj.add_var(attr_type)
                 # Array descriptor fields, such as ``shape``, must be taken from
@@ -5998,6 +6038,10 @@ class Adjoint:
         """
         aggregate_type = strip_reference(aggregate.type)
 
+        # check if aggregate is a constant
+        if isinstance(aggregate, Var) and aggregate.constant is not None:
+            raise RuntimeError(f"Cannot assign to constant {aggregate.constant} of type {aggregate_type}")
+
         # assigning to a vector or quaternion component
         if type_is_vector(aggregate_type) or type_is_quaternion(aggregate_type):
             index = adj.vector_component_index(lhs.attr, aggregate_type)
@@ -7049,10 +7093,16 @@ class Adjoint:
                 obj = adj.resolve_external_reference(node.id)
                 if warp._src.types.is_value(obj):
                     constants[node.id] = obj
+                elif isinstance(obj, array) or warp._src.types.type_is_external(type(obj)):
+                    # Captured arrays and external values are embedded in generated code.
+                    constants[node.id] = obj
 
             elif isinstance(node, ast.Attribute):
                 obj, path = adj.resolve_static_expression(node, eval_types=False)
                 if warp._src.types.is_value(obj):
+                    constants[".".join(path)] = obj
+                elif isinstance(obj, array) or warp._src.types.type_is_external(type(obj)):
+                    # Captured arrays and external values are embedded in generated code.
                     constants[".".join(path)] = obj
 
             elif isinstance(node, ast.Call):
@@ -7689,8 +7739,85 @@ def constant_str(value):
     elif value == -math.inf:
         return "-INFINITY"
 
-    elif math.isnan(value):
+    elif isinstance(value, builtins.float) and math.isnan(value):
         return "NAN"
+
+    # !!! array constant
+    # FIXME: device mismatch?
+    elif isinstance(value, array):
+        if not value.ptr:
+            raise ValueError("Array cannot be empty")
+        if not value.is_contiguous:
+            raise ValueError("Array must be contiguous")
+
+        type_str = f"{Var.type_to_ctype(value)}"
+        dtype_str = f"{Var.type_to_ctype(value.dtype)}"
+        ptr_str = f"({dtype_str}*){value.ptr}"
+        shape_str = ", ".join([str(s) for s in value.shape])
+
+        return f"{type_str}({ptr_str}, {shape_str})"
+
+    # !!! custom type constant
+    # FIXME: device mismatch?
+    elif warp._src.types.type_is_external(type(value)):
+        # # NOTE: we require that the custom type has a constructor that takes all the fields in declaration order
+        # type_ctype = type(value)._type_
+        # type_name = type(value).__name__
+        # ctor_name = f"wp::{type_name}"
+        # field_values = []
+        # # TODO: this should work recursively if members are also custom types
+        # for field_name, field_type in type_ctype._fields_:
+        #     field_values.append(getattr(value, field_name))
+        # ctor_args = ", ".join([str(v) for v in field_values])
+        # return f"{ctor_name}{{{ctor_args}}}"
+
+        # !!! WIP !!!
+
+        _numeric_types = {
+            ctypes.c_int8,
+            ctypes.c_int16,
+            ctypes.c_int32,
+            ctypes.c_int64,
+            ctypes.c_uint8,
+            ctypes.c_uint16,
+            ctypes.c_uint32,
+            ctypes.c_uint64,
+            ctypes.c_float,
+            ctypes.c_double,
+        }
+
+        type_ctype = type(value)
+        type_info = warp._src.types._custom_types[type_ctype]
+        type_name = type_info.native_name
+        ctor_name = f"wp::{type_name}"
+
+        if type_info.has_binary_ctor:
+            # !!! Use binary string encoding !!!
+            value_bytes = bytes(value)
+            value_str = "".join([f"\\x{b:02x}" for b in value_bytes])
+            value_len = len(value_bytes)
+
+            return f'{ctor_name}{{"{value_str}", {value_len}}}'
+
+        else:
+            field_values = []
+            # TODO: this should work recursively if members are also custom types
+            for field_name, field_type in type_ctype._fields_:
+                field_value = getattr(value, field_name)
+                if warp._src.types.type_is_external(field_type):
+                    # recurse
+                    field_values.append(constant_str(field_value))
+                elif field_type in _numeric_types:
+                    field_values.append(field_value)
+                elif field_type is ctypes.c_bool:
+                    field_values.append("true" if field_value else "false")
+                else:
+                    # TODO: handle pointers
+
+                    field_values.append("{/* !!! */}")
+
+            ctor_args = ", ".join([str(v) for v in field_values])
+            return f"{ctor_name}{{{ctor_args}}}"
 
     else:
         # otherwise just convert constant to string
@@ -7899,7 +8026,11 @@ def codegen_func_forward(adj, func_type="kernel", device="cpu", grid_stride=Fals
         elif var.constant is None:
             lines += [f"{var.ctype()} {var.emit()};\n"]
         else:
-            lines += [f"const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
+            # HACK: don't declare custom type values as const so that they are mutable
+            if warp._src.types.type_is_external(var.type):
+                lines += [f"{var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
+            else:
+                lines += [f"const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
 
         if line_directive := adj.get_line_directive(lines[-1], var.relative_lineno):
             lines.insert(-1, f"{line_directive}\n")
@@ -7958,7 +8089,11 @@ def codegen_func_reverse(adj, func_type="kernel", device="cpu", grid_stride=Fals
         elif var.constant is None:
             lines += [f"{var.ctype()} {var.emit()};\n"]
         else:
-            lines += [f"const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
+            # HACK: don't declare custom type values as const so that they are mutable
+            if warp._src.types.type_is_external(var.type):
+                lines += [f"{var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
+            else:
+                lines += [f"const {var.ctype()} {var.emit()} = {constant_str(var.constant)};\n"]
 
         if line_directive := adj.get_line_directive(lines[-1], var.relative_lineno):
             lines.insert(-1, f"{line_directive}\n")

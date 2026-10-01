@@ -6,6 +6,7 @@
 #include "alloc_tracker.h"
 #include "apic.h"
 #include "apic_internal.h"
+#include "cuda_crt_headers.h"
 #include "cuda_util.h"
 #include "error.h"
 #include "scan.h"
@@ -4690,7 +4691,19 @@ size_t wp_cuda_compile_program(
     std::vector<const char*> opts;
     opts.push_back(arch_opt);
     opts.push_back(include_opt);
-    opts.push_back("--std=c++17");
+    {
+        extern std::string g_cpp_standard;
+        if (g_cpp_standard == "c++11") {
+            opts.push_back("--std=c++11");
+        } else if (g_cpp_standard == "c++14") {
+            opts.push_back("--std=c++14");
+        } else if (g_cpp_standard == "c++17") {
+            opts.push_back("--std=c++17");
+        } else {
+            fprintf(stderr, "Warp error: c++ standard not supported: '%s'\n", g_cpp_standard.c_str());
+            return size_t(1);
+        }
+    }
 
 #if CUDA_VERSION >= 12080 && CUDA_VERSION < 13000
     // CUDA 12 miscompiles optimized CUBIN texture sampling when texture handles
@@ -4797,6 +4810,21 @@ size_t wp_cuda_compile_program(
         opts.push_back(stored_options.back().c_str());
     }
 
+    // add any extra include directories
+    {
+        extern std::vector<std::string> g_include_paths;
+        for (const std::string& path : g_include_paths) {
+            stored_options.push_back(std::string("--include-path=") + path);
+            opts.push_back(stored_options.back().c_str());
+        }
+
+        extern std::vector<std::string> g_preprocessor_macro_definitions;
+        for (const std::string& macro : g_preprocessor_macro_definitions) {
+            stored_options.push_back(std::string("--define-macro=") + macro);
+            opts.push_back(stored_options.back().c_str());
+        }
+    }
+
     opts.push_back("--device-as-default-execution-space");
     opts.push_back("--extra-device-vectorization");
     opts.push_back("--restrict");
@@ -4818,6 +4846,15 @@ size_t wp_cuda_compile_program(
 #endif
     }
 
+    // supply builtin standard headers for NVRTC compilation
+    std::vector<const char*> headers;
+    std::vector<const char*> header_names;
+    for (auto it = wp::jitsafe_headers_map.begin(); it != wp::jitsafe_headers_map.end(); ++it) {
+        header_names.push_back(it->first);
+        headers.push_back(it->second);
+    }
+    int num_headers = int(wp::jitsafe_headers_map.size());
+
     nvrtcProgram prog;
     nvrtcResult res;
 
@@ -4825,16 +4862,16 @@ size_t wp_cuda_compile_program(
         &prog,  // prog
         cuda_src,  // buffer
         program_name,  // name
-        0,  // numHeaders
-        NULL,  // headers
-        NULL
+        num_headers,  // numHeaders
+        headers.data(),  // headers
+        header_names.data()
     );  // includeNames
 
     if (!check_nvrtc(res))
         return size_t(res);
 
     if (print_debug) {
-        printf("NVRTC options:\n");
+        printf("NVRTC options for module '%s':\n", program_name);
         for (auto o : opts) {
             printf("%s\n", o);
         }

@@ -258,6 +258,7 @@ from warp._src.paddle import stream_from_paddle as stream_from_paddle
 from warp._src.utils import transform_expand as transform_expand
 from warp._src.utils import quat_between_vectors as quat_between_vectors
 from warp._src.constants import *
+from . import build as build
 from . import build_experimental as build_experimental
 from . import config as config
 from . import types as types

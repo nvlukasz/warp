@@ -3269,7 +3269,7 @@ class ModuleHasher:
                 ch.update(arg_type.dtype.hash)
 
         # NOTE: get_references() only captures closure variables that resolve to Warp
-        # Function, Struct, or value types (scalars, vectors, matrices, etc.). Non-Warp Python objects (lists,
+        # Function, Struct, arrays, or value types (including registered external types). Non-Warp Python objects (lists,
         # dicts, custom classes) captured by closures are not included in the hash.
         # Users should wrap such values with wp.static() to make them visible.
         # find referenced constants, types, and functions
@@ -3319,9 +3319,12 @@ class ModuleHasher:
             return bytes(value._type_(value.value))
         elif hasattr(value, "_wp_scalar_type_"):
             return bytes(value)
+        elif isinstance(value, warp._src.types.array):
+            # Captured array addresses and layouts are embedded in generated code.
+            return warp._src.types.get_type_code(value).encode("utf-8") + bytes(value.__ctype__())
         elif warp._src.types.is_struct(value):
             return bytes(value._ctype)
-        elif warp._src.types.is_native_type(type(value)):
+        elif warp._src.types.is_native_type(type(value)) or warp._src.types.type_is_external(type(value)):
             return bytes(value)
         else:
             raise TypeError(f"Invalid constant type: {type(value)}")
@@ -8318,6 +8321,15 @@ class Runtime:
             self.core.wp_cuda_timing_end.argtypes = [ctypes.POINTER(timing_result_t), ctypes.c_int]
             self.core.wp_cuda_timing_end.restype = None
 
+            self.core.wp_build_add_include_directory.argtypes = [ctypes.c_char_p]
+            self.core.wp_build_add_include_directory.restype = None
+
+            self.core.wp_build_add_preprocessor_macro_definition.argtypes = [ctypes.c_char_p]
+            self.core.wp_build_add_preprocessor_macro_definition.restype = None
+
+            self.core.wp_build_set_cpp_standard.argtypes = [ctypes.c_char_p]
+            self.core.wp_build_set_cpp_standard.restype = None
+
             self.core.wp_graph_coloring.argtypes = [
                 ctypes.c_int,
                 warp._src.types.array_t,
@@ -10763,6 +10775,14 @@ def pack_arg(kernel, arg_type, arg_name, value, device, adjoint=False):
 
     elif isinstance(value, arg_type):
         try:
+            # check if custom type
+            # print(f"~!~!~! Packing arg type {arg_type}")
+            type_info = warp._src.types._custom_types.get(arg_type)
+            # print(f"~!~!~ Type info: {type_info}")
+            if type_info is not None:
+                # print(f"~!~!~! Pack {value}")
+                return value
+
             # try to pack as a scalar type
             if arg_type is warp._src.types.float16:
                 return arg_type._type_(warp._src.types.float_to_half_bits(value.value))

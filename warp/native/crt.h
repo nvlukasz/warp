@@ -45,6 +45,17 @@ extern "C" WP_API int _wp_isinf(double);
 
 #else
 
+#if defined(__CUDACC_RTC__)
+// When compiling using NVRTC, we supply builtin standard headers (see cuda_crt_headers.h)
+#include <assert.h>
+#include <float.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#else
 // These definitions are taken from Jitify: https://github.com/NVIDIA/jitify
 
 /// float.h
@@ -219,6 +230,8 @@ typedef unsigned long long uint64_t;
 // #undef DEFINE_MATH_UNARY_FUNC_WRAPPER
 
 #define M_PI 3.14159265358979323846
+
+#endif
 
 #if defined(__CUDACC__)
 

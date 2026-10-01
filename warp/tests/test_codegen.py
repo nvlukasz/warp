@@ -502,31 +502,63 @@ def test_invalid_namespace_path(test, device):
         wp.launch(kernel, dim=1, device=device)
 
 
-def test_error_global_var(test, device):
+def test_captured_array(test, device):
+    # Retain both allocations so different captures must use different addresses.
+    arrays = [wp.array(values, dtype=float, device=device) for values in ((1.0, 2.0, 3.0), (4.0, 5.0, 6.0))]
+
+    def make_kernel(arr):
+        @wp.kernel(module="unique")
+        def captured_array_kernel(out: wp.array[float]):
+            i = wp.tid()
+            out[i] = arr[i]
+
+        return captured_array_kernel
+
+    for arr in arrays:
+        captured_array_kernel = make_kernel(arr)
+        out = wp.empty_like(arr)
+        wp.launch(captured_array_kernel, dim=arr.shape, outputs=[out], device=device)
+        np.testing.assert_array_equal(out.numpy(), arr.numpy())
+
+
+@wp.struct
+class CapturedStruct:
+    value: float
+    values: wp.array[float]
+
+
+def test_captured_struct(test, device):
+    def make_kernel(data):
+        @wp.kernel(module="unique")
+        def captured_struct_kernel(out: wp.array[float]):
+            out[0] = data.value
+            out[1] = data.values[0]
+
+        return captured_struct_kernel
+
+    captures = []
+    for x in (3.0, 7.0):
+        data = CapturedStruct()
+        data.value = x
+        data.values = wp.array([x + 2.0], dtype=float, device=device)
+        captures.append(data)
+        kernel = make_kernel(data)
+        out = wp.empty(2, dtype=float, device=device)
+        wp.launch(kernel, dim=1, outputs=[out], device=device)
+        np.testing.assert_array_equal(out.numpy(), [x, x + 2.0])
+
+
+def test_captured_array_builtin(test, device):
     arr = wp.array((1.0, 2.0, 3.0), dtype=float, device=device)
 
-    def kernel_1_fn(out: wp.array[float]):
-        out[0] = arr[0]
-
-    def kernel_2_fn(out: wp.array[float]):
-        out[0] = arr
-
-    def kernel_3_fn(out: wp.array[float]):
+    @wp.kernel(module="unique")
+    def captured_array_builtin(out: wp.array[int]):
         out[0] = wp.lower_bound(arr, 2.0)
+        out[1] = arr.shape[0]
 
-    out = wp.empty_like(arr)
-
-    kernel = make_isolated_kernel(kernel_1_fn)
-    with test.assertRaisesRegex(TypeError, r"Invalid external reference type: <class 'warp._src.types.array'>"):
-        wp.launch(kernel, dim=out.shape, inputs=(), outputs=(out,), device=device)
-
-    kernel = make_isolated_kernel(kernel_2_fn)
-    with test.assertRaisesRegex(TypeError, r"Invalid external reference type: <class 'warp._src.types.array'>"):
-        wp.launch(kernel, dim=out.shape, inputs=(), outputs=(out,), device=device)
-
-    kernel = make_isolated_kernel(kernel_3_fn)
-    with test.assertRaisesRegex(TypeError, r"Invalid external reference type: <class 'warp._src.types.array'>"):
-        wp.launch(kernel, dim=out.shape, inputs=(), outputs=(out,), device=device)
+    out = wp.zeros(2, dtype=int, device=device)
+    wp.launch(captured_array_builtin, dim=1, outputs=[out], device=device)
+    np.testing.assert_array_equal(out.numpy(), [1, 3])
 
 
 def test_error_collection_construct(test, device):
@@ -2875,7 +2907,9 @@ add_kernel_test(TestCodeGen, name="test_continue_unroll", kernel=test_continue_u
 add_function_test(TestCodeGen, func=test_unresolved_func, name="test_unresolved_func", devices=devices)
 add_function_test(TestCodeGen, func=test_unresolved_symbol, name="test_unresolved_symbol", devices=devices)
 add_function_test(TestCodeGen, func=test_invalid_namespace_path, name="test_invalid_namespace_path", devices=devices)
-add_function_test(TestCodeGen, func=test_error_global_var, name="test_error_global_var", devices=devices)
+add_function_test(TestCodeGen, "test_captured_struct", test_captured_struct, devices=devices)
+add_function_test(TestCodeGen, "test_captured_array", test_captured_array, devices=devices)
+add_function_test(TestCodeGen, "test_captured_array_builtin", test_captured_array_builtin, devices=devices)
 add_function_test(
     TestCodeGen, func=test_error_collection_construct, name="test_error_collection_construct", devices=devices
 )

@@ -617,6 +617,86 @@ wp.build_experimental.add_builtin(
     native_name="warp_test::preamble_cast",
 )
 
+
+class LegacyValue(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_float), ("y", ctypes.c_float)]
+
+
+class LegacyBinaryValue(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_float), ("y", ctypes.c_float)]
+
+
+wp.build.add_type(LegacyValue, native_name="WarpTestLegacyValue")
+wp.build.add_type(LegacyBinaryValue, native_name="WarpTestLegacyBinaryValue", has_binary_ctor=True)
+for legacy_type in (LegacyValue, LegacyBinaryValue):
+    wp.build.add_builtin(
+        "_test_legacy_sum",
+        input_types={"value": legacy_type},
+        value_type=wp.float32,
+        is_differentiable=False,
+    )
+
+
+_LEGACY_TEST_PREAMBLE = (
+    _NATIVE_TEST_PREAMBLE
+    + """
+namespace wp {
+struct WarpTestLegacyValue {
+    float x;
+    float y;
+};
+struct WarpTestLegacyBinaryValue {
+    float x;
+    float y;
+    CUDA_CALLABLE WarpTestLegacyBinaryValue() = default;
+    CUDA_CALLABLE WarpTestLegacyBinaryValue(const char* data, int size) {
+        memcpy(this, data, size);
+    }
+};
+CUDA_CALLABLE inline float _test_legacy_sum(WarpTestLegacyValue value) {
+    return value.x + value.y;
+}
+CUDA_CALLABLE inline float _test_legacy_sum(WarpTestLegacyBinaryValue value) {
+    return value.x + value.y;
+}
+}
+"""
+)
+
+
+def test_legacy_and_native_captures(test, device):
+    def make_kernel(legacy, binary, native):
+        @wp.kernel(module="unique")
+        def mixed_capture_kernel(argument: LegacyValue, out: wp.array[float]):
+            out[0] = wp._test_legacy_sum(legacy)
+            out[1] = wp._test_legacy_sum(binary)
+            out[2] = wp._test_native_scale(native, 2.0).r
+            out[3] = wp._test_legacy_sum(argument)
+
+        wp.set_module_options(
+            {
+                "extra_build_options": wp.ModuleBuildOptions(
+                    extra_cpu_preamble=_LEGACY_TEST_PREAMBLE,
+                    extra_cuda_preamble=_LEGACY_TEST_PREAMBLE,
+                ),
+            },
+            module=mixed_capture_kernel.module,
+        )
+        return mixed_capture_kernel
+
+    for x in (3.0, 7.0):
+        mixed_capture_kernel = make_kernel(LegacyValue(x, 2.0), LegacyBinaryValue(x, 4.0), NativeColor(x, 6.0, 8.0))
+        out = wp.zeros(4, dtype=float, device=device)
+        wp.launch(mixed_capture_kernel, dim=1, inputs=[LegacyValue(x, 10.0)], outputs=[out], device=device)
+        np.testing.assert_allclose(out.numpy(), [x + 2.0, x + 4.0, 2.0 * x, x + 10.0])
+
+
+add_function_test(
+    TestExternalBuild,
+    "test_legacy_and_native_captures",
+    test_legacy_and_native_captures,
+    devices=get_test_devices(),
+)
 add_function_test(TestExternalBuild, "test_native_value_types", test_native_value_types, devices=get_test_devices())
 add_function_test(
     TestExternalBuild,

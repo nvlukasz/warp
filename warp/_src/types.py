@@ -3189,8 +3189,9 @@ class Reference:
         dtype: The referenced value type ``T``.
     """
 
-    def __init__(self, dtype):
+    def __init__(self, dtype, is_constant=False):
         self.value_type = dtype
+        self.is_constant = is_constant
 
     @property
     def dtype(self):
@@ -8153,6 +8154,10 @@ def type_is_generic_scalar(t):
     return t in (Scalar, Float, Int)
 
 
+def type_is_external(t):
+    return t in _custom_types
+
+
 def type_generic_equal(a, b):
     # More direct alternative to `types_equal()` that also does not error
     # when one of the argument is a NumPy array.
@@ -8389,6 +8394,9 @@ def get_type_code(arg_type) -> str:
                 return f"m{dim_code0}{dim_code1}{dtype_code}"
             else:
                 raise TypeError("Invalid vector/matrix dimensionality")
+        # !!!
+        elif type_is_external(arg_type):
+            return _custom_types[arg_type].native_name
         else:
             # simple type
             type_code = simple_type_codes.get(arg_type)
@@ -8461,6 +8469,33 @@ def get_signature(arg_types: list[type], func_name: str | None = None, arg_names
 
 def is_generic_signature(sig):
     return "?" in sig
+
+
+class TypeInfo:
+    def __init__(self, T, native_name, has_binary_ctor):
+        self.T = T
+        self.native_name = native_name
+        self.has_binary_ctor = has_binary_ctor
+
+
+# !!!
+_custom_types = {}
+
+
+def add_type(T, native_name=None, has_binary_ctor=False):
+    # TODO:
+    # - allow for specifying a custom ctor function?
+    # - allow for specifying whether this can be instantiated as a constexpr
+
+    if not inspect.isclass(T) or not issubclass(T, ctypes.Structure):
+        raise TypeError(f"Type must be a subclass of ctypes.Structure, got {T}")
+
+    if native_name is None:
+        native_name = T.__name__
+
+    type_info = TypeInfo(T, native_name, has_binary_ctor=has_binary_ctor)
+
+    _custom_types[T] = type_info
 
 
 # Import texture classes from texture module at the end to avoid circular imports
